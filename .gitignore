@@ -1,0 +1,19 @@
+# venv
+.venv/
+venv/
+
+# pycache
+__pycache__/
+*.pyc
+
+# Jupyter
+.ipynb_checkpoints/
+
+output/
+!*_0.json
+
+# Etc
+.vscode/
+.DS_Store
+.env
+.APIkeys.json

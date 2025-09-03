@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "diffusion-hash-inverse"
+version = "0.1.0"
+requires-python = ">=3.10"
+description = "Utilities for random-bit generation, file header I/O, and SHA-256 experiments"
+authors = [{ name = "Choi SoonWook" }]
+dependencies = ["numpy", "pytest"]
+readme = "README.md"
+
+[project.scripts]
+# 패키지 경로를 실제 디렉터리명과 일치시킴
+diffhash = "diffusion_hash_inv.cli:main"
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "ruff>=0.5"]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+# 사용하는 파이썬에 맞추세요 (예: 3.12 사용 중이면 py312 권장)
+target-version = "py312"
+line-length = 100
