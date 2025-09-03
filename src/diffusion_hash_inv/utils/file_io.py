@@ -159,14 +159,14 @@ class FileIO:
             base = self.data_dir / "character"
             self.out_flag = False
         elif filename.endswith(".json"):
-            base = self.out_dir / "json"
+            base = self.out_dir
             self.out_flag = True
         else:
             raise ValueError("Invalid file extension. Use .bin or .char or .json")
 
         base.mkdir(parents=True, exist_ok=True)  # ← 실제 타깃 디렉터리 생성
         return base
-
+    #pylint: disable=too-many-statements
     def file_io(self, filename: str):
         """
         Write the given data to a binary file.
@@ -201,57 +201,15 @@ class FileIO:
             except FileNotFoundError as e:
                 print(f"File not found: {e}")
 
-        def normalize_report(raw: str | dict) -> dict:
-            """
-            Normalize logs
-            """
-            # 0) 입력이 문자열(따옴표/이스케이프 포함)일 수도 있으니 안전하게 파싱
-            if isinstance(raw, str):
-                # 혹시 바깥쪽이 한번 더 감싼 "...." 형태라면 제거 시도
-                raw_str = raw.strip()
-                if raw_str and raw_str[0] == '"' and raw_str[-1] == '"':
-                    raw_str = json.loads(raw_str)  # 바깥따옴표 벗기기
-                data = json.loads(raw_str)
-            else:
-                data = raw
-
-            # 1) Metadata 정리
-            md = data.get("Metadata", {})
-            # 스키마에 없는 키 제거(엄격 일치 기준)
-            md.pop("Program started at", None)
-            # Execution time 없으면 0으로 채움(측정값 있으면 코드에서 채우도록)
-            md.setdefault("Execution time", 0)
-            # Elapsed time 없으면 0으로 채움
-            md.setdefault("Elapsed time", 0)
-            data["Metadata"] = md
-
-            # 2) Step logs 정리
-            logs = data.get("Step logs", {})
-            # Step3 키 이름 교정
-            logs.setdefault("Message Schedule(Step1)", "")
-            logs.setdefault("Initialize working variables(Step2)", "")
-            logs.setdefault("Main Compute Function loops(Step3)", "")
-            logs.setdefault("Finalize the hash value(Step4)", "")
-
-            # 3) loop1..loop64 보장
-            loops = logs.get("Main Compute Function loops(Step3)", {})
-            if not isinstance(loops, dict):
-                loops = {}
-            for i in range(1, 65):
-                loops.setdefault(f"loop{i}", "")
-            logs["Main Compute Function loops(Step3)"] = loops
-            data["Step logs"] = logs
-
-            # 4) 최종 반환
-            return data
-
-
-        def json_write(payload_json):
+        def json_write(payload_json, length):
             """
             Write the json to the file
             """
-            # _payload = normalize_report(payload_json)
-            with open(str(path), "w", encoding="UTF-8", newline="\n") as j:
+            _path = _dir / f"{length}"
+            _path.mkdir(parents=True, exist_ok=True)
+            _path = _path / filename
+
+            with open(str(_path), "w", encoding="UTF-8", newline="\n") as j:
                 # json.dump(_payload, j)
                 j.write(payload_json)
 
@@ -268,7 +226,7 @@ class FileIO:
 
             except FileNotFoundError as e:
                 print(f"File not found: {e}")
-
+    #pylint: enable=too-many-statements
         if self.out_flag:
             return json_write, file_read
         return file_write, file_read

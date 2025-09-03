@@ -487,7 +487,7 @@ def main(*flags: bool, length: int = 512, iteration: int = 1):
             byte_m = rand_char.main(length // 8)
         c_flag = False
 
-        json_writter, _ = file_io.file_io(f"sha256_{timestamp[:19]}_{_i}.json")
+        json_writter, _ = file_io.file_io(f"sha256_{length}_{timestamp[:19]}_{_i}.json")
         entropy = rand_char.calc_entropy(len(byte_m), byte_m)
         formatter.set_metadata(len(byte_m)*8, timestamp, 0, entropy)
         formatter.set_message(byte_m, m_flag)
@@ -517,7 +517,7 @@ def main(*flags: bool, length: int = 512, iteration: int = 1):
             print(f"Hash validation succeeded at iteration {_i + 1}.\n")
             print("===================================\n")
             formatter.set_hashes(result_hash, right_hash)
-            json_writter(formatter.dumps())
+            json_writter(formatter.dumps(), length)
         else:
             raise RuntimeError(f"Hash validation failed at iteration {_i + 1}.")
 # pylint enable=too-many-locals
