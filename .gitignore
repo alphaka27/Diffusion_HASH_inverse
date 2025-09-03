@@ -9,6 +9,9 @@ __pycache__/
 # Jupyter
 .ipynb_checkpoints/
 
+output/
+!*_0.json
+
 # Etc
 .vscode/
 .DS_Store
