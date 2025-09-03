@@ -9,8 +9,8 @@ __pycache__/
 # Jupyter
 .ipynb_checkpoints/
 
-output/
-!*_0.json
+output/**/*.json
+!output/**/*_[0-9].json
 
 # Etc
 .vscode/
