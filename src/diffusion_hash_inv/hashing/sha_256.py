@@ -311,7 +311,16 @@ class SHA256(SHACalc):
                 ret_dict[_k] = OutputFormat.to_hex32_scalar(_v)
 
             self.res_out.add_step3_round(_i, ret_dict)
-            #self.res_out.add_step3_round(_i, )
+            _round_idx = _i
+            if _round_idx == 1:
+                loop_m = f"{_round_idx}st loop"
+            elif _round_idx == 2:
+                loop_m = f"{_round_idx}nd loop"
+            elif _round_idx == 3:
+                loop_m = f"{_round_idx}rd loop"
+            else:
+                loop_m = f"{_round_idx}th loop"
+            print(f"{loop_m} - {ret_dict}")
 
         return [a, b, c, d, e, f, g, h]
     # pylint: enable=too-many-locals
@@ -334,6 +343,7 @@ class SHA256(SHACalc):
         for _i, val in enumerate(res):
             ret_dict[chr(ord('a') + _i)] = OutputFormat.to_hex32_scalar(val)
         self.res_out.add_step4(ret_dict)
+        print(ret_dict)
         return res
 
     def compute_hash(self):
@@ -347,9 +357,17 @@ class SHA256(SHACalc):
                 print(f"\nProcessing {_i + 1} block of {self.block_n} blocks ({_i / self.block_n * 100:.2f}%)")
                 # pylint: enable=line-too-long
                 w = self.step1(_i)
+                print()
+
                 self.prev_hash = self.step2(self.prev_hash)
+                print()
+
                 out = self.step3(w, self.prev_hash)
+                print()
+
                 self.hash = self.step4(out, self.prev_hash)
+                print()
+
                 self.prev_hash = self.hash
                 self.res_out.add_round(_i)
 
@@ -391,6 +409,7 @@ class SHA256(SHACalc):
         # breakpoint()
         compute_success = self.compute_hash()
         print("Computation successful")
+        print()
 
         if preprocess_success and compute_success:
             result = self.finalize()
@@ -424,9 +443,6 @@ class ValidateHash:
         """
         Validate the SHA-256 hash of the given message.
         """
-
-        _input = message if not self.m_flag else message.decode("UTF-8")
-        print(f"Input ({len(message) * 8} bits): \n{_input}\n")
         if test_hash is not None:
             if valid_hash is None:
                 _right_value = self.correct_hash(message, message_len)
@@ -436,7 +452,7 @@ class ValidateHash:
         else:
             raise ValueError("Input hash must be provided.")
 
-        print(f"Correct SHA-256 Hash: \n{_right_value}")
+        print(f"Correct SHA-256 Hash: \n{_right_value}\n")
         if self.verbose_flag:
             for _i in range(0, len(_right_value), 8):
                 print(f"Chunk {_i // 8}: {_right_value[_i:_i + 8]}")
@@ -488,15 +504,19 @@ def main(*flags: bool, length: int = 512, iteration: int = 1):
         c_flag = False
 
         json_writter, _ = file_io.file_io(f"sha256_{length}_{timestamp[:19]}_{_i}.json")
-        entropy = rand_char.calc_entropy(len(byte_m), byte_m)
-        formatter.set_metadata(len(byte_m)*8, timestamp, 0, entropy)
+        entropy = rand_char.calc_entropy(len(byte_m.decode("UTF-8")), byte_m)
+        entropy_strength = formatter.set_metadata(len(byte_m)*8, timestamp, 0, entropy)
         formatter.set_message(byte_m, m_flag)
 
         result_hash = sha256.hashing(byte_m, len(byte_m) * 8)
-
-        print(f"----------------Result for iteration ({_i + 1})----------------")
         _input = byte_m if not m_flag else byte_m.decode("UTF-8")
-        print(f"Input ({len(byte_m) * 8} bits): \n{_input}\n")
+        str_len_bits = f"{len(byte_m) * 8} bits"
+        str_entropy = f"Entropy = {entropy}"
+        str_strength = f"Strength = {entropy_strength}"
+        print(f"Input ({str_len_bits}, {str_entropy}, {str_strength}):")
+        print(f"{_input}")
+        print()
+        print(f"----------------Result for iteration ({_i + 1})----------------")
         # input_digest = ''.join(f"{int(x):02x}"for x in byte_m)
         # print(f"{input_digest}")
         print("Generated SHA-256 Hash: ")
@@ -566,5 +586,6 @@ if __name__ == "__main__":
         LENGTH = 2 ** EXP
     else:
         pass
+    assert LENGTH >= 8, "Too Shot to make password"
 
     main(_args.message, _args.verbose, _args.clear, length=LENGTH, iteration=_args.iteration)

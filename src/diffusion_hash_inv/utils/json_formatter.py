@@ -59,16 +59,31 @@ class OutputFormat:
     @staticmethod
     def to_hex32_concat(seq) -> str:
         """시퀀스(8워드 등) → 64자리 hex"""
-        return '0x'.join(f"{int(x):08x}" for x in seq)
+        return ''.join(f"{int(x):08x}" for x in seq)
 
     def set_metadata(self, input_bits_len:int, exec_start:str, elapsed_time:float, entropy:float):
         """Set Metadata"""
+        strength = ""
+        if entropy < 28:
+            strength = "Very Weak"
+        elif entropy < 36:
+            strength = "Weak"
+        elif entropy < 60:
+            strength = "Reasonable"
+        elif entropy < 128:
+            strength = "Strong"
+        else:
+            strength = "Very Strong"
+
         self.metadata = {
             "Input bits": input_bits_len,
             "Program started at": exec_start,
             "Elapsed time": elapsed_time,
-            "Entropy": entropy
+            "Entropy": entropy,
+            "Strength": strength
         }
+
+        return strength
 
     def set_message(self, message_bytes: bytes, is_message_mode: bool):
         """Set message"""
