@@ -23,7 +23,7 @@ class GenerateRandomNChar(FileIO):
         print(f"Flags - Clear: {clear_flag}, Verbose: {verbose_flag}\n")
         if clear_flag:
             print("Clearing generated files...")
-            super().file_clean(clear_flag=clear_flag)
+            super().file_clean(clear_flag=clear_flag, verbose_flag=verbose_flag)
         self.__verbose__ = verbose_flag
         self.ts: bytes = super().encode_timestamp()
 

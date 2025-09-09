@@ -152,16 +152,16 @@ class OutputFormat:
         self.rounds[_idx] = self.step_logs
         self.reset(only_step=True)
 
-
     def to_dict(self) -> Dict[str, Any]:
         """Serializatoin"""
-        return {
+        ret_dict = {
             "Metadata": self.metadata,
             "Message": self.message,
             "Generated hash": self.generated_hash,
             "Correct   hash": self.correct_hash,
             "Rounds logs": self.rounds
         }
+        return ret_dict
 
     @staticmethod
     def json_safe(o):
@@ -178,8 +178,8 @@ class OutputFormat:
             return {k: OutputFormat.json_safe(v) for k, v in o.items()}
         return o
 
-    def dumps(self, indent=4):
+    def dumps(self, indent=4, data=None):
         """Make JSON dump"""
-        ret = OutputFormat.json_safe(self.to_dict())
-        # print(ret)
+        ret = OutputFormat.json_safe(self.to_dict()) \
+            if data is None else OutputFormat.json_safe(data)
         return json.dumps(ret, ensure_ascii=False, indent=indent)

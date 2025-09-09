@@ -3,8 +3,6 @@ SHA-256 Implementation
 """
 
 # TODO
-# Add file output for the generated hashes
-# Add file output for intermediate values while processing
 # Time logging for performance measurement
 
 import hashlib
@@ -12,6 +10,7 @@ import math
 import argparse
 
 import numpy as np
+import pandas as pd
 
 try:
     from diffusion_hash_inv.generator.random_n_bits import GenerateRandom
@@ -31,7 +30,12 @@ except ImportError as e:
 try:
     from diffusion_hash_inv.utils import OutputFormat
 except ImportError as e:
-    print(f"Error importing OuputFormat: {e}")
+    print(f"Error importing OutputFormat: {e}")
+
+try:
+    from diffusion_hash_inv.utils import CSVFormat
+except ImportError as e:
+    print(f"Error importing CSVFormat: {e}")
 
 
 # Constants start
@@ -266,7 +270,7 @@ class SHA256(SHACalc):
                 _tmp = self.add32(s1, wt_7, s0, wt_16)
                 w_tmp.append(_tmp)
         if self.verbose_flag:
-            print(w_tmp)
+            print(OutputFormat.to_hex32_concat(w_tmp))
         self.res_out.add_step1(w_tmp)
         return w_tmp
 
@@ -277,12 +281,14 @@ class SHA256(SHACalc):
         print("Step 2: Initialize working variables")
         a, b, c, d, e, f, g, h = in_hash
         ret = [a, b, c, d, e, f, g, h]
-        if self.verbose_flag:
-            print(ret)
+
         ret_dict = {}
         for _i, val in enumerate(ret):
             ret_dict[chr(ord('a') + _i)] = OutputFormat.to_hex32_scalar(val)
         self.res_out.add_step2(ret_dict)
+
+        if self.verbose_flag:
+            print(ret_dict)
         return ret
 
     # pylint: disable=too-many-locals
@@ -320,7 +326,8 @@ class SHA256(SHACalc):
                 loop_m = f"{_round_idx}rd loop"
             else:
                 loop_m = f"{_round_idx}th loop"
-            print(f"{loop_m} - {ret_dict}")
+            if self.verbose_flag:
+                print(f"{loop_m} - {ret_dict}")
 
         return [a, b, c, d, e, f, g, h]
     # pylint: enable=too-many-locals
@@ -343,7 +350,8 @@ class SHA256(SHACalc):
         for _i, val in enumerate(res):
             ret_dict[chr(ord('a') + _i)] = OutputFormat.to_hex32_scalar(val)
         self.res_out.add_step4(ret_dict)
-        print(ret_dict)
+        if self.verbose_flag:
+            print(ret_dict)
         return res
 
     def compute_hash(self):
@@ -476,7 +484,7 @@ class ValidateHash:
         return True
 # Implementation of the SHA-256 hash validation end
 
-# pylint: disable=too-many-locals
+# pylint: disable=too-many-locals, too-many-statements
 def main(*flags: bool, length: int = 512, iteration: int = 1):
     """
     Main function to execute the SHA-256 hash generation and validation.
@@ -484,13 +492,19 @@ def main(*flags: bool, length: int = 512, iteration: int = 1):
     assert length > 0, "Length must be positive."
     assert iteration > 0, "Iteration count must be positive."
     m_flag, v_flag, c_flag = flags
-    file_io = FileIO()
+    file_io = FileIO(length=length)
     formatter = OutputFormat()
+    csv_fmt = CSVFormat()
     sha256 = SHA256(output_format=formatter)
     validate_hash = ValidateHash(v_flag, m_flag)
     _iter = iteration
+
+    result_df = None
+
     timestamp = file_io.encode_timestamp().decode("UTF-8")
     print(timestamp)
+    csv_file_name = f"sha256_{length}_{timestamp[:19]}.xlsx"
+    csv_writer, _ = file_io.file_io(csv_file_name)
 
     for _i in range(_iter):
         sha256.reset()
@@ -503,7 +517,8 @@ def main(*flags: bool, length: int = 512, iteration: int = 1):
             byte_m = rand_char.main(length // 8)
         c_flag = False
 
-        json_writter, _ = file_io.file_io(f"sha256_{length}_{timestamp[:19]}_{_i}.json")
+        json_file_name = f"sha256_{length}_{timestamp[:19]}_{_i}.json"
+        json_writer, _ = file_io.file_io(json_file_name)
         entropy = rand_char.calc_entropy(len(byte_m.decode("UTF-8")), byte_m)
         entropy_strength = formatter.set_metadata(len(byte_m)*8, timestamp, 0, entropy)
         formatter.set_message(byte_m, m_flag)
@@ -536,11 +551,24 @@ def main(*flags: bool, length: int = 512, iteration: int = 1):
         if valid:
             print(f"Hash validation succeeded at iteration {_i + 1}.\n")
             print("===================================\n")
+
+            # File extraction with format
             formatter.set_hashes(result_hash, right_hash)
-            json_writter(formatter.dumps(), length)
+
+            # Make dictionary with each steps' log
+            step_logs = formatter.to_dict()
+            result_df = csv_fmt.df_accumulate(result_df, step_logs, _i)
+
+            if v_flag:
+                print(result_df)
+            json_writer(formatter.dumps(indent=4, data=step_logs))
         else:
             raise RuntimeError(f"Hash validation failed at iteration {_i + 1}.")
-# pylint enable=too-many-locals
+
+    # csv output
+    csv_writer(result_df)
+
+# pylint: enable=too-many-locals, too-many-statements
 
 if __name__ == "__main__":
 
