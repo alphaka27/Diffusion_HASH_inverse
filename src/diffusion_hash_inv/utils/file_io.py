@@ -8,6 +8,8 @@ from datetime import datetime
 import os
 
 import pandas as pd
+from openpyxl import load_workbook
+from pandas import ExcelWriter
 
 from diffusion_hash_inv.utils.project_root import add_src_to_path, add_root_to_path
 add_src_to_path()
@@ -205,7 +207,7 @@ class FileIO:
         # 윈도우/범용 안전: 콜론, 슬래시, 역슬래시 등 치환
         return name.replace(":", "-").replace("/", "_").replace("\\", "_")
 
-    #pylint: disable=too-many-statements
+    #pylint: disable=too-many-statements, broad-exception-caught
     def file_io(self, filename: str):
         """
         Write the given data to a binary file.
@@ -257,17 +259,16 @@ class FileIO:
             _path = _dir / filename
             _path.parent.mkdir(parents=True, exist_ok=True)
             df = payload_xlsx.copy()
-            df.columns = [' / '.join([str(x) for x in col if x != ''])  # ('Round 0','step1','W0') → "Round 0 / step1 / W0"
-                        if isinstance(col, tuple) else str(col)
-                        for col in df.columns]
-            # MultiIndex 헤더는 pandas가 자동으로 여러 행 헤더로 써줍니다.
-            payload_xlsx.to_excel(
-                str(_path),
-                index=True,
-                engine="xlsxwriter",
-                merge_cells=True,  # ← 멀티헤더 시 셀 병합(기본 True지만 명시 추천)
-                sheet_name="SHA256"
-            )
+
+            if not _path.exists():
+                df.to_excel(str(_path), engine="openpyxl", index=True)
+            else:
+                wb = load_workbook(str(_path))
+                ws = wb["Sheet1"]
+                startrow = ws.max_row
+                with ExcelWriter(str(_path), engine="openpyxl",
+                                mode="a", if_sheet_exists="overlay") as w:
+                    df.to_excel(w, sheet_name="Sheet1", startrow=startrow, index=True, header=False)
 
         def file_read():
             """

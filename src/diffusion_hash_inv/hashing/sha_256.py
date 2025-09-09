@@ -562,11 +562,9 @@ def main(*flags: bool, length: int = 512, iteration: int = 1):
             if v_flag:
                 print(result_df)
             json_writer(formatter.dumps(indent=4, data=step_logs))
+            csv_writer(result_df)
         else:
             raise RuntimeError(f"Hash validation failed at iteration {_i + 1}.")
-
-    # csv output
-    csv_writer(result_df)
 
 # pylint: enable=too-many-locals, too-many-statements
 
