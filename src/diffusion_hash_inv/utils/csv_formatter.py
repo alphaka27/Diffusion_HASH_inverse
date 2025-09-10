@@ -210,12 +210,7 @@ class CSVFormat:
             cols = self.make_columns_roundwise(rn)
             df = pd.DataFrame(columns=cols)
 
-            # top = self.build_top_round_row(rn)
-            # df.loc[len(df)] = [top.get(c, "") for c in df.columns]
 
-        # 3) 기존 df의 라운드 수 < 새 로그의 라운드 수 이면 컬럼 확장 + top row 갱신
-        # 현재 df의 라운드 수 추정 (가장 오른쪽 라운드 번호를 찾아서 +1)
-        # df.columns는 (round, stage, field) MultiIndex 구조
         existing_rounds = sorted(
             {int(str(r).split()[-1]) for r, _, _ in df.columns if str(r).startswith("Round ")},
             key=int
@@ -225,10 +220,6 @@ class CSVFormat:
         if rn > current_rn:
             new_cols = self.make_columns_roundwise(rn)
             df = df.reindex(columns=new_cols)
-
-            # top row 갱신 (항상 0번째 행이 top row)
-            # top = self.build_top_round_row(rn)
-            # df.iloc[0] = [top.get(c, df.iloc[0][c] if c in df.columns else "") for c in df.columns]
 
         # 4) 새 행 추가
         df.loc[len(df)] = [row.get(c, "") for c in df.columns]

@@ -499,8 +499,6 @@ def main(*flags: bool, length: int = 512, iteration: int = 1):
     validate_hash = ValidateHash(v_flag, m_flag)
     _iter = iteration
 
-    result_df = None
-
     timestamp = file_io.encode_timestamp().decode("UTF-8")
     print(timestamp)
     csv_file_name = f"sha256_{length}_{timestamp[:19]}.xlsx"
@@ -508,6 +506,7 @@ def main(*flags: bool, length: int = 512, iteration: int = 1):
 
     for _i in range(_iter):
         sha256.reset()
+        result_df = None
         print(f"Iteration: {_i + 1}")
         if not m_flag:
             rand_bits = GenerateRandom(c_flag, v_flag)
@@ -532,8 +531,7 @@ def main(*flags: bool, length: int = 512, iteration: int = 1):
         print(f"{_input}")
         print()
         print(f"----------------Result for iteration ({_i + 1})----------------")
-        # input_digest = ''.join(f"{int(x):02x}"for x in byte_m)
-        # print(f"{input_digest}")
+
         print("Generated SHA-256 Hash: ")
         hex_digest = OutputFormat.to_hex32_concat(result_hash)
         print(hex_digest)
