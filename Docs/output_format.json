@@ -1,0 +1,21 @@
+{
+    "Metadata":
+        {"Input bits": "(length of input bits)",
+        "Execution time": "(Execution time)",
+        "Elapsed time": "(Elapsed time)"},
+    "Message": "(Input Message)",
+    "Generated hash": "(Generated Hash)",
+    "Correct hash": "(Correct Hash)",
+    "Step logs":
+    {
+        "Message Schedule(Step1)": "(Step1 logs)",
+        "Initialize working variables(Step2)": "(Step2 logs)",
+        "Main Compute Function loops(Step3)": {
+            "loop1": "(loop1 logs)",
+            "loop2": "(loop2 logs)",
+            "loop3": "(loop3 logs)",
+            "...":"",
+            "loop64": "(loop64 logs)"
+        },
+        "Finalize the hash value(Step4)": "(Step4 logs)"}
+}
