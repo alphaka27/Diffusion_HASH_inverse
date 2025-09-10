@@ -66,6 +66,7 @@ class FileIO:
     """
     File I/O Utilities
     """
+    #pylint: disable=too-many-arguments, too-many-positional-arguments
     def __init__(self, init_flag, clear_flag, verbose_flag, length = 0, start_time: bytes = None):
         self.data_dir = ROOT_DIR / "data"
         self.out_dir = ROOT_DIR / "output"
