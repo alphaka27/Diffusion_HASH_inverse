@@ -15,12 +15,10 @@ class GenerateRandom(FileIO):
     """
     Generate a random number of specified bit length.
     """
-    def __init__(self, clear_flag = False, verbose_flag = True, main_flag = False):
-        super().__init__(main_flag, start_time=super().encode_timestamp())
-        print(f"Flags - Clear: {clear_flag}, Verbose: {verbose_flag}\n")
-        if clear_flag:
-            print("Clearing generated files...")
-            super().file_clean(clear_flag=clear_flag)
+    def __init__(self, verbose_flag = True, main_flag = False):
+        super().__init__(init_flag=main_flag, clear_flag=False,
+                        verbose_flag=verbose_flag, start_time=super().encode_timestamp())
+        print(f"Flags - Verbose: {verbose_flag}\n")
         self.__verbose__ = verbose_flag
         self.ts = super().encode_timestamp()
 

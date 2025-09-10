@@ -490,9 +490,9 @@ def main(*flags: bool, length: int = 512, iteration: int = 1):
     Main function to execute the SHA-256 hash generation and validation.
     """
     assert length > 0, "Length must be positive."
-    assert iteration > 0, "Iteration count must be positive."
+    assert iteration >= 0, "Iteration count must be positive."
     m_flag, v_flag, c_flag = flags
-    file_io = FileIO(length=length)
+    file_io = FileIO(init_flag=True, clear_flag=c_flag, verbose_flag=v_flag, length=length)
     formatter = OutputFormat()
     csv_fmt = CSVFormat()
     sha256 = SHA256(output_format=formatter)

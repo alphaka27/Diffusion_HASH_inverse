@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from datetime import datetime
 import os
+import re
 
 import pandas as pd
 from openpyxl import load_workbook
@@ -65,7 +66,7 @@ class FileIO:
     """
     File I/O Utilities
     """
-    def __init__(self, init_flag = True, start_time: bytes = None, length = 0):
+    def __init__(self, init_flag, clear_flag, verbose_flag, length = 0, start_time: bytes = None):
         self.data_dir = ROOT_DIR / "data"
         self.out_dir = ROOT_DIR / "output"
         if init_flag:
@@ -75,6 +76,11 @@ class FileIO:
             assert start_time is not None, "start_time must be provided if init_flag is False"
             self.start = start_time
             self.length = None
+
+        if clear_flag:
+            print("Clearing generated files...")
+            self.file_clean(clear_flag=clear_flag, verbose_flag=verbose_flag)
+
         self.out_flag = False
         self.json_flag = False
 
@@ -251,6 +257,14 @@ class FileIO:
             with open(str(_path), "w", encoding="UTF-8", newline="\n") as j:
                 j.write(payload_json)
 
+        _illegal = re.compile(r'[\x00-\x08\x0B\x0C\x0E-\x1F]')
+        def _sanitize_df(df: pd.DataFrame) -> pd.DataFrame:
+            obj = df.select_dtypes(include=['object']).columns
+            for c in obj:
+                df[c] = df[c].astype(str).map(lambda s: _illegal.sub('', s))
+                df[c] = df[c].map(lambda s: "'" + s if s[:1] in ("=","+","-","@") else s)
+            return df
+
         def xlsx_write(payload_xlsx):
             """
             Write the xlsx to the file
@@ -259,6 +273,7 @@ class FileIO:
             _path = _dir / filename
             _path.parent.mkdir(parents=True, exist_ok=True)
             df = payload_xlsx.copy()
+            df = _sanitize_df(df)
 
             if not _path.exists():
                 df.to_excel(str(_path), engine="openpyxl", index=True)
