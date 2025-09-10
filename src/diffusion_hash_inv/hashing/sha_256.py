@@ -499,6 +499,8 @@ def main(*flags: bool, length: int = 512, iteration: int = 1):
     validate_hash = ValidateHash(v_flag, m_flag)
     _iter = iteration
 
+    result_df = None
+
     timestamp = file_io.encode_timestamp().decode("UTF-8")
     print(timestamp)
     csv_file_name = f"sha256_{length}_{timestamp[:19]}.xlsx"
@@ -506,7 +508,7 @@ def main(*flags: bool, length: int = 512, iteration: int = 1):
 
     for _i in range(_iter):
         sha256.reset()
-        result_df = None
+
         print(f"Iteration: {_i + 1}")
         if not m_flag:
             rand_bits = GenerateRandom(c_flag, v_flag)
@@ -560,10 +562,13 @@ def main(*flags: bool, length: int = 512, iteration: int = 1):
             if v_flag:
                 print(result_df)
             json_writer(formatter.dumps(indent=4, data=step_logs))
-            csv_writer(result_df)
         else:
             raise RuntimeError(f"Hash validation failed at iteration {_i + 1}.")
 
+    if result_df is None:
+        pass
+    else:
+        csv_writer(result_df)
 # pylint: enable=too-many-locals, too-many-statements
 
 if __name__ == "__main__":
