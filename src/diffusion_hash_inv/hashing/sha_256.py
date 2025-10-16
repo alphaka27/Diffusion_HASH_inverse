@@ -152,7 +152,7 @@ class SHA256(SHACalc):
     Implementation of the SHA-256 hash function.
     """
     def __init__(self, is_verbose = True, output_format = None):
-        print("Load SHA-256")
+        print("SHA-256 Lodded")
         super().__init__()
         SHA256.verbose_flag = is_verbose
 

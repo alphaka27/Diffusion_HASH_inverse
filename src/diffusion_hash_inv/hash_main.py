@@ -3,6 +3,7 @@ Hash algorithm main module
 """
 
 import argparse
+import sys
 from dataclasses import dataclass
 
 try:
@@ -35,10 +36,15 @@ try:
 except ImportError as e:
     print(f"Error importing validate: {e}")
 
+# try:
+#     from diffusion_hash_inv.hashing import SHA256, MD5
+# except ImportError as e:
+#     print(f"Error importing Hash: {e}")
+
 try:
-    from diffusion_hash_inv.hashing import SHA256, MD5
+    from diffusion_hash_inv import hashing
 except ImportError as e:
-    print(f"Error importing Hash: {e}")
+    print(f"Error importing hashing module: {e}")
 
 @dataclass
 class Flags:
@@ -59,15 +65,17 @@ class Main:
         self.flags = Flags(is_message=_is_m, is_verbose=_is_v, is_clean=_is_c, is_main=True)
         assert length > 0, "Length must be positive."
 
-        self.length = length * 8 if self.flags.is_message else length
-        self.alg_name = hash_alg.lower()
+        assert self.flags.is_message and length % 8 == 0 or not self.flags.is_message, \
+            "Length must be multiple of 8 for message mode."
+        self.length = length
+        self.alg_name = hash_alg.upper()
 
         self.file_io = FileIO(init_flag=True, clear_flag=self.flags.is_clean,
                             verbose_flag=self.flags.is_verbose, length=self.length)
         self.flags.is_clean = False
         self.json_formatter = OutputFormat()
         self.csv_formatter = CSVFormat()
-        self.get_hasher()
+        # self.get_hasher()
         self.start_time = self.file_io.encode_timestamp().decode("UTF-8")
 
     def message_generator(self):
@@ -143,20 +151,29 @@ class Main:
         Get the hashing algorithm instance based on name
         """
         n = self.alg_name
-        if n == "sha256":
-            algo = SHA256(is_verbose=self.flags.is_verbose, output_format=self.json_formatter)
-        elif n == "md5":
-            algo = MD5()
+        if n == "SHA256":
+            algo = getattr(hashing, n.upper())\
+                (is_verbose=self.flags.is_verbose, output_format=self.json_formatter)
+        elif n == "MD5":
+            algo = getattr(hashing, n.upper())\
+                ()
         else:
             raise ValueError(f"Unsupported algo: {self.alg_name}")
 
         return algo
 
-    def main(self, iteration: int = 1):
+    def main(self, iteration: int = 0):
         """
         Main entry point for hash generation and validation
         """
-        assert iteration >= 0, "Iteration count must be non-negative integer."
+        if iteration == 0:
+            sys.exit()
+
+        assert iteration > 0, "Iteration count must be non-negative integer."
+        if self.flags.is_verbose:
+            print(f"Running {self.alg_name.upper()} Hash with length {self.length} "
+                f"for {iteration} iterations.")
+
         algo = self.get_hasher()
 
         result_df = None
@@ -201,8 +218,8 @@ if __name__ == "__main__":
     parser.add_argument('-e', '--exponentiation', type=int, default=argparse.SUPPRESS,
                         help='2 to the power of <exponentiation> (default: 9)')
 
-    parser.add_argument('-i', '--iteration', type=int, default=1,
-                        help='Running iterations (default: 1)')
+    parser.add_argument('-i', '--iteration', type=int, default=0,
+                        help='Running iterations (default: 0)')
 
     parser.add_argument('--hash', type=str, default='md5',
                         help='Hash algorithm to use (default: md5)')
@@ -229,7 +246,7 @@ if __name__ == "__main__":
     parser.set_defaults(clear=False)
     _args = parser.parse_args()
 
-    LENGTH = None
+    LENGTH = 256
     if hasattr(_args, 'length'):
         LENGTH = _args.length
     else:
@@ -240,5 +257,6 @@ if __name__ == "__main__":
         LENGTH = 2 ** EXP
     else:
         pass
+
     Main(_args.message, _args.verbose, _args.clear,
         length=LENGTH, hash_alg=_args.hash).main(_args.iteration)
