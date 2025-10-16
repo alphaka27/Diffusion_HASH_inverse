@@ -63,19 +63,19 @@ class GenerateRandomNChar(FileIO):
         s = unicodedata.normalize(form.upper(), s)
         return s.encode("utf-8")
 
-    def main(self, length: int = 16):
+    def main(self, timestamp, length: int = 16):
         """
         Main function to generate random strings and display their entropy.
         """
-        timestamp = super().encode_timestamp()
+        _timestamp = super().encode_timestamp()
         _pwd = self.generate(length)
         _pwd = self.normalize(_pwd)
         print(f"Generated Password: {_pwd}")
         print(f"Entropy: {self.calc_entropy(length, _pwd)} bits")
         if self.__verbose__:
             self.help()
-        f_w, _ = self.file_io(f"random_{length * 8}_char.char")
-        f_w(_pwd, length * 8, ts=timestamp)
+        f_w, _ = self.file_io(f"random_{length * 8}_char_{timestamp}.char")
+        f_w(_pwd, length * 8, ts=_timestamp)
         return _pwd
 
 

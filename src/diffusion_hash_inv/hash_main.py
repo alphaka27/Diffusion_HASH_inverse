@@ -75,7 +75,6 @@ class Main:
         self.flags.is_clean = False
         self.json_formatter = OutputFormat()
         self.csv_formatter = CSVFormat()
-        # self.get_hasher()
         self.start_time = self.file_io.encode_timestamp().decode("UTF-8")
 
     def message_generator(self):
@@ -85,11 +84,11 @@ class Main:
         if self.flags.is_message:
             generator = GenerateRandomNChar(verbose_flag=self.flags.is_verbose,
                                             main_flag=self.flags.is_main)
-            _msg = generator.main(self.length // 8)
+            _msg = generator.main(self.start_time, self.length // 8)
         else:
             generator = GenerateRandom(verbose_flag=self.flags.is_verbose,
                                         main_flag=self.flags.is_main)
-            _msg = generator.main(self.length)
+            _msg = generator.main(self.start_time, self.length)
 
         self.flags.is_main = False
         _entropy = generator.calc_entropy(len(_msg.decode("UTF-8")), _msg)
