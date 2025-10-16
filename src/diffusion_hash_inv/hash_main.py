@@ -68,7 +68,7 @@ class Main:
         assert self.flags.is_message and length % 8 == 0 or not self.flags.is_message, \
             "Length must be multiple of 8 for message mode."
         self.length = length
-        self.alg_name = hash_alg.upper()
+        self.alg_name = hash_alg
 
         self.file_io = FileIO(init_flag=True, clear_flag=self.flags.is_clean,
                             verbose_flag=self.flags.is_verbose, length=self.length)
@@ -151,14 +151,12 @@ class Main:
         Get the hashing algorithm instance based on name
         """
         n = self.alg_name
-        if n == "SHA256":
+
+        try:
             algo = getattr(hashing, n.upper())\
-                (is_verbose=self.flags.is_verbose, output_format=self.json_formatter)
-        elif n == "MD5":
-            algo = getattr(hashing, n.upper())\
-                ()
-        else:
-            raise ValueError(f"Unsupported algo: {self.alg_name}")
+                    (is_verbose=self.flags.is_verbose, output_format=self.json_formatter)
+        except AttributeError as e:
+            raise ValueError(f"Unsupported algo: {self.alg_name}") from e
 
         return algo
 
