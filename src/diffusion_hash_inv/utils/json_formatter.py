@@ -50,7 +50,6 @@ class OutputFormat:
             "Finalize the hash value(Step4)": []
         })
 
-
     @staticmethod
     def to_hex32_scalar(x) -> str:
         """단일 32-bit 값 → 8자리 hex"""
@@ -61,7 +60,9 @@ class OutputFormat:
         """시퀀스(8워드 등) → 64자리 hex"""
         return ''.join(f"{int(x):08x}" for x in seq)
 
-    def set_metadata(self, input_bits_len:int, exec_start:str, elapsed_time:float, entropy:float):
+    #pylint: disable=too-many-positional-arguments, too-many-arguments
+    def set_metadata(self, hash_alg:str, input_bits_len:int, exec_start:str,
+                    elapsed_time:float, entropy:float):
         """Set Metadata"""
         strength = ""
         if entropy < 28:
@@ -76,6 +77,7 @@ class OutputFormat:
             strength = "Very Strong"
 
         self.metadata = {
+            "Hash function": hash_alg,
             "Input bits": input_bits_len,
             "Program started at": exec_start,
             "Elapsed time": elapsed_time,
@@ -84,7 +86,7 @@ class OutputFormat:
         }
 
         return strength
-
+    #pylint: enable=too-many-positional-arguments, too-many-arguments
     def set_message(self, message_bytes: bytes, is_message_mode: bool):
         """Set message"""
         if is_message_mode:
