@@ -1,6 +1,8 @@
 {
     "Metadata":
-        {"Input bits": "(length of input bits)",
+        {
+        "Hash function": "(Hash function name)",
+        "Input bits": "(length of input bits)",
         "Execution time": "(Execution time)",
         "Elapsed time": "(Elapsed time)"},
     "Message": "(Input Message)",
