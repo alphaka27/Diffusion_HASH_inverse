@@ -5,13 +5,9 @@
 """
 
 from .random_n_bits import GenerateRandom
-
-# 함수/클래스 이름이 확정되지 않았을 수 있어 모듈 단위로 노출
-from . import nist_pwgen_utf8 as pwgen
-from . import random_n_char as randchar
+from .random_n_char import GenerateRandomNChar
 
 __all__ = [
     "GenerateRandom",
-    "pwgen",
-    "randchar",
+    "GenerateRandomNChar",
 ]
