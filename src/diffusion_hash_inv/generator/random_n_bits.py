@@ -65,7 +65,7 @@ class GenerateRandom(FileIO):
         print(' '.join(f'{x:08b}' for x in data))
         print()
 
-    def generate_random_bits(self, length=512) -> bytes:
+    def main(self, length=512) -> bytes:
         """
         Generate a random 512-bit number and return its hexadecimal and binary representations.
         """
@@ -139,9 +139,9 @@ if __name__ == "__main__":
 
     assert BIT_LEN is not None, "Either length or exponentiation must be specified."
 
-    generator = GenerateRandom(args.clear, args.verbose, main_flag=True)
+    generator = GenerateRandom(args.verbose, main_flag=True)
 
     for _ in range(args.iterations):
         print(f"Iteration: {_ + 1}")
-        _ = generator.generate_random_bits(BIT_LEN)
+        _ = generator.main(BIT_LEN)
         print()
