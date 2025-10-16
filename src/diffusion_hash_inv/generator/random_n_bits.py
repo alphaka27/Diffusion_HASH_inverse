@@ -65,11 +65,11 @@ class GenerateRandom(FileIO):
         print(' '.join(f'{x:08b}' for x in data))
         print()
 
-    def main(self, length=512) -> bytes:
+    def main(self, timestamp, length=512) -> bytes:
         """
         Generate a random 512-bit number and return its hexadecimal and binary representations.
         """
-        timestamp = super().encode_timestamp()
+        _timestamp = super().encode_timestamp()
         _n = randbits(length)
         _length = math.ceil(length / 8)
         bytes_n = _n.to_bytes(_length, byteorder='big', signed=False)
@@ -78,13 +78,13 @@ class GenerateRandom(FileIO):
 
         if self.__verbose__:
             print(f"Generated {length}-bit random number.")
-            print(f"Generated at: {timestamp.decode('utf-8')}")
+            print(f"Generated at: {_timestamp.decode('utf-8')}")
             self.print_bin("Data in Binary", bytes_n)
             print(f"Binary length in Bytes: \n{len(bytes_n)}\n") # type: str
         self.print_hex(f"Data in Hexadecimal (len: {len(bytes_n)}bytes)", bytes_n)
 
-        f_w, _ = self.file_io(f"random_{length}_bits.bin")
-        f_w(bytes_n, length, ts=timestamp)
+        f_w, _ = self.file_io(f"random_{length}_bits_{timestamp}.bin")
+        f_w(bytes_n, length, ts=_timestamp)
 
         return bytes_n
 
