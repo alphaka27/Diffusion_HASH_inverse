@@ -8,7 +8,6 @@ SHA-256 Implementation
 import math
 import numpy as np
 
-
 # Constants start
 # SHA-256 use sixty-four constant 32-bit words
 K = np.array([
@@ -163,7 +162,7 @@ class SHA256(SHACalc):
 
         self.message_block = []
 
-        self.block_n = math.ceil((self.message_len + 1 + 64) / self.block_size)
+        self.block_n = 0
         assert output_format is not None, "JSON Formatter is needed"
         self.res_out = output_format
 
@@ -181,11 +180,10 @@ class SHA256(SHACalc):
         self.message: bytearray
         self.message_len: 원본 비트 길이 l
         """
-
-        l = len(self.message)
-        self.message = bytearray(self.message)  # Ensure message is a bytearray
         self.message += b'\x80'  # Append the bit '1' (0x80 in hex)
-        pad_zero_len = (56 - (l + 1) % 64) % 64
+        __byte_m_len = self.message_len // 8
+        __byte_block_size = self.block_size // 8
+        pad_zero_len = (56 - (__byte_m_len + 1) % __byte_block_size) % __byte_block_size
         self.message += b'\x00' * pad_zero_len
 
         # Append the original message length in bits (64 bits)
@@ -206,9 +204,6 @@ class SHA256(SHACalc):
         Padding & Parsing for SHA-256.
         """
         self.message_block = []
-        assert self.message is not None, "Message must be set before preprocessing."
-        assert self.message_len > 0, "Message length must be positive."
-        assert isinstance(self.message, (bytearray, bytes)), "Message must be a bytearray."
 
         self.pad()
         self.parse()
@@ -216,6 +211,7 @@ class SHA256(SHACalc):
         block_dict = {}
 
         print("Preprocessing complete.")
+
         if self.verbose_flag:
             print("Message blocks: ")
             for i, block in enumerate(self.message_block):
@@ -379,23 +375,23 @@ class SHA256(SHACalc):
         out = np.array([a,b,c,d,e,f,g,h], dtype=np.uint32)
         return out
 
-    def digest(self, message = None, message_len = -1) -> bytearray:
+    def digest(self, message = None) -> bytearray:
         """
         Generate the SHA-256 hash for the given message.
         """
         assert message is not None, "Message must be provided."
         assert isinstance(message, (bytes, bytearray)), "Message must be bytes or bytearray."
-        assert message_len > 0, "Message length must be positive."
-
         self.message = message # in binary string
-        self.message_len = message_len
+        self.message_len = len(self.message) * 8 # in bits
+        assert self.message_len > 0, "Message length must be positive."
+
+        self.block_n = math.ceil((self.message_len + 1 + 64) / self.block_size)
 
         preprocess_success = False
         compute_success = False
 
         preprocess_success = self.preprocess()
         print("Preprocessing successful")
-        # breakpoint()
         compute_success = self.compute_hash()
         print("Computation successful")
         print()
