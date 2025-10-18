@@ -52,16 +52,16 @@ class SHACalc:
 
         return ret
 
-    def rotr(self, x:np.uint32, n:int):
+    def rotr(self, x:np.uint32, amount:int):
         """
         Rotate right function for SHA-256.
         """
 
         assert isinstance(x, np.uint32), "Input must be a np.uint32 (rotr)."
 
-        n = n % self.word_size  # Ensure n is within the word size
-        right = x >> n
-        left = (x << (self.word_size - n)) & self.mask
+        amount = amount % self.word_size  # Ensure n is within the word size
+        right = x >> amount
+        left = (x << (self.word_size - amount)) & self.mask
         ret = (left | right) & self.mask
         return ret
 
@@ -166,10 +166,6 @@ class SHA256(SHACalc):
         self.block_n = math.ceil((self.message_len + 1 + 64) / self.block_size)
         assert output_format is not None, "JSON Formatter is needed"
         self.res_out = output_format
-        # if output_format is not None:
-        #     self.res_out = output_format
-        # else:
-        #     self.res_out = OutputFormat()
 
     def reset(self):
         """각 해시 계산 시작 시 내부 상태 초기화"""
@@ -178,18 +174,6 @@ class SHA256(SHACalc):
         self.hash = None
         self.message_block = []
         self.block_n = 0
-
-    # Implementation of the SHA-256 algorithm start
-
-    @staticmethod
-    def add32(*ops):
-        """
-        Adds multiple np.uint32 numbers with modulo 2^32.
-        """
-        ops_arr = [np.asarray(op, dtype=np.uint32) for op in ops]
-        ret = np.add.reduce(ops_arr, dtype=np.uint32)
-
-        return ret
 
     def pad(self):
         """
