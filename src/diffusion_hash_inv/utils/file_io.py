@@ -230,7 +230,8 @@ class FileIO:
             """
             bytes_data, data_len = payload
             time_diff = self._ts_diff(self.start, ts)
-            time_diff = time_diff.to_bytes(8, "big", signed=True)
+            time_diff = time_diff.to_bytes(7, "little", signed=True)
+            time_diff = time_diff.ljust(8, b'\x11')  # 8 bytes
 
             if isinstance(bytes_data, str):
                 bytes_data = bytes.fromhex(bytes_data)  # Convert hex string to bytes
