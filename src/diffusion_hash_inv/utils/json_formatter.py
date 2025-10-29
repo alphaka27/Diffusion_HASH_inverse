@@ -2,8 +2,47 @@
 JSON-safe formatter
 """
 from typing import Any, Dict
+import copy
 import json
 import numpy as np
+
+class StepLogs(dict):
+    """
+    Step logs container that behaves like a dict while keeping per-step structure.
+    """
+
+    STEP_KEYS = (
+        "Message Schedule(Step1)",
+        "Initialize working variables(Step2)",
+        "Main Compute Function loops(Step3)",
+        "Finalize the hash value(Step4)",
+    )
+
+    def __init__(self):
+        super().__init__()
+        self.reset()
+
+    def reset(self):
+        """Reset stored data for each step."""
+        super().clear()
+        super().__setitem__(self.STEP_KEYS[0], [])
+        super().__setitem__(self.STEP_KEYS[1], {})
+        super().__setitem__(self.STEP_KEYS[2], {})
+        super().__setitem__(self.STEP_KEYS[3], {})
+        return self
+
+    def clone(self) -> Dict[str, Any]:
+        """Return a deep copy suitable for serialization."""
+        cloned: Dict[str, Any] = {}
+        for key, value in self.items():
+            if isinstance(value, dict):
+                cloned[key] = copy.deepcopy(value)
+            elif isinstance(value, list):
+                cloned[key] = list(value)
+            else:
+                cloned[key] = value
+        return cloned
+
 
 class OutputFormat:
     """
@@ -17,12 +56,13 @@ class OutputFormat:
         self.generated_hash: str = ""
         self.correct_hash: str = ""
         self.rounds: Dict[str, Any] = {}
-        self.step_logs: Dict[str, Any] = {
-            "Message Schedule(Step1)": [],
-            "Initialize working variables(Step2)": [],
-            "Main Compute Function loops(Step3)": {},
-            "Finalize the hash value(Step4)": []
-        }
+        # self.step_logs: Dict[str, Any] = {
+        #     "Message Schedule(Step1)": [],
+        #     "Initialize working variables(Step2)": [],
+        #     "Main Compute Function loops(Step3)": {},
+        #     "Finalize the hash value(Step4)": []
+        # }
+        self.step_logs = StepLogs()
 
     def _ret_dict_key(self, in_key: str):
         dict_keys = {
@@ -43,12 +83,7 @@ class OutputFormat:
             self.generated_hash = ""
             self.correct_hash = ""
 
-        self.step_logs = ({
-            "Message Schedule(Step1)": [],
-            "Initialize working variables(Step2)": [],
-            "Main Compute Function loops(Step3)": {},
-            "Finalize the hash value(Step4)": []
-        })
+        self.step_logs = StepLogs()
 
     @staticmethod
     def to_hex32_scalar(x) -> str:
@@ -56,8 +91,10 @@ class OutputFormat:
         return "0x" + f"{int(x):08x}"
 
     @staticmethod
-    def to_hex32_concat(seq) -> str:
+    def to_hex32_concat(seq, endian='big') -> str:
         """시퀀스(8워드 등) → 64자리 hex"""
+        if endian == 'little':
+            seq = seq[::-1]
         return ''.join(f"{int(x):08x}" for x in seq)
 
     #pylint: disable=too-many-positional-arguments, too-many-arguments
@@ -151,8 +188,8 @@ class OutputFormat:
         else:
             _idx = f"{_round_idx}th round"
 
-        self.rounds[_idx] = self.step_logs
-        self.reset(only_step=True)
+        self.rounds[_idx] = self.step_logs.clone()
+        self.step_logs = StepLogs()
 
     def to_dict(self) -> Dict[str, Any]:
         """Serializatoin"""

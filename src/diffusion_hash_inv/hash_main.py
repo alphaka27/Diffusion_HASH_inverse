@@ -36,11 +36,6 @@ try:
 except ImportError as e:
     print(f"Error importing validate: {e}")
 
-# try:
-#     from diffusion_hash_inv.hashing import SHA256, MD5
-# except ImportError as e:
-#     print(f"Error importing Hash: {e}")
-
 try:
     from diffusion_hash_inv import hashing
 except ImportError as e:
@@ -61,12 +56,12 @@ class Main:
     Entry point for hash generation and validation
     """
     def __init__(self, *flags, length: int = 512, hash_alg: str = "sha256"):
+        print(len(flags))
         _is_m, _is_v, _is_c = flags
         self.flags = Flags(is_message=_is_m, is_verbose=_is_v, is_clean=_is_c, is_main=True)
         assert length > 0, "Length must be positive."
 
-        assert self.flags.is_message and length % 8 == 0 or not self.flags.is_message, \
-            "Length must be multiple of 8 for message mode."
+        assert length % 8 == 0, "Length must be multiple of 8."
         self.length = length
         self.alg_name = hash_alg
 
@@ -155,6 +150,8 @@ class Main:
             algo = getattr(hashing, n.upper())\
                     (is_verbose=self.flags.is_verbose, output_format=self.json_formatter)
         except AttributeError as e:
+            if self.alg_name == "all":
+                pass
             raise ValueError(f"Unsupported algo: {self.alg_name}") from e
 
         return algo
@@ -183,7 +180,7 @@ class Main:
             json_writer, _ = self.file_io.file_io(json_file_name)
 
             input_msg, entropy, strength = self.message_generator()
-            generated_hash = algo.digest(input_msg, self.length)
+            generated_hash = algo.digest(input_msg)
             valid, valid_hash, correct_hash = \
                 validate(generated_hash, input_msg, self.alg_name, self.flags.is_verbose)
 
@@ -192,7 +189,7 @@ class Main:
 
             if not valid:
                 print(f"Iteration {_i + 1}/{iteration} Hash validation failed. Exiting.")
-                raise RuntimeError(f"Hash validation failed at iteration {_i + 1}.")
+                raise RuntimeError(f"Hash va!lidation failed at iteration {_i + 1}.")
 
             print(f"Iteration {_i + 1}/{iteration} completed.\n")
 
@@ -208,7 +205,6 @@ class Main:
 
 if __name__ == "__main__":
     # Argument parsing
-    parser = argparse.ArgumentParser(description="SHA-256 Hash Generator")
     parser = argparse.ArgumentParser(description="SHA-256 Hash Generator")
     parser.add_argument('-l', '--length', type=int, default=argparse.SUPPRESS,
                         help='Length of random bits to generate (default: 512)')
