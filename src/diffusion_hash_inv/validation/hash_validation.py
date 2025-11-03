@@ -36,7 +36,7 @@ def validate(test_hash = None, message = None, hash_alg = "sha256", verbose_flag
     for _i, _test in enumerate(test_hash):
         if _test != out[_i]:
             print("Hash validation failed.")
-            return False, test_hash, None
+            return False, test_hash, _right_value
 
     print("Hash validation successful.")
     return True, test_hash, _right_value
