@@ -115,3 +115,22 @@ class MD5:
 # 간단 헬퍼
 def md5_hexdigest(data: bytes) -> str:
     return MD5(data).hexdigest()
+
+if __name__ == "__main__":
+    # 테스트 벡터
+    test_vectors = {
+        b"": "d41d8cd98f00b204e9800998ecf8427e",
+        b"a": "0cc175b9c0f1b6a831c399e269772661",
+        b"abc": "900150983cd24fb0d6963f7d28e17f72",
+        b"message digest": "f96b697d7cb7938d525a2f31aaf161d0",
+        b"abcdefghijklmnopqrstuvwxyz": "c3fcd3d76192e4007dfb496cca67e13b",
+        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789":
+            "d174ab98d277d9f5a5611c2c9f419d9f",
+        b"12345678901234567890123456789012345678901234567890123456789012345678901234567890":
+            "57edf4a22be3c955ac49da2e2107b67a",
+    }
+
+    for msg, expected in test_vectors.items():
+        result = md5_hexdigest(msg)
+        print(f"MD5('{msg.decode('utf-8', errors='ignore')}') = {result}  ", end='')
+        print("OK" if result == expected else f"FAIL (expected {expected})")

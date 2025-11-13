@@ -1,208 +1,154 @@
 """
 JSON-safe formatter
 """
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional
 from dataclasses import dataclass, field
-import copy
 import json
 import numpy as np
 
 @dataclass
-class StepLogs(dict):
+class Metadata():
     """
-    Step logs container that behaves like a dict while keeping per-step structure.
+    Metadata container  
+    Contains hash algorithm, input bits length, execution start time,\
+        elapsed time, entropy, strength
     """
+    def __init__(self, hash_alg:str, input_bits_len:int, entropy:float)->None:
+        Metadata.hash_alg:str = hash_alg
+        Metadata.input_bits_len:int = input_bits_len
+        self.exec_start:str = ""
+        self.elapsed_time:float = 0.0
+        Metadata.entropy:float = entropy
+        Metadata.strength:str = ""
 
-    STEP_KEYS = (
-        "Message Schedule(Step1)",
-        "Initialize working variables(Step2)",
-        "Main Compute Function loops(Step3)",
-        "Finalize the hash value(Step4)",
-    )
+    def clear(self)->None:
+        """Clear all metadata"""
+        self.exec_start = ""
+        self.elapsed_time = 0.0
 
-    def __init__(self):
-        super().__init__()
-        self.reset()
-
-    def reset(self):
-        """Reset stored data for each step."""
-        super().clear()
-        super().__setitem__(self.STEP_KEYS[0], [])
-        super().__setitem__(self.STEP_KEYS[1], {})
-        super().__setitem__(self.STEP_KEYS[2], {})
-        super().__setitem__(self.STEP_KEYS[3], {})
-        return self
-
-    def clone(self) -> Dict[str, Any]:
-        """Return a deep copy suitable for serialization."""
-        cloned: Dict[str, Any] = {}
-        for key, value in self.items():
-            if isinstance(value, dict):
-                cloned[key] = copy.deepcopy(value)
-            elif isinstance(value, list):
-                cloned[key] = list(value)
-            else:
-                cloned[key] = value
-        return cloned
-
-
-class OutputFormat:
-    """
-    Class to handle output formatting for SHA-256 hash results.
-
-    Output Format
-    """
-    def __init__(self):
-        self.metadata: Dict[str, Any] = {}
-        self.message: str = ""
-        self.generated_hash: str = ""
-        self.correct_hash: str = ""
-        self.rounds: Dict[str, Any] = {}
-        # self.step_logs: Dict[str, Any] = {
-        #     "Message Schedule(Step1)": [],
-        #     "Initialize working variables(Step2)": [],
-        #     "Main Compute Function loops(Step3)": {},
-        #     "Finalize the hash value(Step4)": []
-        # }
-        self.step_logs = StepLogs()
-
-    def _ret_dict_key(self, in_key: str):
-        dict_keys = {
-            "Step1": "Message Schedule(Step1)",
-            "Step2": "Initialize working variables(Step2)",
-            "Step3": "Main Compute Function loops(Step3)",
-            "Step4": "Finalize the hash value(Step4)"}
-
-        return dict_keys[in_key.capitalize()]
-
-    def reset(self, only_step = False):
-        """
-        Reset variables in class
-        """
-        if not only_step:
-            self.metadata.clear()
-            self.message = ""
-            self.generated_hash = ""
-            self.correct_hash = ""
-
-        self.step_logs = StepLogs()
-
-    @staticmethod
-    def to_hex32_scalar(x) -> str:
-        """단일 32-bit 값 → 8자리 hex"""
-        return "0x" + f"{int(x):08x}"
-
-    @staticmethod
-    def to_hex32_concat(seq, endian='big') -> str:
-        """시퀀스(8워드 등) → 64자리 hex"""
-        if endian == 'little':
-            seq = seq[::-1]
-        return ''.join(f"{int(x):08x}" for x in seq)
-
-    #pylint: disable=too-many-positional-arguments, too-many-arguments
-    def set_metadata(self, hash_alg:str, input_bits_len:int, exec_start:str,
-                    elapsed_time:float, entropy:float):
+    def setter(self, exec_start:str, elapsed_time:Optional[float])->None:
         """Set Metadata"""
-        strength = ""
-        if entropy < 28:
-            strength = "Very Weak"
-        elif entropy < 36:
-            strength = "Weak"
-        elif entropy < 60:
-            strength = "Reasonable"
-        elif entropy < 128:
-            strength = "Strong"
+        self.exec_start = exec_start
+        self.elapsed_time = elapsed_time
+        if self.entropy < 28:
+            self.strength = "Very Weak"
+        elif self.entropy < 36:
+            self.strength = "Weak"
+        elif self.entropy < 60:
+            self.strength = "Reasonable"
+        elif self.entropy < 128:
+            self.strength = "Strong"
         else:
-            strength = "Very Strong"
+            self.strength = "Very Strong"
 
-        self.metadata = {
-            "Hash function": hash_alg,
-            "Input bits": input_bits_len,
-            "Program started at": exec_start,
-            "Elapsed time": elapsed_time,
-            "Entropy": entropy,
-            "Strength": strength
+    def update(self):
+        """
+        Update Metadata
+        """
+
+    def getter(self)->Dict[str, Any]:
+        """
+        Get Metadata
+        """
+        return {
+            "Hash function": self.hash_alg,
+            "Input bits": self.input_bits_len,
+            "Program started at": self.exec_start,
+            "Entropy": self.entropy,
+            "Strength": self.strength
         }
 
-        return strength
-    #pylint: enable=too-many-positional-arguments, too-many-arguments
+@dataclass
+class BaseLogs():
+    """
+    Base logs container
+    Contains Message(String and Hex), Generated hash, Correct hash
+    """
+
+    def __init__(self):
+        self.message = {"String": "", "Hex": ""}
+        self.generated_hash = ""
+        self.correct_hash = ""
+
+    def clear(self):
+        """Clear all base logs"""
+        self.message = {"String": "", "Hex": ""}
+        self.generated_hash = ""
+        self.correct_hash = ""
+
     def set_message(self, message_bytes: bytes, is_message_mode: bool):
         """Set message"""
         if is_message_mode:
             try:
-                self.message = message_bytes.decode("utf-8")
+                self.message["Hex"] = message_bytes
+                self.message["String"] = message_bytes.decode("utf-8")
             except UnicodeDecodeError:
-                self.message = message_bytes.decode("utf-8", errors="replace")
-        else:
-            self.message = message_bytes.hex()
+                self.message["Hex"] = message_bytes
+                self.message["String"] = message_bytes.decode("utf-8", errors="replace")
 
-    def set_hashes(self, generated_words8, correct_hex: str):
+        else:
+            self.message["Hex"] = message_bytes.hex()
+            self.message["String"] = "Input is in BYTE mode."
+
+    def set_hashes(self, generated_hash: str, correct_hash: str):
         """Set hash result"""
-        self.generated_hash = self.to_hex32_concat(generated_words8)
-        self.correct_hash = correct_hex
+        self.generated_hash = generated_hash
+        self.correct_hash = correct_hash
 
-    def add_preprocess(self, val):
-        """Add preprocess log"""
-        for _k, _v in val.items():
-            tmp = []
-            for _tmp in _v:
-                tmp.append(OutputFormat.to_hex32_scalar(_tmp))
-            val[_k] = tmp
-        self.rounds["Preprocess"] = val
+    def update(self):
+        """
+        Update base logs
+        """
 
-    def add_step1(self, w64):
-        """Add step1 log"""
-        self.step_logs[self._ret_dict_key("step1")] \
-            = [self.to_hex32_scalar(w) for w in w64]
-
-    def add_step2(self, val):
-        """Add step2 log"""
-        self.step_logs[self._ret_dict_key("step2")] \
-            = val
-
-    def add_step3_round(self, round_idx:int, val):
-        """Add step3 log"""
-        _round_idx = round_idx + 1
-        if _round_idx == 1:
-            loop_m = f"{_round_idx}st loop"
-        elif _round_idx == 2:
-            loop_m = f"{_round_idx}nd loop"
-        elif _round_idx == 3:
-            loop_m = f"{_round_idx}rd loop"
-        else:
-            loop_m = f"{_round_idx}th loop"
-        self.step_logs[self._ret_dict_key("step3")][loop_m] \
-            = val
-
-    def add_step4(self, out_words8):
-        """Add step4 log"""
-        self.step_logs[self._ret_dict_key("step4")] = out_words8
-
-    def add_round(self, round_idx):
-        """Add round for long message"""
-        _round_idx = round_idx + 1
-        if _round_idx  == 1:
-            _idx = f"{_round_idx}st round"
-        elif _round_idx == 2:
-            _idx = f"{_round_idx}nd round"
-        elif _round_idx == 3:
-            _idx = f"{_round_idx}rd round"
-        else:
-            _idx = f"{_round_idx}th round"
-
-        self.rounds[_idx] = self.step_logs.clone()
-        self.step_logs = StepLogs()
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Serializatoin"""
-        ret_dict = {
-            "Metadata": self.metadata,
+    def getter(self)->Dict[str, Any]:
+        """Get base logs"""
+        return {
             "Message": self.message,
             "Generated hash": self.generated_hash,
-            "Correct   hash": self.correct_hash,
-            "Rounds logs": self.rounds
+            "Correct   hash": self.correct_hash
         }
-        return ret_dict
+
+@dataclass
+class StepLogs():
+    """
+    Step logs container that behaves like a dict while keeping per-step structure.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.key_list: List[str] = field(default_factory=list)
+        self.val_list: List[Any] = field(default_factory=list)
+
+    def clear(self):
+        """Clear all step logs"""
+        self.key_list = []
+        self.val_list = []
+
+    def key_setter(self, key:List[str])->None:
+        """Dict key setter"""
+        self.key_list.append(key)
+
+    def val_setter(self, val:List[str])->None:
+        """Dict value setter"""
+        self.val_list.append(val)
+
+    def update(self):
+        """
+        Update step logs
+        """
+
+    def dict_getter(self)->Dict[str, Any]:
+        """Get step logs as dict"""
+
+
+class OutputFormat:
+    """
+    Class to handle output formatting for hash results.
+    """
+    def __init__(self):
+        self.metadata = Metadata("", 0, 0.0)
+        self.base_logs = BaseLogs()
+        self.step_logs = StepLogs()
 
     @staticmethod
     def json_safe(o):

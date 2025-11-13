@@ -2,14 +2,12 @@
 Hash algorithm Validation Module
 """
 
+# TODO
+# - Change hexdigest to digest
+# - Fix validation algorithm fit to hashlib.digest output
+
 import hashlib
 import numpy as np
-
-try:
-    import diffusion_hash_inv.hashing as TestHash
-except ImportError as e:
-    print(f"Error importing TestHash: {e}")
-
 
 def validate(test_hash = None, message = None, hash_alg = "sha256", verbose_flag = True):
     """
