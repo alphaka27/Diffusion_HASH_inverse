@@ -141,13 +141,13 @@ if __name__ == "__main__":
         print()
 
     if args.verbose:
-        pw_gen.help()
+        # pw_gen.help()
 
         PW = pw_gen.generate()
         print(PW)
         print(type(PW))
 
         print()
-        pw_utf8 = pw_gen.normalize(PW, "NFKC")
-        print(pw_utf8)
-        print(type(pw_utf8))
+        # pw_utf8 = pw_gen.normalize(PW, "NFKC")
+        # print(pw_utf8)
+        # print(type(pw_utf8))
