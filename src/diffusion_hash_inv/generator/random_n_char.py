@@ -7,10 +7,10 @@ import unicodedata
 from secrets import choice
 import argparse
 import string
-import math
+from typing import Optional
 
 try:
-    from diffusion_hash_inv.utils import FileIO
+    from diffusion_hash_inv.utils.file_io import FileIO
 except ImportError as e:
     print(f"Error importing FileIO: {e}")
 
@@ -22,7 +22,7 @@ class GenerateRandomNChar(FileIO):
         super().__init__(init_flag=main_flag, clear_flag=False,
                         verbose_flag=verbose_flag, start_time=super().encode_timestamp())
         print(f"Flags - Verbose: {verbose_flag}\n")
-        self.__verbose__ = verbose_flag
+        self.is_verbose = verbose_flag
         self.ts: bytes = super().encode_timestamp()
 
         GenerateRandomNChar.alphabet = string.ascii_letters \
@@ -40,22 +40,14 @@ class GenerateRandomNChar(FileIO):
         alphabet_list = f"Alphabet List: {self.alphabet}"
         print(description + alphabet_info + alphabet_list, end="\n\n")
 
-    @staticmethod
-    def calc_entropy(char_len: int, _pwd: str) -> float:
-        """
-        Calculate the entropy of the generated password.
-        """
-        entropy = char_len * math.log2(len(_pwd))
-        return entropy
-
-    def generate(self, length: int = 16) -> str:
+    def generate(self, length: int) -> str:
         """
         Generate a random string of N characters.
         """
         _pwd = ''.join(choice(GenerateRandomNChar.alphabet) for _ in range(length))
         return _pwd
 
-    def normalize(self, s: str, form: str = "NFKC") -> str:
+    def normalize(self, s: str, form: str = "NFKC") -> bytes:
         """
         Normalize a string to the specified Unicode normalization form.
         """
@@ -63,19 +55,24 @@ class GenerateRandomNChar(FileIO):
         s = unicodedata.normalize(form.upper(), s)
         return s.encode("utf-8")
 
-    def main(self, timestamp, length: int = 16):
+    def main(self, timestamp: Optional[bytes] = None, \
+            length: int = 256, byteorder: Optional[str] = None) -> bytes:
         """
         Main function to generate random strings and display their entropy.
         """
+        assert byteorder is not None and byteorder in ("big", "little"), \
+            "byteorder must be 'big' or 'little'"
+        if timestamp is None:
+            timestamp = self.ts.decode()
+
         _timestamp = super().encode_timestamp()
-        _pwd = self.generate(length)
+        _pwd = self.generate(length // 8)
         _pwd = self.normalize(_pwd)
         print(f"Generated Password: {_pwd}")
-        print(f"Entropy: {self.calc_entropy(length, _pwd)} bits")
-        if self.__verbose__:
+        if self.is_verbose:
             self.help()
-        f_w, _ = self.file_io(f"random_{length * 8}_char_{timestamp}.char")
-        f_w(_pwd, length * 8, ts=_timestamp)
+        f_w, _ = self.file_io(f"random_{length}_char_{timestamp}.char")
+        f_w(_pwd, length, ts=_timestamp, byteorder=byteorder)
         return _pwd
 
 
@@ -137,17 +134,5 @@ if __name__ == "__main__":
 
     for _ in range(args.iterations):
         print(f"Iteration: {_ + 1}")
-        pw_gen.main(BIT_LEN)
+        pw_gen.main(length=BIT_LEN, byteorder='little')
         print()
-
-    if args.verbose:
-        # pw_gen.help()
-
-        PW = pw_gen.generate()
-        print(PW)
-        print(type(PW))
-
-        print()
-        # pw_utf8 = pw_gen.normalize(PW, "NFKC")
-        # print(pw_utf8)
-        # print(type(pw_utf8))

@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from datetime import datetime
+from typing import Optional
 import os
 import re
 
@@ -12,12 +13,21 @@ import pandas as pd
 from openpyxl import load_workbook
 from pandas import ExcelWriter
 
-from diffusion_hash_inv.utils.project_root import add_src_to_path, add_root_to_path
-add_src_to_path()
-ROOT_DIR = add_root_to_path()
+try:
+    from diffusion_hash_inv.utils.project_root import add_root_to_path
+    ROOT_DIR = add_root_to_path()
+except ImportError as _e:
+    print(f"Error importing project root: {_e}")
+    raise _e
+
+# try:
+#     from diffusion_hash_inv.utils import CSVFormat
+# except ImportError as _e:
+#     print(f"Error importing CSVFormat: {_e}")
+#     raise _e
 
 # 고정 헤더 길이
-TS_LEN = 32
+TS_LEN = 32 # 32 bytes UTF-8 timestamp
 BITLEN_LEN = 8 # 64 bits
 DIFFTIME_LEN = 8 # 64 bits
 PAD_LEN = 16 - BITLEN_LEN - DIFFTIME_LEN  # 8 bytes padding to make total 48 bytes
@@ -28,7 +38,7 @@ class Header:
     """
     Represents the header of a binary file.
     """
-    timestamp_utf8: bytes  # 32B
+    timestamp_utf8: bytes  # 32 Bytes
     time_diff: bytes   # float
     bit_length: int        # uint64
 
@@ -41,14 +51,15 @@ class Header:
         assert time_diff is not None, "Time difference must be provided"
         return cls(timestamp, time_diff, bit_length)
 
-    def to_bytes(self) -> bytes:
+    def to_bytes(self, byteorder: str) -> bytes:
         """
         Convert the header to bytes.
         """
-        return self.timestamp_utf8 + self.time_diff + FileIO.encode_bit_length(self.bit_length)
+        return self.timestamp_utf8 + self.time_diff + \
+            FileIO.encode_bit_length(self.bit_length, byteorder)
 
     @classmethod
-    def from_file(cls, path: Path) -> Header:
+    def from_file(cls, path: Path, byteorder: str) -> Header:
         """
         Create a Header instance from a binary file.
         """
@@ -59,7 +70,7 @@ class Header:
         ts = raw[:TS_LEN]
         difftime = raw[TS_LEN:TS_LEN + DIFFTIME_LEN]
         bl = FileIO.decode_bit_length(
-            raw[TS_LEN + DIFFTIME_LEN:TS_LEN + DIFFTIME_LEN + BITLEN_LEN])
+            raw[TS_LEN + DIFFTIME_LEN:TS_LEN + DIFFTIME_LEN + BITLEN_LEN], byteorder)
         return cls(ts, difftime, bl)
 
 class FileIO:
@@ -171,20 +182,20 @@ class FileIO:
         return dt
 
     @staticmethod
-    def encode_bit_length(bit_length: int) -> bytes:
+    def encode_bit_length(bit_length: int, byteorder: str) -> bytes:
         """
         Encode the bit length as bytes.
         """
         if bit_length < 0:
             raise ValueError("bit_length must be >= 0")
-        return bit_length.to_bytes(8, "big", signed=False)
+        return bit_length.to_bytes(8, byteorder, signed=False)
 
     @staticmethod
-    def decode_bit_length(b: bytes) -> int:
+    def decode_bit_length(b: bytes, byteorder: str) -> int:
         """
         Decode the bit length from bytes.
         """
-        return int.from_bytes(b, "big", signed=False)
+        return int.from_bytes(b, byteorder, signed=False)
 
     def _select_data_dir(self, filename: str) -> Path:
         """
@@ -214,7 +225,7 @@ class FileIO:
         # 윈도우/범용 안전: 콜론, 슬래시, 역슬래시 등 치환
         return name.replace(":", "-").replace("/", "_").replace("\\", "_")
 
-    #pylint: disable=too-many-statements, broad-exception-caught
+    #pylint: disable=too-many-branches, too-many-statements
     def file_io(self, filename: str):
         """
         Write the given data to a binary file.
@@ -224,14 +235,15 @@ class FileIO:
 
         assert _dir is not None, "Invalid file extension. Use .bin, .char, .json, or .xlsx"
 
-        def file_write(*payload, ts: bytes = None):
+        def message_write(*payload, ts: bytes = None, byteorder: Optional[str] = None):
             """
             Write the data to the file.
             """
+            assert byteorder is not None and byteorder in ("big", "little"), \
+                "byteorder must be 'big' or 'little'"
             bytes_data, data_len = payload
             time_diff = self._ts_diff(self.start, ts)
-            time_diff = time_diff.to_bytes(7, "little", signed=True)
-            time_diff = time_diff.ljust(8, b'\x11')  # 8 bytes
+            time_diff = time_diff.to_bytes(8, "big", signed=True)
 
             if isinstance(bytes_data, str):
                 bytes_data = bytes.fromhex(bytes_data)  # Convert hex string to bytes
@@ -242,7 +254,7 @@ class FileIO:
             try:
                 with open(str(path), "ab") as f:
                     self._pad16(f)
-                    f.write(head.to_bytes())
+                    f.write(head.to_bytes(byteorder))
                     f.write(bytes_data)
                     self._pad16(f)
 
@@ -300,9 +312,10 @@ class FileIO:
 
             except FileNotFoundError as e:
                 print(f"File not found: {e}")
-    #pylint: enable=too-many-statements
+
         if self.out_flag:
             if self.json_flag:
                 return json_write, file_read
             return xlsx_write, file_read
-        return file_write, file_read
+        return message_write, file_read
+    #pylint: enable=too-many-branches, too-many-statements
