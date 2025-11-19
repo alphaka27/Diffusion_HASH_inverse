@@ -35,7 +35,7 @@ def _ordinal_to_index(s: str) -> int:
     return int(m.group(1)) - 1 if m else 0
 
 # pylint: disable=missing-class-docstring, missing-function-docstring, too-many-locals
-class CSVFormat:
+class XLSXFormat:
     def __init__(self):
         pass
 

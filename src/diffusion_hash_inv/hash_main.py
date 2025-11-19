@@ -22,14 +22,9 @@ except ImportError as e:
     print(f"Error importing FileIO: {e}")
 
 try:
-    from diffusion_hash_inv.utils import OutputFormat
+    from diffusion_hash_inv.utils import JSONFormat
 except ImportError as e:
-    print(f"Error importing OutputFormat: {e}")
-
-try:
-    from diffusion_hash_inv.utils import CSVFormat
-except ImportError as e:
-    print(f"Error importing CSVFormat: {e}")
+    print(f"Error importing JSONFormat: {e}")
 
 try:
     from diffusion_hash_inv.validation.hash_validation import validate
@@ -56,6 +51,8 @@ class Main:
     Entry point for hash generation and validation
     """
     def __init__(self, *flags, length: int = 512, hash_alg: str = "sha256"):
+        # TODO
+        # Need to Fix
         print(len(flags))
         _is_m, _is_v, _is_c = flags
         self.flags = Flags(is_message=_is_m, is_verbose=_is_v, is_clean=_is_c, is_main=True)
@@ -68,31 +65,34 @@ class Main:
         self.file_io = FileIO(init_flag=True, clear_flag=self.flags.is_clean,
                             verbose_flag=self.flags.is_verbose, length=self.length)
         self.flags.is_clean = False
-        self.json_formatter = OutputFormat()
-        self.csv_formatter = CSVFormat()
-        self.start_time = self.file_io.encode_timestamp().decode("UTF-8")
+        self.json_formatter = JSONFormat()
+        self.xlsx_formatter = XLSXFormat()
+        self.start_time = self.file_io.encode_timestamp().decode("UTF-8")[:19]
 
-    def message_generator(self):
+    def message_generator(self, byteorder: str) -> bytes:
         """
         Generate random message for hashing
         """
         if self.flags.is_message:
             generator = GenerateRandomNChar(verbose_flag=self.flags.is_verbose,
                                             main_flag=self.flags.is_main)
-            _msg = generator.main(self.start_time, self.length // 8)
+
         else:
             generator = GenerateRandom(verbose_flag=self.flags.is_verbose,
                                         main_flag=self.flags.is_main)
-            _msg = generator.main(self.start_time, self.length)
 
+        _msg = generator.main(self.start_time, self.length, byteorder)
         self.flags.is_main = False
-        _entropy = generator.calc_entropy(len(_msg.decode("UTF-8")), _msg)
-        _strength = self.json_formatter.set_metadata(self.alg_name,
-                                                    len(_msg)*8, self.start_time, 0, _entropy)
+        # _entropy = generator.calc_entropy(len(_msg.decode("UTF-8")), _msg)
+        # _strength = self.json_formatter.set_metadata(self.alg_name,
+        #                                             len(_msg)*8, self.start_time, 0, _entropy)
         self.json_formatter.set_message(_msg, self.flags.is_message)
 
-        return _msg, _entropy, _strength
+        return _msg
 
+    #pylint: disable=pointless-string-statement
+    '''
+    Need to move to FileIO utils
     def file_writer(self, result_df: dict, steps_logs: dict, iteration_index:int, total_iter: int):
         """
         Write output to files
@@ -107,38 +107,8 @@ class Main:
             xlsx_writer(_result_df)
 
         return _result_df
-
-    def stdout_writer(self, *hash_info, msg: str, entropy: float, strength: str,
-                    iteration_index: int):
-        """
-        Write output to stdout
-        """
-        generated_hash, valid, correct_hash = hash_info
-        if self.flags.is_message:
-            decoded_msg = msg.decode("UTF-8")
-            str_len_bits = f"{len(decoded_msg) * 8} bits"
-
-        else:
-            decoded_msg = msg
-            str_len_bits = f"{len(decoded_msg)} bits"
-
-        str_entropy = f"Entropy = {entropy}"
-        str_strength = f"Strength = {strength}"
-
-        print(f"Input ({str_len_bits}, {str_entropy}, {str_strength}):")
-        print(f"{decoded_msg}\n")
-        print(f"----------------Result for iteration ({iteration_index + 1})----------------")
-        print(f"Generated {self.alg_name.upper()} Hash: ")
-        hex_str = ''.join(f"{x:08x}" for x in generated_hash)
-        print(f"{hex_str}\n")
-
-        print(f"--------------Validation for iteration ({iteration_index + 1})--------------")
-        print(f"Correct {self.alg_name.upper()} Hash: ")
-        print(f"{correct_hash}\n")
-
-        print("--------------Validation result--------------")
-        valid_message = "Fail" if not valid else "Success"
-        print(f"Validation: {valid_message}")
+    '''
+    #pylint: enable=pointless-string-statement
 
     def get_hasher(self):
         """
@@ -148,7 +118,7 @@ class Main:
 
         try:
             algo = getattr(hashing, n.upper())\
-                    (is_verbose=self.flags.is_verbose, output_format=self.json_formatter)
+                    (is_verbose=self.flags.is_verbose)
         except AttributeError as e:
             if self.alg_name == "all":
                 pass
@@ -176,16 +146,15 @@ class Main:
             print(f"--- Iteration {_i + 1}/{iteration} ---")
             algo.reset()
 
-            json_file_name = f"{self.alg_name}_{self.length}_{self.start_time[:19]}_{_i}.json"
+            json_file_name = f"{self.alg_name}_{self.length}_{self.start_time}_{_i}.json"
             json_writer, _ = self.file_io.file_io(json_file_name)
 
-            input_msg, entropy, strength = self.message_generator()
+            input_msg = self.message_generator(algo.byteorder)
             generated_hash = algo.digest(input_msg)
             valid, valid_hash, correct_hash = \
                 validate(generated_hash, input_msg, self.alg_name, self.flags.is_verbose)
 
-            self.stdout_writer(generated_hash, valid, correct_hash, msg=input_msg,
-                            entropy=entropy, strength=strength, iteration_index=_i)
+            self.stdout_writer(generated_hash, valid, correct_hash, iteration_index=_i)
 
             if not valid:
                 print(f"Iteration {_i + 1}/{iteration} Hash validation failed. Exiting.")
@@ -196,7 +165,7 @@ class Main:
             self.json_formatter.set_hashes(valid_hash, correct_hash)
 
             steps_logs = self.json_formatter.to_dict()
-            result_df = self.file_writer(result_df, steps_logs, _i, iteration)
+            # result_df = self.file_writer(result_df, steps_logs, _i, iteration)
 
             if self.flags.is_verbose:
                 print(result_df)
