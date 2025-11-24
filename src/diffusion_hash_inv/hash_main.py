@@ -9,36 +9,10 @@ from dataclasses import dataclass
 from openpyxl import DEBUG
 
 from diffusion_hash_inv.common import Logs, Metadata, BaseLogs
-
-try:
-    from diffusion_hash_inv.generator import GenerateRandom
-except ImportError as e:
-    print(f"Error importing GenerateRandom: {e}")
-
-try:
-    from diffusion_hash_inv.generator import GenerateRandomNChar
-except ImportError as e:
-    print(f"Error importing GenerateRandomNChar: {e}")
-
-try:
-    from diffusion_hash_inv.utils import FileIO
-except ImportError as e:
-    print(f"Error importing FileIO: {e}")
-
-try:
-    from diffusion_hash_inv.utils import JSONFormat
-except ImportError as e:
-    print(f"Error importing JSONFormat: {e}")
-
-try:
-    from diffusion_hash_inv.validation.hash_validation import validate
-except ImportError as e:
-    print(f"Error importing validate: {e}")
-
-try:
-    from diffusion_hash_inv import hashing
-except ImportError as e:
-    print(f"Error importing hashing module: {e}")
+from diffusion_hash_inv.generator import GenerateRandom, GenerateRandomNChar
+from diffusion_hash_inv.utils import FileIO, JSONToXLSXConverter
+from diffusion_hash_inv.validation.hash_validation import validate
+from diffusion_hash_inv import hashing
 
 @dataclass
 class Flags:
@@ -49,14 +23,15 @@ class Flags:
     is_verbose: bool
     is_clean: bool
     is_debug: bool
+    make_xlsx: bool
 
 class Main:
     """
     Entry point for hash generation and validation
     """
     def __init__(self, *flags, hash_alg: str = "sha256"):
-        _is_m, _is_v, _is_c, _is_d = flags
-        self.flags = Flags(is_message=_is_m, is_verbose=_is_v, is_clean=_is_c, is_debug=_is_d)
+        _is_m, _is_v, _is_c, _is_d, _make_xlsx = flags
+        self.flags = Flags(is_message=_is_m, is_verbose=_is_v, is_clean=_is_c, is_debug=_is_d, make_xlsx=_make_xlsx)
 
         self.alg_name = hash_alg
 
@@ -65,8 +40,6 @@ class Main:
             self.file_io.file_clean(clear_flag=self.flags.is_clean, \
                                     verbose_flag=self.flags.is_verbose)
         self.flags.is_clean = False
-
-        self.logger = Logs()
 
         self.start_time = Logs.get_current_timestamp()
 
@@ -108,6 +81,10 @@ class Main:
         metadata.setter(input_length=length, \
                             exec_start=self.start_time)
         baselogs = BaseLogs()
+
+        json_to_xlsx_converter = JSONToXLSXConverter(verbose_flag=self.flags.is_verbose, \
+                                                    length=length)
+
         if iteration == 0:
             sys.exit()
 
@@ -147,12 +124,20 @@ class Main:
                             generated_hash=generated_hash, \
                             correct_hash=correct_hash, \
                             is_message=self.flags.is_message)
+
             if self.flags.is_debug:
                 if _i == 0:
                     breakpoint()
 
             self.file_io.file_writer(filename=json_file_name, content={"metadata": metadata, \
                     "baselogs": baselogs, "steplogs": algo.step_logs}, length=length)
+
+        if self.flags.make_xlsx:
+            _start = Logs.perftimer_start()
+            json_to_xlsx_converter.convert_to_xlsx(self.alg_name.lower())
+            print(f"JSON to XLSX conversion completed in "
+                f"{Logs.perftimer_end(_start)} ns.")
+
 
 
 
@@ -192,7 +177,13 @@ if __name__ == "__main__":
                     dest='clear', help='Clear generated files')
     gc.add_argument('-C', '--no-clear', action='store_true', dest='clear',
                     help='Do not clear generated files (default)')
+
+    parser.add_argument('--make-xlsx', action='store_true',
+                        dest='make_xlsx', help='Convert JSON logs to XLSX after completion')
+
     parser.set_defaults(clear=False)
+    parser.set_defaults(make_xlsx=False)
+
     _args = parser.parse_args()
 
     LENGTH = 256
@@ -207,6 +198,9 @@ if __name__ == "__main__":
     else:
         pass
     DEBUG = False
+    MAKE_XLSX = False
+    if hasattr(_args, 'make_xlsx'):
+        MAKE_XLSX = _args.make_xlsx
 
-    Main(_args.message, _args.verbose, _args.clear, DEBUG,
+    Main(_args.message, _args.verbose, _args.clear, DEBUG, MAKE_XLSX, \
         hash_alg=_args.hash).main(length=LENGTH, iteration=_args.iteration)
