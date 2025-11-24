@@ -6,7 +6,9 @@ import argparse
 import sys
 from dataclasses import dataclass
 
-from diffusion_hash_inv.common import Logs
+from openpyxl import DEBUG
+
+from diffusion_hash_inv.common import Logs, Metadata, BaseLogs
 
 try:
     from diffusion_hash_inv.generator import GenerateRandom
@@ -46,63 +48,41 @@ class Flags:
     is_message: bool
     is_verbose: bool
     is_clean: bool
-
+    is_debug: bool
 
 class Main:
     """
     Entry point for hash generation and validation
     """
-    def __init__(self, *flags, length: int = 512, hash_alg: str = "sha256"):
-        # TODO
-        # Need to Fix
-        print(len(flags))
-        _is_m, _is_v, _is_c = flags
-        self.flags = Flags(is_message=_is_m, is_verbose=_is_v, is_clean=_is_c)
-        assert length > 0, "Length must be positive."
+    def __init__(self, *flags, hash_alg: str = "sha256"):
+        _is_m, _is_v, _is_c, _is_d = flags
+        self.flags = Flags(is_message=_is_m, is_verbose=_is_v, is_clean=_is_c, is_debug=_is_d)
 
-        assert length % 8 == 0, "Length must be multiple of 8."
-        self.length = length
         self.alg_name = hash_alg
 
-        self.file_io = FileIO(clear_flag=self.flags.is_clean, verbose_flag=self.flags.is_verbose)
+        self.file_io = FileIO(verbose_flag=self.flags.is_verbose)
+        if self.flags.is_clean:
+            self.file_io.file_clean(clear_flag=self.flags.is_clean, \
+                                    verbose_flag=self.flags.is_verbose)
         self.flags.is_clean = False
 
+        self.logger = Logs()
 
-    def message_generator(self, byteorder: str) -> bytes:
+        self.start_time = Logs.get_current_timestamp()
+
+    def message_generator(self, length:int, byteorder: str) -> bytes:
         """
         Generate random message for hashing
         """
+        timer = Logs.perftimer_start()
         if self.flags.is_message:
-            generator = GenerateRandomNChar(verbose_flag=self.flags.is_verbose)
-
+            generator = GenerateRandomNChar(verbose_flag=self.flags.is_verbose, \
+                                                start_timestamp=self.start_time)
         else:
-            generator = GenerateRandom(verbose_flag=self.flags.is_verbose)
-        _msg = generator.main(Logs.timestamp(), self.length, byteorder)
-        # _entropy = generator.calc_entropy(len(_msg.decode("UTF-8")), _msg)
-        # _strength = self.json_formatter.set_metadata(self.alg_name,
-        #                                             len(_msg)*8, self.start_time, 0, _entropy)
-
+            generator = GenerateRandom(verbose_flag=self.flags.is_verbose, \
+                                    start_timestamp=self.start_time)
+        _msg = generator.main(length, byteorder, timer_start=timer)
         return _msg
-
-    #pylint: disable=pointless-string-statement
-    '''
-    Need to move to FileIO utils
-    def file_writer(self, result_df: dict, steps_logs: dict, iteration_index:int, total_iter: int):
-        """
-        Write output to files
-        """
-        _result_df = self.csv_formatter.df_accumulate(result_df, steps_logs, iteration_index)
-
-        xlsx_file_name = f"{self.alg_name}_{self.length}_{self.start_time[:19]}.xlsx"
-        xlsx_writer, _ = self.file_io.file_io(xlsx_file_name)
-        if _result_df is None:
-            pass
-        if iteration_index + 1 == total_iter:
-            xlsx_writer(_result_df)
-
-        return _result_df
-    '''
-    #pylint: enable=pointless-string-statement
 
     def get_hasher(self):
         """
@@ -120,45 +100,62 @@ class Main:
 
         return algo
 
-    def main(self, iteration: int = 0):
+    def main(self, length:int, iteration: int = 0):
         """
         Main entry point for hash generation and validation
         """
+        metadata = Metadata(hash_alg=self.alg_name, is_message=self.flags.is_message)
+        metadata.setter(input_length=length, \
+                            exec_start=self.start_time)
+        baselogs = BaseLogs()
         if iteration == 0:
             sys.exit()
 
+        assert length > 0, "Length must be positive."
+        assert length % 8 == 0, "Length must be multiple of 8."
+
         assert iteration > 0, "Iteration count must be non-negative integer."
         if self.flags.is_verbose:
-            print(f"Running {self.alg_name.upper()} Hash with length {self.length} "
+            print(f"Running {self.alg_name.upper()} Hash with length {length} "
                 f"for {iteration} iterations.")
 
         algo = self.get_hasher()
 
-        result_df = None
-
         for _i in range(iteration):
+            perf_timer_start = Logs.perftimer_start()
             print(f"--- Iteration {_i + 1}/{iteration} ---")
             algo.reset()
 
-            json_file_name = f"{self.alg_name}_{self.length}_{self.start_time}_{_i}.json"
+            json_file_name = f"{self.alg_name}_{length}_{self.start_time[:19]}_{_i}.json"
 
-            input_msg = self.message_generator(algo.byteorder)
+            input_msg = self.message_generator(length, algo.byteorder)
             generated_hash = algo.digest(input_msg)
             valid, correct_hash = \
                 validate(generated_hash, input_msg, self.alg_name, self.flags.is_verbose)
-
-            # self.stdout_writer(generated_hash, valid, correct_hash, iteration_index=_i)
 
             if not valid:
                 print(f"Iteration {_i + 1}/{iteration} Hash validation failed. Exiting.")
                 raise RuntimeError(f"Hash va!lidation failed at iteration {_i + 1}.")
 
             print(f"Iteration {_i + 1}/{iteration} completed.\n")
+            # Logs.stdout_writer(generated_hash, valid, correct_hash, iteration_index=_i)
 
-            # result_df = self.file_writer(result_df, steps_logs, _i, iteration)
+            metadata.update(entropy=Metadata.calc_entropy(length, input_msg), \
+                            elapsed_time=Logs.perftimer_end(perf_timer_start))
 
-            if self.flags.is_verbose:
-                print(result_df)
+            baselogs.update(message=input_msg, \
+                            generated_hash=generated_hash, \
+                            correct_hash=correct_hash, \
+                            is_message=self.flags.is_message)
+            if self.flags.is_debug:
+                if _i == 0:
+                    breakpoint()
+
+            self.file_io.file_writer(filename=json_file_name, content={"metadata": metadata, \
+                    "baselogs": baselogs, "steplogs": algo.step_logs}, length=length)
+
+
+
 
 
 
@@ -209,6 +206,7 @@ if __name__ == "__main__":
         LENGTH = 2 ** EXP
     else:
         pass
+    DEBUG = False
 
-    Main(_args.message, _args.verbose, _args.clear,
-        length=LENGTH, hash_alg=_args.hash).main(_args.iteration)
+    Main(_args.message, _args.verbose, _args.clear, DEBUG,
+        hash_alg=_args.hash).main(length=LENGTH, iteration=_args.iteration)
