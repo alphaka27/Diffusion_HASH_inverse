@@ -1,0 +1,441 @@
+{
+    "Metadata": {
+        "Hash function": "md5",
+        "Input bits": 256,
+        "Program started at": "2025-11-25 05:23:21.789322+09:00",
+        "Message mode": true,
+        "Entropy": 1280.0,
+        "Strength": "Very Strong",
+        "Elapsed time": "662250 ns"
+    },
+    "Message": {
+        "Hex": "0x6a46352e46292a23232973523a487e2d37225d4e466720483a6d5375542a585e",
+        "String": "jF5.F)*##)sR:H~-7\"]NFg H:mSuT*X^"
+    },
+    "Generated hash": "0x263bc32af92056a54fd46976d538f9e4",
+    "Correct   hash": "0x263bc32af92056a54fd46976d538f9e4",
+    "Logs": {
+        "1st Step": "0x6a46352e46292a23232973523a487e2d37225d4e466720483a6d5375542a585e800000000000000000000000000000000000000000000000",
+        "2nd Step": {
+            "1st Block": [
+                "0x6a46352e",
+                "0x46292a23",
+                "0x23297352",
+                "0x3a487e2d",
+                "0x37225d4e",
+                "0x46672048",
+                "0x3a6d5375",
+                "0x542a585e",
+                "0x80000000",
+                "0x00000000",
+                "0x00000000",
+                "0x00000000",
+                "0x00000000",
+                "0x00000000",
+                "0x00010000",
+                "0x00000000"
+            ]
+        },
+        "3rd Step": {
+            "A": "0x01234567",
+            "B": "0x89abcdef",
+            "C": "0xfedcba98",
+            "D": "0x76543210"
+        },
+        "4th Step": {
+            "1st Round": {
+                "1st Loop": {
+                    "A": "0x76543210",
+                    "B": "0x0b1cc3bf",
+                    "C": "0x89abcdef",
+                    "D": "0xfedcba98"
+                },
+                "2nd Loop": {
+                    "A": "0xfedcba98",
+                    "B": "0xcc18a49f",
+                    "C": "0x0b1cc3bf",
+                    "D": "0x89abcdef"
+                },
+                "3rd Loop": {
+                    "A": "0x89abcdef",
+                    "B": "0xfc36ae03",
+                    "C": "0xcc18a49f",
+                    "D": "0x0b1cc3bf"
+                },
+                "4th Loop": {
+                    "A": "0x0b1cc3bf",
+                    "B": "0xb2f2d5e3",
+                    "C": "0xfc36ae03",
+                    "D": "0xcc18a49f"
+                },
+                "5th Loop": {
+                    "A": "0xcc18a49f",
+                    "B": "0x43691a84",
+                    "C": "0xb2f2d5e3",
+                    "D": "0xfc36ae03"
+                },
+                "6th Loop": {
+                    "A": "0xfc36ae03",
+                    "B": "0x7314ea8f",
+                    "C": "0x43691a84",
+                    "D": "0xb2f2d5e3"
+                },
+                "7th Loop": {
+                    "A": "0xb2f2d5e3",
+                    "B": "0x161f022a",
+                    "C": "0x7314ea8f",
+                    "D": "0x43691a84"
+                },
+                "8th Loop": {
+                    "A": "0x43691a84",
+                    "B": "0xdf82b5c0",
+                    "C": "0x161f022a",
+                    "D": "0x7314ea8f"
+                },
+                "9th Loop": {
+                    "A": "0x7314ea8f",
+                    "B": "0xddeb4133",
+                    "C": "0xdf82b5c0",
+                    "D": "0x161f022a"
+                },
+                "10th Loop": {
+                    "A": "0x161f022a",
+                    "B": "0x10fe715d",
+                    "C": "0xddeb4133",
+                    "D": "0xdf82b5c0"
+                },
+                "11th Loop": {
+                    "A": "0xdf82b5c0",
+                    "B": "0x9e75bf28",
+                    "C": "0x10fe715d",
+                    "D": "0xddeb4133"
+                },
+                "12th Loop": {
+                    "A": "0xddeb4133",
+                    "B": "0xb4d65864",
+                    "C": "0x9e75bf28",
+                    "D": "0x10fe715d"
+                },
+                "13th Loop": {
+                    "A": "0x10fe715d",
+                    "B": "0xa0a0156a",
+                    "C": "0xb4d65864",
+                    "D": "0x9e75bf28"
+                },
+                "14th Loop": {
+                    "A": "0x9e75bf28",
+                    "B": "0x5cbc6bbe",
+                    "C": "0xa0a0156a",
+                    "D": "0xb4d65864"
+                },
+                "15th Loop": {
+                    "A": "0xb4d65864",
+                    "B": "0xf12e04f8",
+                    "C": "0x5cbc6bbe",
+                    "D": "0xa0a0156a"
+                },
+                "16th Loop": {
+                    "A": "0xa0a0156a",
+                    "B": "0x93365ec1",
+                    "C": "0xf12e04f8",
+                    "D": "0x5cbc6bbe"
+                },
+                "17th Loop": {
+                    "A": "0x5cbc6bbe",
+                    "B": "0xbbf5e236",
+                    "C": "0x93365ec1",
+                    "D": "0xf12e04f8"
+                },
+                "18th Loop": {
+                    "A": "0xf12e04f8",
+                    "B": "0x050806eb",
+                    "C": "0xbbf5e236",
+                    "D": "0x93365ec1"
+                },
+                "19th Loop": {
+                    "A": "0x93365ec1",
+                    "B": "0x87cda03d",
+                    "C": "0x050806eb",
+                    "D": "0xbbf5e236"
+                },
+                "20th Loop": {
+                    "A": "0xbbf5e236",
+                    "B": "0x783c8e60",
+                    "C": "0x87cda03d",
+                    "D": "0x050806eb"
+                },
+                "21th Loop": {
+                    "A": "0x050806eb",
+                    "B": "0x9198b59b",
+                    "C": "0x783c8e60",
+                    "D": "0x87cda03d"
+                },
+                "22th Loop": {
+                    "A": "0x87cda03d",
+                    "B": "0x1e3b608d",
+                    "C": "0x9198b59b",
+                    "D": "0x783c8e60"
+                },
+                "23th Loop": {
+                    "A": "0x783c8e60",
+                    "B": "0x7ba788a8",
+                    "C": "0x1e3b608d",
+                    "D": "0x9198b59b"
+                },
+                "24th Loop": {
+                    "A": "0x9198b59b",
+                    "B": "0x7adfea81",
+                    "C": "0x7ba788a8",
+                    "D": "0x1e3b608d"
+                },
+                "25th Loop": {
+                    "A": "0x1e3b608d",
+                    "B": "0xc59deb71",
+                    "C": "0x7adfea81",
+                    "D": "0x7ba788a8"
+                },
+                "26th Loop": {
+                    "A": "0x7ba788a8",
+                    "B": "0xaa082e76",
+                    "C": "0xc59deb71",
+                    "D": "0x7adfea81"
+                },
+                "27th Loop": {
+                    "A": "0x7adfea81",
+                    "B": "0x6bd7a837",
+                    "C": "0xaa082e76",
+                    "D": "0xc59deb71"
+                },
+                "28th Loop": {
+                    "A": "0xc59deb71",
+                    "B": "0x83c6d8dc",
+                    "C": "0x6bd7a837",
+                    "D": "0xaa082e76"
+                },
+                "29th Loop": {
+                    "A": "0xaa082e76",
+                    "B": "0x3198e407",
+                    "C": "0x83c6d8dc",
+                    "D": "0x6bd7a837"
+                },
+                "30th Loop": {
+                    "A": "0x6bd7a837",
+                    "B": "0x5c65b10a",
+                    "C": "0x3198e407",
+                    "D": "0x83c6d8dc"
+                },
+                "31th Loop": {
+                    "A": "0x83c6d8dc",
+                    "B": "0xa567e322",
+                    "C": "0x5c65b10a",
+                    "D": "0x3198e407"
+                },
+                "32th Loop": {
+                    "A": "0x3198e407",
+                    "B": "0xecb68aaa",
+                    "C": "0xa567e322",
+                    "D": "0x5c65b10a"
+                },
+                "33th Loop": {
+                    "A": "0x5c65b10a",
+                    "B": "0xd98309d8",
+                    "C": "0xecb68aaa",
+                    "D": "0xa567e322"
+                },
+                "34th Loop": {
+                    "A": "0xa567e322",
+                    "B": "0xedf280f5",
+                    "C": "0xd98309d8",
+                    "D": "0xecb68aaa"
+                },
+                "35th Loop": {
+                    "A": "0xecb68aaa",
+                    "B": "0x710a2086",
+                    "C": "0xedf280f5",
+                    "D": "0xd98309d8"
+                },
+                "36th Loop": {
+                    "A": "0xd98309d8",
+                    "B": "0x2617ca24",
+                    "C": "0x710a2086",
+                    "D": "0xedf280f5"
+                },
+                "37th Loop": {
+                    "A": "0xedf280f5",
+                    "B": "0x0589a29a",
+                    "C": "0x2617ca24",
+                    "D": "0x710a2086"
+                },
+                "38th Loop": {
+                    "A": "0x710a2086",
+                    "B": "0x45876bc6",
+                    "C": "0x0589a29a",
+                    "D": "0x2617ca24"
+                },
+                "39th Loop": {
+                    "A": "0x2617ca24",
+                    "B": "0x7bdaf65f",
+                    "C": "0x45876bc6",
+                    "D": "0x0589a29a"
+                },
+                "40th Loop": {
+                    "A": "0x0589a29a",
+                    "B": "0x4e3fea48",
+                    "C": "0x7bdaf65f",
+                    "D": "0x45876bc6"
+                },
+                "41th Loop": {
+                    "A": "0x45876bc6",
+                    "B": "0x07e34094",
+                    "C": "0x4e3fea48",
+                    "D": "0x7bdaf65f"
+                },
+                "42th Loop": {
+                    "A": "0x7bdaf65f",
+                    "B": "0x1bbe1f84",
+                    "C": "0x07e34094",
+                    "D": "0x4e3fea48"
+                },
+                "43th Loop": {
+                    "A": "0x4e3fea48",
+                    "B": "0x3479ac39",
+                    "C": "0x1bbe1f84",
+                    "D": "0x07e34094"
+                },
+                "44th Loop": {
+                    "A": "0x07e34094",
+                    "B": "0xaad5a214",
+                    "C": "0x3479ac39",
+                    "D": "0x1bbe1f84"
+                },
+                "45th Loop": {
+                    "A": "0x1bbe1f84",
+                    "B": "0xfb310f87",
+                    "C": "0xaad5a214",
+                    "D": "0x3479ac39"
+                },
+                "46th Loop": {
+                    "A": "0x3479ac39",
+                    "B": "0xa25aba6e",
+                    "C": "0xfb310f87",
+                    "D": "0xaad5a214"
+                },
+                "47th Loop": {
+                    "A": "0xaad5a214",
+                    "B": "0x08b1d923",
+                    "C": "0xa25aba6e",
+                    "D": "0xfb310f87"
+                },
+                "48th Loop": {
+                    "A": "0xfb310f87",
+                    "B": "0x9fc8d4e5",
+                    "C": "0x08b1d923",
+                    "D": "0xa25aba6e"
+                },
+                "49th Loop": {
+                    "A": "0xa25aba6e",
+                    "B": "0xbea852c4",
+                    "C": "0x9fc8d4e5",
+                    "D": "0x08b1d923"
+                },
+                "50th Loop": {
+                    "A": "0x08b1d923",
+                    "B": "0xe55dfe42",
+                    "C": "0xbea852c4",
+                    "D": "0x9fc8d4e5"
+                },
+                "51th Loop": {
+                    "A": "0x9fc8d4e5",
+                    "B": "0xf2948319",
+                    "C": "0xe55dfe42",
+                    "D": "0xbea852c4"
+                },
+                "52th Loop": {
+                    "A": "0xbea852c4",
+                    "B": "0x3d101860",
+                    "C": "0xf2948319",
+                    "D": "0xe55dfe42"
+                },
+                "53th Loop": {
+                    "A": "0xe55dfe42",
+                    "B": "0xc06322f2",
+                    "C": "0x3d101860",
+                    "D": "0xf2948319"
+                },
+                "54th Loop": {
+                    "A": "0xf2948319",
+                    "B": "0x17eadcb1",
+                    "C": "0xc06322f2",
+                    "D": "0x3d101860"
+                },
+                "55th Loop": {
+                    "A": "0x3d101860",
+                    "B": "0xbf1da03c",
+                    "C": "0x17eadcb1",
+                    "D": "0xc06322f2"
+                },
+                "56th Loop": {
+                    "A": "0xc06322f2",
+                    "B": "0xc0ba321c",
+                    "C": "0xbf1da03c",
+                    "D": "0x17eadcb1"
+                },
+                "57th Loop": {
+                    "A": "0x17eadcb1",
+                    "B": "0x71f4d333",
+                    "C": "0xc0ba321c",
+                    "D": "0xbf1da03c"
+                },
+                "58th Loop": {
+                    "A": "0xbf1da03c",
+                    "B": "0xf0964a10",
+                    "C": "0x71f4d333",
+                    "D": "0xc0ba321c"
+                },
+                "59th Loop": {
+                    "A": "0xc0ba321c",
+                    "B": "0x78211889",
+                    "C": "0xf0964a10",
+                    "D": "0x71f4d333"
+                },
+                "60th Loop": {
+                    "A": "0x71f4d333",
+                    "B": "0xa91701b7",
+                    "C": "0x78211889",
+                    "D": "0xf0964a10"
+                },
+                "61th Loop": {
+                    "A": "0xf0964a10",
+                    "B": "0x25187ec3",
+                    "C": "0xa91701b7",
+                    "D": "0x78211889"
+                },
+                "62th Loop": {
+                    "A": "0x78211889",
+                    "B": "0x5fe4c6d4",
+                    "C": "0x25187ec3",
+                    "D": "0xa91701b7"
+                },
+                "63th Loop": {
+                    "A": "0xa91701b7",
+                    "B": "0x51f7aedd",
+                    "C": "0x5fe4c6d4",
+                    "D": "0x25187ec3"
+                },
+                "64th Loop": {
+                    "A": "0x25187ec3",
+                    "B": "0x707588b5",
+                    "C": "0x51f7aedd",
+                    "D": "0x5fe4c6d4"
+                }
+            },
+            "1st Loop": {
+                "Update_A": "0x263bc32a",
+                "Update_B": "0xf92056a5",
+                "Update_C": "0x4fd46976",
+                "Update_D": "0xd538f9e4"
+            }
+        },
+        "5th Step": "0x263bc32af92056a54fd46976d538f9e4"
+    }
+}
