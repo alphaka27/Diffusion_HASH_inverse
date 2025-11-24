@@ -6,6 +6,8 @@ import argparse
 import sys
 from dataclasses import dataclass
 
+from diffusion_hash_inv.common import Logs
+
 try:
     from diffusion_hash_inv.generator import GenerateRandom
 except ImportError as e:
@@ -44,7 +46,7 @@ class Flags:
     is_message: bool
     is_verbose: bool
     is_clean: bool
-    is_main: bool
+
 
 class Main:
     """
@@ -55,38 +57,30 @@ class Main:
         # Need to Fix
         print(len(flags))
         _is_m, _is_v, _is_c = flags
-        self.flags = Flags(is_message=_is_m, is_verbose=_is_v, is_clean=_is_c, is_main=True)
+        self.flags = Flags(is_message=_is_m, is_verbose=_is_v, is_clean=_is_c)
         assert length > 0, "Length must be positive."
 
         assert length % 8 == 0, "Length must be multiple of 8."
         self.length = length
         self.alg_name = hash_alg
 
-        self.file_io = FileIO(init_flag=True, clear_flag=self.flags.is_clean,
-                            verbose_flag=self.flags.is_verbose, length=self.length)
+        self.file_io = FileIO(clear_flag=self.flags.is_clean, verbose_flag=self.flags.is_verbose)
         self.flags.is_clean = False
-        self.json_formatter = JSONFormat()
-        self.xlsx_formatter = XLSXFormat()
-        self.start_time = self.file_io.encode_timestamp().decode("UTF-8")[:19]
+
 
     def message_generator(self, byteorder: str) -> bytes:
         """
         Generate random message for hashing
         """
         if self.flags.is_message:
-            generator = GenerateRandomNChar(verbose_flag=self.flags.is_verbose,
-                                            main_flag=self.flags.is_main)
+            generator = GenerateRandomNChar(verbose_flag=self.flags.is_verbose)
 
         else:
-            generator = GenerateRandom(verbose_flag=self.flags.is_verbose,
-                                        main_flag=self.flags.is_main)
-
-        _msg = generator.main(self.start_time, self.length, byteorder)
-        self.flags.is_main = False
+            generator = GenerateRandom(verbose_flag=self.flags.is_verbose)
+        _msg = generator.main(Logs.timestamp(), self.length, byteorder)
         # _entropy = generator.calc_entropy(len(_msg.decode("UTF-8")), _msg)
         # _strength = self.json_formatter.set_metadata(self.alg_name,
         #                                             len(_msg)*8, self.start_time, 0, _entropy)
-        self.json_formatter.set_message(_msg, self.flags.is_message)
 
         return _msg
 
@@ -147,14 +141,13 @@ class Main:
             algo.reset()
 
             json_file_name = f"{self.alg_name}_{self.length}_{self.start_time}_{_i}.json"
-            json_writer, _ = self.file_io.file_io(json_file_name)
 
             input_msg = self.message_generator(algo.byteorder)
             generated_hash = algo.digest(input_msg)
-            valid, valid_hash, correct_hash = \
+            valid, correct_hash = \
                 validate(generated_hash, input_msg, self.alg_name, self.flags.is_verbose)
 
-            self.stdout_writer(generated_hash, valid, correct_hash, iteration_index=_i)
+            # self.stdout_writer(generated_hash, valid, correct_hash, iteration_index=_i)
 
             if not valid:
                 print(f"Iteration {_i + 1}/{iteration} Hash validation failed. Exiting.")
@@ -162,14 +155,11 @@ class Main:
 
             print(f"Iteration {_i + 1}/{iteration} completed.\n")
 
-            self.json_formatter.set_hashes(valid_hash, correct_hash)
-
-            steps_logs = self.json_formatter.to_dict()
             # result_df = self.file_writer(result_df, steps_logs, _i, iteration)
 
             if self.flags.is_verbose:
                 print(result_df)
-            json_writer(self.json_formatter.dumps(indent=4, data=steps_logs))
+
 
 
 if __name__ == "__main__":

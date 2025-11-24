@@ -18,9 +18,8 @@ class GenerateRandomNChar(FileIO):
     """
     Generate a random string of N characters.
     """
-    def __init__(self, verbose_flag=True, main_flag=False):
-        super().__init__(init_flag=main_flag, clear_flag=False,
-                        verbose_flag=verbose_flag, start_time=super().encode_timestamp())
+    def __init__(self, verbose_flag=True):
+        super().__init__(clear_flag=False, verbose_flag=verbose_flag)
         print(f"Flags - Verbose: {verbose_flag}\n")
         self.is_verbose = verbose_flag
         self.ts: bytes = super().encode_timestamp()

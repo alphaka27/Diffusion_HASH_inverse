@@ -3,8 +3,9 @@ Logging utilities for Diffusion Hash Inversion
 """
 # pylint: disable=fixme
 from __future__ import annotations
-from typing import Any, Dict, List, Optional, Generator
+from typing import Any, Dict, List, Optional, Generator, Sequence, MutableMapping
 from datetime import datetime
+from collections.abc import Hashable
 from dataclasses import dataclass, field
 
 from functools import wraps
@@ -144,35 +145,176 @@ class BaseLogs():
         }
 
 @dataclass
-class StepLogs():
+class StepLogs:
     """
     Step logs container that behaves like a dict while keeping per-step structure.
     """
-    round_logs: Dict[str, Dict] = field(default_factory=dict)
-    step_logs: Dict[str, Any] = field(default_factory=dict)
-    value: Any = None
-    step_metadata: Dict[str, Any] = field(default_factory=dict)
+    logs: Dict[str, Any] = field(default_factory=dict, init=False)
+    step_metadata: Dict[str, Any] = field(default_factory=dict, init=False)
+
+    wordsize: Optional[int] = None
+    byteorder: Optional[str] = None
+    hierarchy: Sequence[Hashable] = field(default_factory=tuple)
 
     def clear(self) -> None:
         """Clear all step logs"""
-        self.round_logs.clear()
-        self.step_logs.clear()
-        self.value = None
+        self.logs.clear()
+        self.step_metadata.clear()
 
-    def update(self, **kwargs) -> Dict[str, bytes]:
+    @staticmethod
+    def _ensure_nested_dict(root: MutableMapping, path: Sequence[Hashable]) -> MutableMapping:
+        """
+        path[:-1]까지는 dict로 내려가고, 없으면 {}로 생성해서 내려가요.
+        마지막 key 직전의 dict를 반환해요.
+        """
+        cur: MutableMapping = root
+        for key in path:
+            if key is None:
+                pass
+            cur = cur.setdefault(key, {})
+        return cur
+
+    # 1) 그냥 값 통째로 넣기 (bytes, dict, list 등 어떤 타입이든)
+    def set_value(self, path: Sequence[Hashable], value: Any) -> None:
+        """
+        path 위치에 value를 그대로 넣어요.
+        예: ("Step1",) -> bytes
+            ("Step2",) -> 전체 list
+            ("Step3",) -> 전체 dict
+        """
+        if not path:
+            raise ValueError("path는 비어 있을 수 없어요.")
+        *parents, last = path
+        parent_dict = self._ensure_nested_dict(self.logs, parents)
+        parent_dict[last] = value
+
+    def dict_updater(self, **data) -> Dict[str, Any]:
+        """Update dictionary type step logs"""
+        temp_dict = {}
+        for key, value in data.items():
+            if isinstance(value, (bytearray, bytes)):
+                temp_dict[key] = Logs.bytes_to_str(value)
+
+            elif isinstance(value, int):
+                value = LogHelper.int_to_bytes(value, self.wordsize, self.byteorder)
+                temp_dict[key] = Logs.bytes_to_str(value)
+
+            else:
+                raise NotImplementedError("Unsupported type in dict for step log update")
+
+            temp_dict[key] = Logs.bytes_to_str(value)
+        return temp_dict
+
+    def list_updater(self, data) -> Dict[str, Any]:
+        """Update step logs list directly"""
+        temp_dict = {}
+        for idx, item in enumerate(data):
+            idx_str = Logs.idx_setter(idx, " Block")
+
+            if isinstance(item, (bytearray, bytes)):
+                temp_dict[idx_str] = Logs.bytes_to_str(item)
+
+            elif isinstance(item, int):
+                item = LogHelper.int_to_bytes(item, self.wordsize, self.byteorder)
+                temp_dict[idx_str] = Logs.bytes_to_str(item)
+            elif isinstance(item, Sequence) and \
+                not isinstance(item, (str, bytes, bytearray)):
+                # Nested sequence handling
+                _nested_list = []
+                for _item in item:
+                    if isinstance(_item, (bytearray, bytes)):
+                        _item = Logs.bytes_to_str(_item)
+                    elif isinstance(_item, int):
+                        _item = LogHelper.int_to_bytes(_item, self.wordsize, self.byteorder)
+                        _item = Logs.bytes_to_str(_item)
+                    else:
+                        raise NotImplementedError\
+                            ("Unsupported type in nested sequence for step log update")
+                    _nested_list.append(_item)
+                temp_dict[idx_str] = _nested_list
+            else:
+                raise NotImplementedError("Unsupported type in sequence for step log update")
+        return temp_dict
+
+    def update(self, **kwargs) -> Dict[str, Any]:
         """
         Update step logs
         """
-        round_idx: Optional[str] = kwargs.get("round_idx", None)
-        step_index: Optional[str] = kwargs.get("step_index", None)
-        step_result: Any = kwargs.get("step_result", None)
+        _hier_path = []
+        if self.hierarchy:
+            for level in self.hierarchy:
+                round_idx: Optional[str] = kwargs.get("round_idx", None)
+                if round_idx is not None and level == "Round":
+                    _hier_path.append(round_idx)
+
+                step_index: Optional[str] = kwargs.get("step_index", None)
+                if step_index is not None and level == "Step":
+                    _hier_path.append(step_index)
+
+        step_result: Dict | Sequence | bytes | bytearray = kwargs.get("step_result", None)
+        assert step_result is not None, "step_result must be provided"
+        assert isinstance(step_result, (Dict, Sequence, bytes, bytearray)), \
+            "step_result must be Dict, Sequence, or bytes-like"
+
+        _logs: Dict | str = None
+        if isinstance(step_result, Dict):
+            _logs = self.dict_updater(**step_result)
+
+        elif isinstance(step_result, Sequence) and \
+        not isinstance(step_result, (str, bytes, bytearray)):
+            _logs = self.list_updater(step_result)
+
+        elif isinstance(step_result, (bytes, bytearray)):
+            # For bytes results, store as hex string
+            _logs = Logs.bytes_to_str(step_result)
+
+        else:
+            raise NotImplementedError("Unsupported type for step log update")
+        self.set_value(_hier_path, _logs)
+
+        # breakpoint()
 
 
-    def update_loop(self) -> List[bytes]:
+    def update_loop(self, **kwargs) -> Dict[str, Any]:
         """Update step logs in loop"""
+        _hier_path = []
+        if self.hierarchy:
+            for level in self.hierarchy:
+                round_idx: Optional[str] = kwargs.get("round_idx", None)
+                if round_idx is not None and level == "Round":
+                    _hier_path.append(round_idx)
+
+                step_index: Optional[str] = kwargs.get("step_index", None)
+                if step_index is not None and level == "Step":
+                    _hier_path.append(step_index)
+
+                loop_index: Optional[int] = kwargs.get("loop_index", None)
+                loop_idx_str = Logs.idx_setter(loop_index, " Loop")
+                if loop_index is not None and level == "Loop":
+                    _hier_path.append(loop_idx_str)
+
+        loop_result: Any = kwargs.get("step_result", None)
+        assert loop_result is not None, "step_result must be provided"
+        assert isinstance(loop_result, (Dict, Sequence, bytes, bytearray)), \
+            "loop_result must be Dict, Sequence, or bytes-like"
+
+        if isinstance(loop_result, Dict):
+            # For dict results, store directly
+            _logs = self.dict_updater(**loop_result)
+
+        else:
+            raise NotImplementedError("Unsupported type for step log update")
+        self.set_value(_hier_path, _logs)
+        # breakpoint()
+
+    def metadata_setter(self, **data) -> None:
+        """Set step logs metadata"""
+        for key, value in data.items():
+            self.step_metadata[key] = value
 
     def dict_maker(self) -> Dict[str, Any]:
         """Make dict from step logs"""
+
 
 class LogHelper:
     """
@@ -180,9 +322,13 @@ class LogHelper:
     """
 
     @staticmethod
-    def now_time() -> str:
-        """Get current time as string"""
-        return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    def timestamp() -> str:
+        """Get current timestamp as string"""
+        dt = datetime.now().astimezone()
+        tz = dt.strftime("%z")  # +0900
+        tz = f"{tz[:3]}:{tz[3:]}"  # +09:00
+        s = f"{dt:%Y-%m-%d %H:%M:%S.%f}{tz}"
+        return s
 
     @staticmethod
     def str_to_bytes(s: str) -> bytes:
@@ -211,8 +357,9 @@ class LogHelper:
     def int_to_bytes(i: int, length: int, byteorder: Optional[str] = None) -> bytes:
         """Convert int to bytes"""
         assert byteorder is not None, "byteorder must be specified"
+        assert length >= 0, "length must be greater than or equal 0"
 
-        return i.to_bytes(length, byteorder=byteorder)
+        return i.to_bytes(length // 8, byteorder=byteorder)
 
     @staticmethod
     def stdout_logs(*args, verbose: bool = True, message: bool = False, **kwargs) -> None:
@@ -234,6 +381,10 @@ class LogHelper:
         if not verbose:
             return
         processed_args: List[str] = []
+        _word_size: Optional[int] = kwargs.pop("word_size", None)
+        _byteorder: Optional[str] = kwargs.pop("byteorder", None)
+        assert _word_size is not None, "word_size must be specified"
+        assert _byteorder is not None, "byteorder must be specified"
 
         for arg in args:
             if isinstance(arg, (bytes, bytearray)):
@@ -246,11 +397,19 @@ class LogHelper:
                     decoded_msg = Logs.bytes_to_str(arg)
                 processed_args.append(decoded_msg)
             elif isinstance(arg, Dict):
-                processed_args.append(str(arg))
+                arg_key = list(arg.keys())
+                arg_val = list(arg.values())
+
+                for _val in arg_val:
+                    _val = LogHelper.bytes_to_str(\
+                        LogHelper.int_to_bytes(_val, _word_size, byteorder=_byteorder))
+
+
             else:
                 processed_args.append(arg)
 
         print(*processed_args, **kwargs)
+
     @staticmethod
     def stdout_result(*args, **kwargs) -> None:
         """
@@ -302,7 +461,26 @@ class LogHelper:
         valid_message = "Fail" if not valid else "Success"
         print(f"Validation: {valid_message}")
 
+    @staticmethod
+    def idx_setter(index: Optional[int], suffix: str, **desc) -> Optional[str]:
+        """Convert index to string"""
+        # TODO
+        # Add description for logs
+        _desc = desc.get("description", None)
+        suffix = f"{suffix}" if _desc is None else f"{suffix}-{_desc}"
+        if index is None:
+            return None
 
+        if "Step" not in suffix:
+            index += 1
+
+        if index == 1:
+            return "1st" + suffix
+        if index == 2:
+            return "2nd" + suffix
+        if index == 3:
+            return "3rd" + suffix
+        return f"{index}th" + suffix
 
 
 class Logs(LogHelper):
@@ -330,25 +508,9 @@ class Logs(LogHelper):
         if _step_logs is not None:
             _step_logs.clear()
 
+    #decorator
     @staticmethod
-    def idx_setter(index: Optional[int], suffix: str, **desc) -> Optional[str]:
-        """Convert index to string"""
-        # TODO
-        # Add description for logs
-        _ = desc
-
-        if index is None:
-            return None
-        if index == 0:
-            return "1st" + suffix
-        if index == 1:
-            return "2nd" + suffix
-        if index == 2:
-            return "3rd" + suffix
-        return f"{index}th" + suffix
-
-    @staticmethod
-    def steplogs_update(step_cat: Optional[str] = None, is_loop: bool = False, **desc):
+    def steplogs_update(step_cat: Optional[str] = None, is_loop: bool = False, **desc) -> Any:
         """
         Update all logs
         Parameters:
@@ -359,35 +521,62 @@ class Logs(LogHelper):
             desc (Dict[str, Any]):
                 Additional description for logs in the form of kwargs
         """
+
         step_idx = Logs.idx_setter(step_cat, " Step", **desc)
 
         def decorator(func):
             @wraps(func)
             def wrapper(self, *args, **kwargs):
-                block_iteration: Optional[int] = kwargs.pop("Block_Index", None)
-                block_idx: Optional[str] = None
-                if block_iteration is not None:
-                    block_idx = Logs.idx_setter(block_iteration, " Block", **desc)
+                # Get block iteration and set description if exists
+                round_iteration: Optional[int] = kwargs.pop("Round_Index", None)
+                round_idx: Optional[str] = Logs.idx_setter(round_iteration, " Round")
 
+                # Ensure the class has step_logs attribute
                 assert hasattr(self, 'step_logs'), \
                     "The class must have 'step_logs' attribute."
                 assert isinstance(self.step_logs, StepLogs), \
                     "'step_logs' must be an instance of StepLogs."
+                assert hasattr(self, 'word_size'), \
+                    "The class must have 'word_size' attribute."
+                assert hasattr(self, 'byteorder'), \
+                    "The class must have 'byteorder' attribute."
 
-                result = func(self, *args, **kwargs)
+                # Call the original function
+                org: bytes | Sequence | Generator | Dict = func(self, *args, **kwargs)
 
-                assert is_loop and isinstance(result, Generator) or not is_loop, \
-                    "If is_loop is True, the result must be a Generator."
                 _result = None
+                # Validate the result type based on is_loop
+                assert is_loop and isinstance(org, Generator) or not is_loop, \
+                    "If is_loop is True, the result must be a Generator."
 
                 if is_loop:
-                    _result = self.step_logs.update_loop()
-                else:
-                    _result = self.step_logs.update(round_idx=block_idx,
-                                                    step_index=step_idx,
-                                                    step_result=result)
-                assert _result is not None, "Log update failed."
+                    _i = 0
+                    while True:
+                        try:
+                            loop_result = next(org)
+                            StepLogs.update_loop(self.step_logs,
+                                round_idx=round_idx,
+                                step_index=step_idx,
+                                loop_index=_i,
+                                step_result=loop_result, \
+                                wordsize=self.word_size, byteorder=self.byteorder)
+                            _i += 1
+                        except StopIteration as e:
+                            _result = e.value
+                            StepLogs.update(self.step_logs,
+                            round_idx=round_idx,
+                            step_index=step_idx+" Final",
+                            step_result=_result, wordsize=self.word_size, byteorder=self.byteorder)
+                            break
 
+                else:
+                    _result = org
+                    print(step_idx)
+                    StepLogs.update(self.step_logs,
+                        round_idx=round_idx,
+                        step_index=step_idx,
+                        step_result=org, wordsize=self.word_size, byteorder=self.byteorder)
+                assert _result is not None, "Log update failed in loop."
                 return _result
             return wrapper
         return decorator
