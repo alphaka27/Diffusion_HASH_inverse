@@ -51,7 +51,7 @@ class BaseCalc:
 
         return int.from_bytes(b, byteorder)
 
-    def word_to_int(self, b: Sequence[bytes]) -> int:
+    def word_to_int(self, b: Sequence[bytes | bytearray | int]) -> int:
         """
         Convert bytes to integer using the specified byteorder.
 
