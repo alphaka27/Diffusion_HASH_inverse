@@ -598,10 +598,6 @@ class Logs(LogHelper, TimeHelper):
                             _i += 1
                         except StopIteration as e:
                             _result = e.value
-                            StepLogs.update(self.step_logs,
-                            round_idx=round_idx,
-                            step_index=step_idx+" Final",
-                            step_result=_result, wordsize=self.word_size, byteorder=self.byteorder)
                             break
 
                 else:

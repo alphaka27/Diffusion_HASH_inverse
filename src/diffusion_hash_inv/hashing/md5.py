@@ -83,7 +83,7 @@ class MD5(MD5Calc):
             'C': 0x98badcfe,
             'D': 0x10325476,
         }
-    Hierarchy: ClassVar[tuple[str, ...]] = ("Step", "Block", "Loop")
+    Hierarchy: ClassVar[tuple[str, ...]] = ("Step", "Round", "Loop")
 
     def __init__(self, is_verbose: bool = True):
         super().__init__()
@@ -262,10 +262,10 @@ class MD5(MD5Calc):
             d = self.modular_add(d, prev_d)
 
             yield {
-                'A': a,
-                'B': b,
-                'C': c,
-                'D': d
+                'Update_A': a,
+                'Update_B': b,
+                'Update_C': c,
+                'Update_D': d
             }
         return {
             'Update_A': a,

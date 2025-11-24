@@ -1,32 +1,22 @@
 """
 File I/O Utilities
 """
+
 from __future__ import annotations
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from datetime import datetime
-from typing import Optional, Any
+from typing import List, Optional, Any
 import os
-import struct
 import re
 
 import pandas as pd
-from openpyxl import load_workbook
-from pandas import ExcelWriter
 
-try:
-    from diffusion_hash_inv.utils.project_root import add_root_to_path
-    ROOT_DIR = add_root_to_path()
-except ImportError as _e:
-    print(f"Error importing project root: {_e}")
-    raise _e
 from diffusion_hash_inv.utils import JSONFormat
+from diffusion_hash_inv.utils.project_root import add_root_to_path
+ROOT_DIR = add_root_to_path()
 
-# try:
-#     from diffusion_hash_inv.utils import CSVFormat
-# except ImportError as _e:
-#     print(f"Error importing CSVFormat: {_e}")
-#     raise _e
+
 
 # 고정 헤더 길이
 TS_LEN = 32 # 32 bytes UTF-8 timestamp
@@ -121,34 +111,6 @@ class Header:
 
         return Header(timestamp=timestamp.isoformat(), time_diff=time_diff, bit_length=bit_length)
 
-class Reader:
-    """
-    File Reader Utilities
-    """
-    def __init__(self):
-        pass
-
-    def read_json(self, path: Path) -> str:
-        """
-        Read the JSON content from a file.
-        """
-        with open(path, "r", encoding="UTF-8") as j:
-            return j.read()
-
-    def read_xlsx(self, path: Path) -> pd.DataFrame:
-        """
-        Read the Excel content from a file.
-        """
-        return pd.read_excel(path, engine="openpyxl")
-
-    def read_binary(self, path: Path, byteorder: Optional[str] = None) -> bytes:
-        """
-        Read the binary content from a file.
-        """
-        assert byteorder in ('big', 'little'), "byteorder must be 'big', 'little'"
-        with open(path, "rb") as f:
-            return f.read()
-
 class Writer:
     """
     File Writer Utilities
@@ -182,11 +144,40 @@ class Writer:
         with open(path, "ab") as f:
             f.write(content)
 
+class Reader:
+    """
+    File Reader Utilities
+    """
+    def __init__(self):
+        pass
+
+    def read_json(self, path: Path) -> str:
+        """
+        Read the JSON content from a file.
+        """
+        with open(path, "r", encoding="UTF-8") as j:
+            temp = j.read()
+            return JSONFormat.loads(temp)
+
+    def read_xlsx(self, path: Path) -> pd.DataFrame:
+        """
+        Read the Excel content from a file.
+        """
+        return pd.read_excel(path, engine="openpyxl")
+
+    def read_binary(self, path: Path, byteorder: Optional[str] = None) -> bytes:
+        """
+        Read the binary content from a file.
+        """
+        assert byteorder in ('big', 'little'), "byteorder must be 'big', 'little'"
+        with open(path, "rb") as f:
+            return f.read()
+
 class FileIO(Writer, Reader):
     """
     File I/O Utilities
     """
-    def __init__(self, verbose_flag):
+    def __init__(self, verbose_flag=True):
         super().__init__()
         self.data_dir = ROOT_DIR / "data"
         self.out_dir = ROOT_DIR / "output"
@@ -238,21 +229,44 @@ class FileIO(Writer, Reader):
                         print(f"[SKIP] {p}: {e}")
     #pylint: enable=broad-exception-caught, too-many-branches, too-many-nested-blocks
 
-    def _select_data_dir(self, filename: str, length: int) -> Path:
+    def get_latest_file_by_date(self, dir_path: str, hash_alg: str, length: int) -> str:
+        """
+        Parse the filename to extract base name without extension.
+        """
+        pattern = re.compile(r'(\d{4}-\d{2}-\d{2}) (\d{2}-\d{2}-\d{2})')
+        base = dir_path
+        candidates = list(base.glob(f"{hash_alg}_{length}_*.json"))
+        latest_dt: Optional[datetime] = None
+        latest_file: List[Path] = []
+
+        for p in candidates:
+            m = pattern.search(p.name)
+            if not m:
+                continue
+            date_str, time_str = m.groups()
+            dt = datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H-%M-%S")
+            if latest_dt is None or dt > latest_dt:
+                latest_dt = dt
+                latest_file = [p]
+            elif dt == latest_dt:
+                latest_file.append(p)
+        return latest_file
+
+    def select_data_dir(self, filetype: str, length: int) -> Path:
         """
         Decide subdirectory by extension and ensure it exists.
         """
 
-        if filename.endswith(".bin"):
+        if filetype.endswith(".bin") or filetype == "bin":
             base = self.data_dir / "binary"
 
-        elif filename.endswith(".char"):
+        elif filetype.endswith(".char") or filetype == "char":
             base = self.data_dir / "character"
 
-        elif filename.endswith(".json"):
+        elif filetype.endswith(".json") or filetype == "json":
             base = self.out_dir / "json" / f"{length}"
 
-        elif filename.endswith(".xlsx"):
+        elif filetype.endswith(".xlsx") or filetype == "xlsx":
             base = self.out_dir / "xlsx" / f"{length}"
 
         else:
@@ -278,7 +292,7 @@ class FileIO(Writer, Reader):
             header = Header(start_timestamp, elapsed_time, length)
             header_bytes = header.encode("utf-8", byteorder)
 
-        base = self._select_data_dir(filename, length)
+        base = self.select_data_dir(filename, length)
         safe_name = self._sanitize_filename(filename)
         full_path = base / safe_name
         if full_path.suffix == ".json":
@@ -295,7 +309,7 @@ class FileIO(Writer, Reader):
         """
         Get the full path for reading a file.
         """
-        base = self._select_data_dir(filename, length)
+        base = self.select_data_dir(filename, length)
         safe_name = self._sanitize_filename(filename)
         full_path = base / safe_name
         if full_path.suffix == ".json":

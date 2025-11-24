@@ -8,9 +8,10 @@ from importlib.metadata import version, PackageNotFoundError
 from diffusion_hash_inv.common import BaseCalc
 from diffusion_hash_inv.common import Logs, Metadata, BaseLogs, StepLogs
 
-from diffusion_hash_inv.utils import FileIO
+
 from diffusion_hash_inv.utils import JSONFormat
-from diffusion_hash_inv.utils import XLSXFormat
+from diffusion_hash_inv.utils import FileIO
+from diffusion_hash_inv.utils import JSONToXLSXConverter
 
 from diffusion_hash_inv.hashing import MD5
 from diffusion_hash_inv.hashing import SHA256
@@ -21,9 +22,9 @@ __all__ = [
     "Metadata",
     "BaseLogs",
     "StepLogs",
-    "FileIO",
     "JSONFormat",
-    "XLSXFormat",
+    "FileIO",
+    "JSONToXLSXConverter",
     "MD5",
     "SHA256"
 ]
