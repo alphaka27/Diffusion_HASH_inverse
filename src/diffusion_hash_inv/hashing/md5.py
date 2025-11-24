@@ -313,7 +313,6 @@ class MD5(MD5Calc):
         #     ):", generated_hash, self.is_verbose)
         digest_bytes: bytes = self.step5(generated_hash)
         # Logs.stdout_logs("After Step 5 (Output):", digest_bytes, self.is_verbose)
-        breakpoint()
         return digest_bytes
 
     def hexdigest(self, data: bytes) -> str:

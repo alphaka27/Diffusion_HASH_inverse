@@ -3,28 +3,29 @@ Random N character Generation
 Password Generator
 """
 
+from pyclbr import Class
 import unicodedata
 from secrets import choice
 import argparse
 import string
-from typing import Optional
+from typing import Optional, ClassVar
 
 try:
     from diffusion_hash_inv.utils.file_io import FileIO
 except ImportError as e:
     print(f"Error importing FileIO: {e}")
+from diffusion_hash_inv.common import Logs
 
-class GenerateRandomNChar(FileIO):
+class GenerateRandomNChar:
     """
     Generate a random string of N characters.
     """
-    def __init__(self, verbose_flag=True):
-        super().__init__(clear_flag=False, verbose_flag=verbose_flag)
-        print(f"Flags - Verbose: {verbose_flag}\n")
+    alphabet: ClassVar[str]
+    def __init__(self, verbose_flag=True, start_timestamp: Optional[float] = None):
         self.is_verbose = verbose_flag
-        self.ts: bytes = super().encode_timestamp()
+        self.start_time = start_timestamp
 
-        GenerateRandomNChar.alphabet = string.ascii_letters \
+        type(self).alphabet = string.ascii_letters \
             + string.digits + string.punctuation + " "
 
     def help(self):
@@ -54,27 +55,26 @@ class GenerateRandomNChar(FileIO):
         s = unicodedata.normalize(form.upper(), s)
         return s.encode("utf-8")
 
-    def main(self, timestamp: Optional[bytes] = None, \
-            length: int = 256, byteorder: Optional[str] = None) -> bytes:
+    def main(self, length: int = 256, \
+        byteorder: Optional[str] = None, \
+        timer_start: Optional[int] = None) -> bytes:
         """
         Main function to generate random strings and display their entropy.
         """
         assert byteorder is not None and byteorder in ("big", "little"), \
             "byteorder must be 'big' or 'little'"
-        if timestamp is None:
-            timestamp = self.ts.decode()
 
-        _timestamp = super().encode_timestamp()
         _pwd = self.generate(length // 8)
         _pwd = self.normalize(_pwd)
-        print(f"Generated Password: {_pwd}")
+        elapsed_time = Logs.perftimer_end(timer_start)
         if self.is_verbose:
             self.help()
-        f_w, _ = self.file_io(f"random_{length}_char_{timestamp}.char")
-        f_w(_pwd, length, ts=_timestamp, byteorder=byteorder)
+        filename = f"random_{length}_char_{self.start_time[:19]}.char"
+        file_io = FileIO(verbose_flag=self.is_verbose)
+        file_io.file_writer(filename, _pwd, length, timestamp=self.start_time, \
+            elapsed_time=elapsed_time, byteorder=byteorder)
+
         return _pwd
-
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate random bits and save to a binary file.")

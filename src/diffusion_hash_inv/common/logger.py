@@ -7,6 +7,8 @@ from typing import Any, Dict, List, Optional, Generator, Sequence, MutableMappin
 from datetime import datetime
 from collections.abc import Hashable
 from dataclasses import dataclass, field
+import time
+import math
 
 from functools import wraps
 
@@ -20,17 +22,13 @@ class Metadata():
     hash_alg: str
     is_message: bool
 
-    # TODO
-    # entropy: float = field(default_factory=float)
-    # strength: str = field(default_factory=str)
-    # elapsed_time:float = field(default_factory=float)
+    entropy: float = field(default_factory=float, init=False)
+    strength: str = field(default_factory=str, init=False)
+    elapsed_time:float = field(default_factory=float, init=False)
 
-    input_bits_len: int = field(default_factory=int)
-    exec_start:str = field(default_factory=str)
+    input_bits_len: int = field(default_factory=int, init=False)
+    exec_start:str = field(default_factory=str, init=False)
 
-
-    # TODO
-    '''
     @staticmethod
     def calc_entropy(char_len: int, _pwd: str) -> float:
         """
@@ -39,7 +37,7 @@ class Metadata():
         entropy = char_len * math.log2(len(_pwd))
         return entropy
 
-    def __set_strength(self)->None:
+    def _set_strength(self)->None:
         """Set strength based on entropy"""
         if self.entropy < 28:
             self.strength = "Very Weak"
@@ -51,24 +49,31 @@ class Metadata():
             self.strength = "Strong"
         else:
             self.strength = "Very Strong"
-    '''
 
     def clear(self)->None:
         """Clear all metadata"""
         self.exec_start = ""
         # self.elapsed_time = 0.0
 
-    def setter(self, hash_alg: str, is_message: bool)->None:
+    def setter(self, input_length: int, exec_start: str)->None:
         """set metadata"""
-        self.hash_alg = hash_alg
-        self.is_message = is_message
+        self.input_bits_len = input_length
+        self.exec_start = exec_start
 
-    def update(self, message: bytes, decode: str = "UTF-8")->None:
-        """update metadata"""
-        if self.is_message:
-            self.input_bits_len = len(message.decode(decode)) * 8
-        else:
-            self.input_bits_len = len(message) * 8
+    def update(self, entropy: float, elapsed_time: int)->None:
+        """
+        Update metadata
+        Parameters:
+            entropy: float
+                Entropy of the generated input
+            strength: str
+                Strength of the generated input
+            elapsed_time: float
+                Elapsed time for generation
+        """
+        self.entropy = entropy
+        self._set_strength()
+        self.elapsed_time = f"{elapsed_time} ns"
 
     def getter(self)->Dict[str, Any]:
         """
@@ -78,7 +83,10 @@ class Metadata():
             "Hash function": self.hash_alg,
             "Input bits": self.input_bits_len,
             "Program started at": self.exec_start,
-            "Message mode": self.is_message
+            "Message mode": self.is_message,
+            "Entropy": self.entropy,
+            "Strength": self.strength,
+            "Elapsed time": self.elapsed_time
         }
 
 @dataclass
@@ -87,9 +95,9 @@ class BaseLogs():
     Base logs container
     Contains Message(String and Hex), Generated hash, Correct hash
     """
-    message: Dict[str, Any] = field(default_factory=dict)
-    generated_hash: bytes = field(default_factory=bytes)
-    correct_hash: bytes = field(default_factory=bytes)
+    message: Dict[str, Any] = field(default_factory=dict, init=False)
+    generated_hash: bytes = field(default_factory=bytes, init=False)
+    correct_hash: bytes = field(default_factory=bytes, init=False)
 
     def clear(self):
         """Clear all base logs"""
@@ -99,7 +107,7 @@ class BaseLogs():
 
     def set_message(self, message_bytes: bytes, message_mode: bool):
         """Set message"""
-        self.message["Hex"] = message_bytes.hex()
+        self.message["Hex"] = Logs.bytes_to_str(message_bytes)
         if message_mode:
             try:
                 self.message["String"] = message_bytes.decode("utf-8")
@@ -110,15 +118,15 @@ class BaseLogs():
 
     def set_hashes(self, generated_hash: str, correct_hash: str):
         """Set hash result"""
-        self.generated_hash = generated_hash
-        self.correct_hash = correct_hash
+        self.generated_hash = Logs.bytes_to_str(generated_hash)
+        self.correct_hash = Logs.bytes_to_str(correct_hash)
 
     def update(self, **data) -> None:
         """
         Update base logs
         Parameters:
             message: bytes
-                Message bytes
+                Message in utf-8 encoded or raw bytes
             is_message: bool
                 Whether the message is in string mode
             generated_hash: bytes
@@ -127,14 +135,23 @@ class BaseLogs():
                 Correct hash bytes
         """
         message = data.get("message", None)
+        assert message is not None, "message must be provided"
         is_message = data.get("is_message", True)
+        assert isinstance(is_message, bool), "is_message must be a boolean"
         generated_hash = data.get("generated_hash", None)
+        assert generated_hash is not None, "generated_hash must be provided"
         correct_hash = data.get("correct_hash", None)
+        assert correct_hash is not None, "correct_hash must be provided"
 
         if message is not None:
             self.set_message(message, is_message)
         if generated_hash is not None and correct_hash is not None:
             self.set_hashes(generated_hash, correct_hash)
+
+    @staticmethod
+    def keys() -> List[str]:
+        """Get base logs keys"""
+        return ["Message", "Generated hash", "Correct   hash"]
 
     def getter(self)->Dict[str, Any]:
         """Get base logs"""
@@ -312,23 +329,41 @@ class StepLogs:
         for key, value in data.items():
             self.step_metadata[key] = value
 
-    def dict_maker(self) -> Dict[str, Any]:
-        """Make dict from step logs"""
+    def getter(self) -> Dict[str, Any]:
+        """Get step logs"""
+        return self.logs
 
-
-class LogHelper:
+class TimeHelper:
     """
-    Helper class for logging
+    Helper class for time-related functions
     """
 
     @staticmethod
-    def timestamp() -> str:
+    def get_current_timestamp() -> str:
         """Get current timestamp as string"""
         dt = datetime.now().astimezone()
         tz = dt.strftime("%z")  # +0900
         tz = f"{tz[:3]}:{tz[3:]}"  # +09:00
         s = f"{dt:%Y-%m-%d %H:%M:%S.%f}{tz}"
         return s
+
+    @staticmethod
+    def perftimer_start() -> int:
+        """Calculate performance time in seconds"""
+        return time.perf_counter_ns()
+
+    @staticmethod
+    def perftimer_end(start_time: int) -> int:
+        """Calculate elapsed performance time in nanoseconds"""
+        end_time = time.perf_counter_ns()
+        elapsed_time = end_time - start_time
+        return elapsed_time
+
+
+class LogHelper:
+    """
+    Helper class for logging
+    """
 
     @staticmethod
     def str_to_bytes(s: str) -> bytes:
@@ -483,7 +518,7 @@ class LogHelper:
         return f"{index}th" + suffix
 
 
-class Logs(LogHelper):
+class Logs(LogHelper, TimeHelper):
     """
     Logging utilities
     """
@@ -580,14 +615,3 @@ class Logs(LogHelper):
                 return _result
             return wrapper
         return decorator
-
-    @staticmethod
-    def get_all(metadata: Metadata,
-                base_logs: BaseLogs,
-                step_logs: StepLogs) -> Dict[str, Any]:
-        """Get all logs as dict"""
-        return {
-            "Metadata": metadata.getter(),
-            "Base Logs": base_logs.getter(),
-            "Step Logs": step_logs.dict_getter(),
-        }
