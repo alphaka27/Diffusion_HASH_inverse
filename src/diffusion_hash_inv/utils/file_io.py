@@ -30,9 +30,9 @@ class Header:
     """
     Represents the header of a binary file.
     """
-    timestamp: str  # 32 Bytes
+    timestamp: str   # 32 Bytes
     time_diff: int   # int
-    bit_length: int        # uint64
+    bit_length: int  # uint64
 
     def encode_timestamp(self, encoding: str) -> bytes:
         """
@@ -237,7 +237,7 @@ class FileIO(Writer, Reader):
         base = dir_path
         candidates = list(base.glob(f"{hash_alg}_{length}_*.json"))
         latest_dt: Optional[datetime] = None
-        latest_file: List[Path] = []
+        latest_files: List[Path] = []
 
         for p in candidates:
             m = pattern.search(p.name)
@@ -247,10 +247,10 @@ class FileIO(Writer, Reader):
             dt = datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H-%M-%S")
             if latest_dt is None or dt > latest_dt:
                 latest_dt = dt
-                latest_file = [p]
+                latest_files = [p]
             elif dt == latest_dt:
-                latest_file.append(p)
-        return latest_file
+                latest_files.append(p)
+        return latest_files
 
     def select_data_dir(self, filetype: str, length: int) -> Path:
         """
@@ -269,8 +269,11 @@ class FileIO(Writer, Reader):
         elif filetype.endswith(".xlsx") or filetype == "xlsx":
             base = self.out_dir / "xlsx" / f"{length}"
 
+        elif filetype.endswith(".png") or filetype == "png":
+            base = self.out_dir / "images" / f"{length}"
+
         else:
-            raise ValueError("Invalid file extension. Use .bin, .char, .json, or .xlsx")
+            raise ValueError("Invalid file extension. Use .bin, .char, .json, .xlsx, or .png")
 
         base.mkdir(parents=True, exist_ok=True)  # ← 실제 타깃 디렉터리 생성
         return base
