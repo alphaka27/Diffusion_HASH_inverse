@@ -6,21 +6,21 @@ from secrets import randbits
 import argparse
 import math
 
+from typing import Optional
+
 try:
     from diffusion_hash_inv.utils import FileIO
 except ImportError as e:
     print(f"Error importing FileIO: {e}")
 
-class GenerateRandom(FileIO):
+class GenerateRandom:
     """
     Generate a random number of specified bit length.
     """
-    def __init__(self, verbose_flag = True, main_flag = False):
-        super().__init__(init_flag=main_flag, clear_flag=False,
-                        verbose_flag=verbose_flag, start_time=super().encode_timestamp())
+    def __init__(self, verbose_flag = True, start_timestamp: Optional[float] = None):
         print(f"Flags - Verbose: {verbose_flag}\n")
-        self.__verbose__ = verbose_flag
-        self.ts = super().encode_timestamp()
+        self.is_verbose = verbose_flag
+        self.start_time = start_timestamp
 
     @staticmethod
     def bytes_to_hex_block(b: bytes, *, word_bytes: int = 2, line_bytes: int = 16,
@@ -65,26 +65,26 @@ class GenerateRandom(FileIO):
         print(' '.join(f'{x:08b}' for x in data))
         print()
 
-    def generate_random_bits(self, length=512) -> bytes:
+    def main(self, length: int = 512, \
+            timestamp: Optional[str] = None) -> bytes:
         """
         Generate a random 512-bit number and return its hexadecimal and binary representations.
         """
-        timestamp = super().encode_timestamp()
         _n = randbits(length)
         _length = math.ceil(length / 8)
         bytes_n = _n.to_bytes(_length, byteorder='big', signed=False)
 
         assert len(bytes_n) == _length, "Binary length does not match specified length."
 
-        if self.__verbose__:
+        if self.is_verbose:
             print(f"Generated {length}-bit random number.")
-            print(f"Generated at: {timestamp.decode('utf-8')}")
+            print(f"Generated at: {timestamp}")
             self.print_bin("Data in Binary", bytes_n)
             print(f"Binary length in Bytes: \n{len(bytes_n)}\n") # type: str
         self.print_hex(f"Data in Hexadecimal (len: {len(bytes_n)}bytes)", bytes_n)
-
-        f_w, _ = self.file_io(f"random_{length}_bits.bin")
-        f_w(bytes_n, length, ts=timestamp)
+        filename = f"random_{length}_bits_{timestamp}.bin"
+        file_io = FileIO(byteorder="big", verbose_flag=self.is_verbose)
+        file_io.file_writer(filename, bytes_n, length)
 
         return bytes_n
 
@@ -139,9 +139,9 @@ if __name__ == "__main__":
 
     assert BIT_LEN is not None, "Either length or exponentiation must be specified."
 
-    generator = GenerateRandom(args.clear, args.verbose, main_flag=True)
+    generator = GenerateRandom(args.verbose, main_flag=True)
 
     for _ in range(args.iterations):
         print(f"Iteration: {_ + 1}")
-        _ = generator.generate_random_bits(BIT_LEN)
+        _ = generator.main(BIT_LEN)
         print()
