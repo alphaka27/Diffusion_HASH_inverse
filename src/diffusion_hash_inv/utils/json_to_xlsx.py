@@ -3,7 +3,6 @@ This script converts JSON files to XLSX format.
 """
 from __future__ import annotations
 from pathlib import Path
-import os
 from typing import List, Sequence, Mapping, Optional
 
 import pandas as pd
