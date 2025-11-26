@@ -12,6 +12,12 @@ __pycache__/
 output/**/*.json
 !output/**/*_[0-9].json
 
+# Data
+data/
+
+# Output
+output/
+
 # Etc
 .vscode/
 .DS_Store
