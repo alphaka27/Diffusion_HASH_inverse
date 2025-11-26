@@ -6,8 +6,6 @@ import argparse
 import sys
 from dataclasses import dataclass
 
-from openpyxl import DEBUG
-
 from diffusion_hash_inv.common import Logs, Metadata, BaseLogs
 from diffusion_hash_inv.generator import GenerateRandom, GenerateRandomNChar
 from diffusion_hash_inv.utils import FileIO, JSONToXLSXConverter
@@ -31,7 +29,9 @@ class Main:
     """
     def __init__(self, *flags, hash_alg: str = "sha256"):
         _is_m, _is_v, _is_c, _is_d, _make_xlsx = flags
-        self.flags = Flags(is_message=_is_m, is_verbose=_is_v, is_clean=_is_c, is_debug=_is_d, make_xlsx=_make_xlsx)
+        self.flags = \
+            Flags(is_message=_is_m, is_verbose=_is_v, is_clean=_is_c, \
+                is_debug=_is_d, make_xlsx=_make_xlsx)
 
         self.alg_name = hash_alg
 
@@ -82,9 +82,6 @@ class Main:
                             exec_start=self.start_time)
         baselogs = BaseLogs()
 
-        json_to_xlsx_converter = JSONToXLSXConverter(verbose_flag=self.flags.is_verbose, \
-                                                    length=length)
-
         if iteration == 0:
             sys.exit()
 
@@ -132,15 +129,20 @@ class Main:
             self.file_io.file_writer(filename=json_file_name, content={"metadata": metadata, \
                     "baselogs": baselogs, "steplogs": algo.step_logs}, length=length)
 
+    def run(self, length:int, iteration: int = 0):
+        """
+        Run the main process
+        """
+        json_to_xlsx_converter = JSONToXLSXConverter(verbose_flag=self.flags.is_verbose, \
+                                                    length=length)
+
+        self.main(length, iteration)
+
         if self.flags.make_xlsx:
             _start = Logs.perftimer_start()
             json_to_xlsx_converter.convert_to_xlsx(self.alg_name.lower())
             print(f"JSON to XLSX conversion completed in "
                 f"{Logs.perftimer_end(_start)} ns.")
-
-
-
-
 
 
 
@@ -203,4 +205,4 @@ if __name__ == "__main__":
         MAKE_XLSX = _args.make_xlsx
 
     Main(_args.message, _args.verbose, _args.clear, DEBUG, MAKE_XLSX, \
-        hash_alg=_args.hash).main(length=LENGTH, iteration=_args.iteration)
+        hash_alg=_args.hash).run(length=LENGTH, iteration=_args.iteration)
