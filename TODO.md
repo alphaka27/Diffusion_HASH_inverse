@@ -1,12 +1,11 @@
 # TODO
 
-## File IO
-Fix fragmented filestream
+## json_to_xlsx
+Make clean XLSX file
+- Get hierarchy from json
+- Make DataFrame using hierarchy
+
 
 ## Log
 Logging overflow event  
-Logging compute time  
-Calculation entropy  
-Add log for strength  
 Add category for dataclass  
-
