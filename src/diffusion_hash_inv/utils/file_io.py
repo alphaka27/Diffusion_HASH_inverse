@@ -118,20 +118,23 @@ class Writer:
     def __init__(self):
         pass
 
-    def write_json(self, path: Path, content: str):
+    @staticmethod
+    def write_json(path: Path, content: str):
         """
         Write the JSON content to a file.
         """
         with open(path, "w", encoding="UTF-8", newline="\n") as j:
             j.write(JSONFormat.dumps(indent=4, **content))
 
-    def write_xlsx(self, path: Path, df: pd.DataFrame):
+    @staticmethod
+    def write_xlsx(path: Path, df: pd.DataFrame):
         """
         Write the DataFrame to an Excel file.
         """
         df.to_excel(path, engine="openpyxl", index=True)
 
-    def write_binary(self, path: Path, header: Optional[bytes] = None, \
+    @staticmethod
+    def write_binary(path: Path, header: Optional[bytes] = None, \
                     content: Optional[bytes] = None, byteorder: Optional[str] = None):
         """
         Write the binary content to a file.
@@ -151,7 +154,8 @@ class Reader:
     def __init__(self):
         pass
 
-    def read_json(self, path: Path) -> str:
+    @staticmethod
+    def read_json(path: Path) -> str:
         """
         Read the JSON content from a file.
         """
@@ -159,13 +163,15 @@ class Reader:
             temp = j.read()
             return JSONFormat.loads(temp)
 
-    def read_xlsx(self, path: Path) -> pd.DataFrame:
+    @staticmethod
+    def read_xlsx(path: Path) -> pd.DataFrame:
         """
         Read the Excel content from a file.
         """
         return pd.read_excel(path, engine="openpyxl")
 
-    def read_binary(self, path: Path, byteorder: Optional[str] = None) -> bytes:
+    @staticmethod
+    def read_binary(path: Path, byteorder: Optional[str] = None) -> bytes:
         """
         Read the binary content from a file.
         """
@@ -173,7 +179,7 @@ class Reader:
         with open(path, "rb") as f:
             return f.read()
 
-class FileIO(Writer, Reader):
+class FileIO:
     """
     File I/O Utilities
     """
@@ -256,7 +262,6 @@ class FileIO(Writer, Reader):
         """
         Decide subdirectory by extension and ensure it exists.
         """
-
         if filetype.endswith(".bin") or filetype == "bin":
             base = self.data_dir / "binary"
 
@@ -269,13 +274,14 @@ class FileIO(Writer, Reader):
         elif filetype.endswith(".xlsx") or filetype == "xlsx":
             base = self.out_dir / "xlsx" / f"{length}"
 
-        elif filetype.endswith(".png") or filetype == "png":
+        elif filetype.endswith(".png") or filetype in ("png", "image"):
             base = self.out_dir / "images" / f"{length}"
 
         else:
             raise ValueError("Invalid file extension. Use .bin, .char, .json, .xlsx, or .png")
 
         base.mkdir(parents=True, exist_ok=True)  # ← 실제 타깃 디렉터리 생성
+
         return base
 
     def _sanitize_filename(self, name: str) -> str:
@@ -299,27 +305,28 @@ class FileIO(Writer, Reader):
         safe_name = self._sanitize_filename(filename)
         full_path = base / safe_name
         if full_path.suffix == ".json":
-            self.write_json(full_path, content)
+            Writer.write_json(full_path, content)
         elif full_path.suffix == ".xlsx":
-            self.write_xlsx(full_path, content)
+            Writer.write_xlsx(full_path, content)
         elif full_path.suffix in (".bin", ".char"):
-            self.write_binary(full_path, header=header_bytes, content=content, \
+            Writer.write_binary(full_path, header=header_bytes, content=content, \
                             byteorder=byteorder)
         else:
             raise ValueError("Invalid file extension. Use .bin, .char, .json, or .xlsx")
 
-    def file_reader(self, filename: str, length: int) -> Any:
+    def file_reader(self, filename: Path | str, length: int) -> Any:
         """
         Get the full path for reading a file.
         """
+        if isinstance(filename, Path):
+            filename = str(filename.name)
         base = self.select_data_dir(filename, length)
         safe_name = self._sanitize_filename(filename)
         full_path = base / safe_name
         if full_path.suffix == ".json":
-            return self.read_json(full_path)
+            return Reader.read_json(full_path)
         if full_path.suffix == ".xlsx":
-            return self.read_xlsx(full_path)
+            return Reader.read_xlsx(full_path)
         if full_path.suffix in (".bin", ".char"):
-            return self.read_binary(full_path)
-
+            return Reader.read_binary(full_path)
         raise ValueError("Invalid file extension. Use .bin, .char, .json, or .xlsx")

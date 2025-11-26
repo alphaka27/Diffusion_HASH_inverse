@@ -7,7 +7,7 @@ from typing import List, Sequence, Mapping, Optional
 
 import pandas as pd
 
-from diffusion_hash_inv.utils import FileIO
+from diffusion_hash_inv.utils import FileIO, Reader, Writer
 
 class JSONToXLSXConverter:
     """
@@ -81,7 +81,7 @@ class JSONToXLSXConverter:
         """
         Converts a single JSON content dictionary to an XLSX DataFrame.
         """
-        content = self.file_io.read_json(self.json_path / json_file)
+        content = self.file_io.file_reader(self.json_path / json_file, length=self.length)
 
         metadata = content.get("Metadata", None)
         assert metadata is not None, "Metadata is missing in the JSON data."
