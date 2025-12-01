@@ -2,7 +2,7 @@
 MD5 implementation aligned with the diffusion_hash_inv codebase.
 """
 
-from typing import Optional, ClassVar, Dict, List, Generator, Sequence, cast
+from typing import Optional, ClassVar, Dict, Generator, Sequence, cast
 import struct
 import math
 import copy
@@ -296,6 +296,7 @@ class MD5(MD5Calc):
         """
         Return the binary MD5 digest of the data.  
         """
+        self.clear_overflow()
         org_data_len = len(data) * 8
         padded_data = self.step1(data)
         # Logs.stdout_logs("After Step 1 (Padding bits):", padded_data, self.is_verbose)
@@ -319,12 +320,8 @@ class MD5(MD5Calc):
         """
         Return the hexadecimal MD5 digest of the data.  
         """
-
-    def get_step_logs(self) -> StepLogs:
-        """
-        Get the step logs.  
-        """
-        return self.step_logs
+        digest_bytes: bytes = self.digest(data)
+        return Logs.bytes_to_str(digest_bytes)
 
 if __name__ == "__main__":
     # 테스트 벡터

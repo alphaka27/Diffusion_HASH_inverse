@@ -45,9 +45,14 @@ class JSONFormat:
         ret_base: Dict[str, Any] = {"BaseLogs": copy.deepcopy(base_logs.getter())}
 
         step_raw = data.get("Logs")
+        step_meta = data.get("Step Metadata")
+
         if step_raw is None:
             raise ValueError("Step Logs not found in JSON.")
-        step_logs: Dict[str, Any] = {"Logs": step_raw}
+        if step_meta is None:
+            raise ValueError("Step Metadata not found in JSON.")
+
+        step_logs: Dict[str, Any] = {"Logs": step_raw, "Step Metadata": step_meta}
         ret = {**ret_meta, **ret_base, **step_logs}
 
         return ret
@@ -64,6 +69,7 @@ class JSONFormat:
             f"steplogs must be an instance of StepLogs, {type(steplogs)} given"
         _all_data = {"Metadata": metadat.getter()}
         _all_data.update(dict(baselogs.getter().items()))
-        _all_data.update({"Logs": steplogs.getter()})
+        step_log, step_meta = steplogs.getter()
+        _all_data.update({"Logs": step_log, "Step Metadata": step_meta})
 
         return json.dumps(_all_data, ensure_ascii=False, indent=indent)
