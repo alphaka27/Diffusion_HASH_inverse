@@ -7,6 +7,7 @@ from pathlib import Path
 import argparse
 
 from torchvision import datasets, transforms
+from functools import partial
 import torchvision.transforms.functional as F
 
 from diffusion_hash_inv.utils import FileIO
@@ -39,8 +40,8 @@ class ByteToImageConverter:
         :param self: Description
         """
         transform = transform = transforms.Compose([
-            lambda img: F.rotate(img, -90),
-            lambda img: F.hflip(img),
+            partial(F.rotate, angle=-90),
+            F.hflip,
         ])
         train_dataset = datasets.EMNIST(
             root=ROOT_DIR / "data",
@@ -111,7 +112,7 @@ class ByteToImageConverter:
         img_path: Path = Path(self.img_path_arg) if self.img_path_arg else default_outuput_dir
         self.file_io.file_writer(filename=img_path, content=emnist_dataset, length=self.length)
 
-
+        
         # byte_string = "example_byte_string"
         # image = self.byte_string_to_image(byte_string)
         # return image
