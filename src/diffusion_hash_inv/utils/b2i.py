@@ -6,7 +6,7 @@ Output: Image
 from pathlib import Path
 import argparse
 
-from torchvision import datasets
+from torchvision import datasets, transforms
 
 from diffusion_hash_inv.utils import FileIO
 from diffusion_hash_inv.utils import add_root_to_path
@@ -37,17 +37,20 @@ class ByteToImageConverter:
         
         :param self: Description
         """
+        transform = transforms.ToTensor()
         train_dataset = datasets.EMNIST(
             root=ROOT_DIR / "data",
             split="byclass",
             train=True,
             download=True,
+            transform=transform,
         )
         test_dataset = datasets.EMNIST(
             root=ROOT_DIR / "data",
             split="byclass",
             train=False,
             download=True,
+            transform=transform,
         )
         ret = train_dataset + test_dataset
         return ret
