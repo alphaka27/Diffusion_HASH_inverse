@@ -6,17 +6,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from datetime import datetime
-from typing import List, Optional, Any
+from typing import List, Optional, Any, Dict
 import os
 import re
 
 import pandas as pd
+import PIL.Image
+from torch.utils.data import Dataset
 
 from diffusion_hash_inv.utils import JSONFormat
-from diffusion_hash_inv.utils.project_root import add_root_to_path
+from diffusion_hash_inv.utils import add_root_to_path
 ROOT_DIR = add_root_to_path()
-
-
 
 # 고정 헤더 길이
 TS_LEN = 32 # 32 bytes UTF-8 timestamp
@@ -111,6 +111,7 @@ class Header:
 
         return Header(timestamp=timestamp.isoformat(), time_diff=time_diff, bit_length=bit_length)
 
+
 class Writer:
     """
     File Writer Utilities
@@ -146,6 +147,25 @@ class Writer:
 
         with open(path, "ab") as f:
             f.write(content)
+
+    @staticmethod
+    def image_writer(path: Path, content: Dataset):
+        """
+        Write the image content to a file.
+        """
+        assert isinstance(content, Dataset), "content must be a Dataset"
+        idx_dict: Dict[str, int] = {}
+        for _i, (image, label) in enumerate(content):
+            if label not in idx_dict:
+                idx_dict[label] = 1
+            else:
+                idx_dict[label] += 1
+            _path = path / f"{label}"
+            _path.mkdir(parents=True, exist_ok=True)
+            _path = _path / f"{idx_dict[label]:05d}.png"
+            image.save(_path, format="PNG")
+            print(f"{_i+1} Saved image: {_path}")
+
 
 class Reader:
     """
@@ -235,7 +255,7 @@ class FileIO:
                         print(f"[SKIP] {p}: {e}")
     #pylint: enable=broad-exception-caught, too-many-branches, too-many-nested-blocks
 
-    def get_latest_file_by_date(self, dir_path: str, hash_alg: str, length: int) -> str:
+    def get_latest_files_by_date(self, dir_path: str, hash_alg: str, length: int) -> str:
         """
         Parse the filename to extract base name without extension.
         """
@@ -258,10 +278,14 @@ class FileIO:
                 latest_files.append(p)
         return latest_files
 
-    def select_data_dir(self, filetype: str, length: int) -> Path:
+    def select_dir(self, filetype: Path | str, length: int, **kwargs) -> Path:
         """
         Decide subdirectory by extension and ensure it exists.
         """
+
+        if isinstance(filetype, Path):
+            filetype = str(filetype.name)
+
         if filetype.endswith(".bin") or filetype == "bin":
             base = self.data_dir / "binary"
 
@@ -275,8 +299,13 @@ class FileIO:
             base = self.out_dir / "xlsx" / f"{length}"
 
         elif filetype.endswith(".png") or filetype in ("png", "image"):
-            base = self.out_dir / "images" / f"{length}"
-
+            data_mode = kwargs.pop("data_mode", None)
+            if data_mode in ["data", "d"]:
+                base = self.data_dir / "images"
+            elif data_mode in ["output", "o"]:
+                base = self.out_dir / "images"
+            else:
+                raise ValueError("For .png files, specify data_mode as 'data' or 'output'")
         else:
             raise ValueError("Invalid file extension. Use .bin, .char, .json, .xlsx, or .png")
 
@@ -288,7 +317,7 @@ class FileIO:
         # 윈도우/범용 안전: 콜론, 슬래시, 역슬래시 등 치환
         return name.replace(":", "-").replace("/", "_").replace("\\", "_")
 
-    def file_writer(self, filename: str, content: Any, length: int, **kwargs) -> None:
+    def file_writer(self, filename: Path | str, content: Any, length: int, **kwargs) -> None:
         """
         Get the full path for writing a file, ensuring directories exist.
         """
@@ -301,9 +330,21 @@ class FileIO:
             header = Header(start_timestamp, elapsed_time, length)
             header_bytes = header.encode("utf-8", byteorder)
 
-        base = self.select_data_dir(filename, length)
-        safe_name = self._sanitize_filename(filename)
-        full_path = base / safe_name
+        base: Path
+
+        if isinstance(filename, str):
+            base = self.select_dir(filename, length)
+            safe_name = self._sanitize_filename(filename)
+            full_path = base / safe_name
+        elif isinstance(filename, Path):
+            if not filename.is_dir():
+                base = self.select_dir(filename, length)
+            full_path = filename
+        else:
+            full_path = base / filename.name
+
+        print(full_path)
+        print(type(full_path))
         if full_path.suffix == ".json":
             Writer.write_json(full_path, content)
         elif full_path.suffix == ".xlsx":
@@ -311,18 +352,21 @@ class FileIO:
         elif full_path.suffix in (".bin", ".char"):
             Writer.write_binary(full_path, header=header_bytes, content=content, \
                             byteorder=byteorder)
+        elif full_path.suffix == ".png" or isinstance(content, Dataset):
+            Writer.image_writer(full_path, content)
         else:
-            raise ValueError("Invalid file extension. Use .bin, .char, .json, or .xlsx")
+            raise ValueError("Invalid file extension. Use .bin, .char, .json, .xlsx, or .png")
 
     def file_reader(self, filename: Path | str, length: int) -> Any:
         """
         Get the full path for reading a file.
         """
-        if isinstance(filename, Path):
-            filename = str(filename.name)
-        base = self.select_data_dir(filename, length)
-        safe_name = self._sanitize_filename(filename)
-        full_path = base / safe_name
+        base = self.select_dir(filename, length)
+        if isinstance(filename, str):
+            safe_name = self._sanitize_filename(filename)
+            full_path = base / safe_name
+        else:
+            full_path = base / filename.name
         if full_path.suffix == ".json":
             return Reader.read_json(full_path)
         if full_path.suffix == ".xlsx":

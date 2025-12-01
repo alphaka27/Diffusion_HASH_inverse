@@ -35,7 +35,13 @@ class BaseCalc:
         type(self).bs_byte = block_size // 8
         type(self).mask = (1 << word_size) - 1
         type(self).byteorder = byteorder
+        self.overflow_count: int = 0
+        self.overflow_boolean: bool = False
         assert type(self).byteorder in ('big', 'little'), "Byteorder must be 'big' or 'little'."
+
+    def clear_overflow(self) -> None:
+        """Clear overflow status."""
+        self.overflow_count = 0
 
     @staticmethod
     def byte_to_int(b: bytes, byteorder: Optional[str] = None) -> int:
@@ -80,6 +86,22 @@ class BaseCalc:
 
         return int.from_bytes(b, type(self).byteorder) & ((1 << type(self).block_size) - 1)
 
+    def get_variable(self, name: str) -> int | str:
+        """Retrieve the value of a variable by its name."""
+        assert hasattr(self, name), f"{name} is not a valid attribute of {type(self).__name__}."
+        value = getattr(self, name)
+        assert isinstance(value, int | str), f"{name} is not an integer or string attribute."
+        return value
+
+    def set_variable(self, name: str, value: int | bytes) -> None:
+        """Set the value of a variable by its name."""
+        assert hasattr(self, name), f"{name} is not a valid attribute of {type(self).__name__}."
+        assert isinstance(value, int | bytes), f"Value {value} must be an integer or bytes."
+        if isinstance(value, bytes):
+            value = self.word_to_int(value)
+        assert isinstance(value, int), f"Value {value} must be an integer after conversion."
+        setattr(self, name, value)
+
     def modular_add(self, *args: int | bytes) -> int:
         """Perform modular addition on the provided integers."""
         ret = 0
@@ -90,6 +112,9 @@ class BaseCalc:
             assert 0 <= arg <= type(self).mask, "All arguments must be within word size."
 
             ret += arg
+            if ret > type(self).mask:
+                self.overflow_boolean = True
+                self.overflow_count += 1
             ret &= type(self).mask
 
         return ret

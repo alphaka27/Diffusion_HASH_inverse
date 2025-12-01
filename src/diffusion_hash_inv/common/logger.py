@@ -9,6 +9,7 @@ from collections.abc import Hashable
 from dataclasses import dataclass, field
 import time
 import math
+import copy
 
 from functools import wraps
 
@@ -166,17 +167,20 @@ class StepLogs:
     """
     Step logs container that behaves like a dict while keeping per-step structure.
     """
-    logs: Dict[str, Any] = field(default_factory=dict, init=False)
-    step_metadata: Dict[str, Any] = field(default_factory=dict, init=False)
-
     wordsize: Optional[int] = None
     byteorder: Optional[str] = None
     hierarchy: Sequence[Hashable] = field(default_factory=tuple)
+
+    logs: Dict[str, Any] = field(default_factory=dict, init=False)
+    overflow_log: Dict[str, Any] = field(default_factory=dict, init=False)
+    step_metadata: Dict[str, Any] = field(default_factory=dict, init=False)
+    overflow: int = field(default_factory=int, init=False)
 
     def clear(self) -> None:
         """Clear all step logs"""
         self.logs.clear()
         self.step_metadata.clear()
+        self.overflow = -1
 
     @staticmethod
     def _ensure_nested_dict(root: MutableMapping, path: Sequence[Hashable]) -> MutableMapping:
@@ -269,11 +273,12 @@ class StepLogs:
                     _hier_path.append(step_index)
 
         step_result: Dict | Sequence | bytes | bytearray = kwargs.get("step_result", None)
+
         assert step_result is not None, "step_result must be provided"
         assert isinstance(step_result, (Dict, Sequence, bytes, bytearray)), \
             "step_result must be Dict, Sequence, or bytes-like"
 
-        _logs: Dict | str = None
+        _logs: Dict[str, Any] | str = None
         if isinstance(step_result, Dict):
             _logs = self.dict_updater(**step_result)
 
@@ -288,9 +293,6 @@ class StepLogs:
         else:
             raise NotImplementedError("Unsupported type for step log update")
         self.set_value(_hier_path, _logs)
-
-        # breakpoint()
-
 
     def update_loop(self, **kwargs) -> Dict[str, Any]:
         """Update step logs in loop"""
@@ -322,16 +324,13 @@ class StepLogs:
         else:
             raise NotImplementedError("Unsupported type for step log update")
         self.set_value(_hier_path, _logs)
-        # breakpoint()
-
-    def metadata_setter(self, **data) -> None:
-        """Set step logs metadata"""
-        for key, value in data.items():
-            self.step_metadata[key] = value
 
     def getter(self) -> Dict[str, Any]:
         """Get step logs"""
-        return self.logs
+        self.step_metadata.update({"word_size": self.wordsize, "byteorder": self.byteorder})
+        self.step_metadata.update({"hierarchy": self.hierarchy})
+        self.step_metadata.update({"overflow_count": self.overflow})
+        return self.logs, self.step_metadata
 
 class TimeHelper:
     """
@@ -354,10 +353,21 @@ class TimeHelper:
 
     @staticmethod
     def perftimer_end(start_time: int) -> int:
-        """Calculate elapsed performance time in nanoseconds"""
+        """Calculate performance time in nanoseconds"""
         end_time = time.perf_counter_ns()
-        elapsed_time = end_time - start_time
-        return elapsed_time
+        return end_time - start_time
+
+    @staticmethod
+    def perftimer(elapsed_time: int) -> str:
+        """Calculate elapsed performance time in nanoseconds"""
+        elapsed_time_s = elapsed_time / 1_000_000_000
+        elapsed_time //= 1_000_000_000
+        elapsed_time_ms = elapsed_time / 1_000_000
+        elapsed_time //= 1_000_000
+        elapsed_time_us = elapsed_time / 1_000
+        elapsed_time //= 1_000
+
+        return f"{elapsed_time_s} s ({elapsed_time_ms} ms, {elapsed_time_us} us, {elapsed_time} ns)"
 
 
 class LogHelper:
@@ -579,6 +589,17 @@ class Logs(LogHelper, TimeHelper):
                 # Call the original function
                 org: bytes | Sequence | Generator | Dict = func(self, *args, **kwargs)
 
+                assert hasattr(self, 'overflow_count'), \
+                    "The class must have 'overflow' attribute."
+                assert hasattr(self, 'get_variable'), \
+                    "The class must have 'get_variable' method."
+
+                _overflow = self.get_variable("overflow_count")
+                _overflow = max(self.step_logs.overflow, _overflow)
+                self.step_logs.overflow = _overflow
+                _is_overflow = self.get_variable("overflow_boolean")
+                self.set_variable("overflow_boolean", False)
+
                 _result = None
                 # Validate the result type based on is_loop
                 assert is_loop and isinstance(org, Generator) or not is_loop, \
@@ -593,8 +614,10 @@ class Logs(LogHelper, TimeHelper):
                                 round_idx=round_idx,
                                 step_index=step_idx,
                                 loop_index=_i,
-                                step_result=loop_result, \
-                                wordsize=self.word_size, byteorder=self.byteorder)
+                                step_result=loop_result,
+                                wordsize=self.word_size,
+                                byteorder=self.byteorder,
+                                is_overflow=_is_overflow)
                             _i += 1
                         except StopIteration as e:
                             _result = e.value
@@ -606,7 +629,10 @@ class Logs(LogHelper, TimeHelper):
                     StepLogs.update(self.step_logs,
                         round_idx=round_idx,
                         step_index=step_idx,
-                        step_result=org, wordsize=self.word_size, byteorder=self.byteorder)
+                        step_result=org,
+                        wordsize=self.word_size,
+                        byteorder=self.byteorder,
+                        is_overflow=_is_overflow)
                 assert _result is not None, "Log update failed in loop."
                 return _result
             return wrapper
