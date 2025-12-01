@@ -180,7 +180,7 @@ class Writer:
 
             _image.save(_path, format="PNG")
 
-            print(f"{_i+1:,06d} Saved image: {_path}")
+            print(f"{_i+1:,} Saved image: {_path}")
         print(idx_dict)
 
 
