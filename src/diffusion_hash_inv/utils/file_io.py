@@ -11,8 +11,8 @@ import os
 import re
 
 import pandas as pd
-import PIL.Image
 from torch.utils.data import Dataset
+from torchvision.transforms.functional import to_pil_image
 
 from diffusion_hash_inv.utils import JSONFormat
 from diffusion_hash_inv.utils import add_root_to_path
@@ -163,8 +163,13 @@ class Writer:
             _path = path / f"{label}"
             _path.mkdir(parents=True, exist_ok=True)
             _path = _path / f"{idx_dict[label]:05d}.png"
-            image.save(_path, format="PNG")
+            if hasattr(image, "save"):
+                _image = image
+            else:
+                _image = to_pil_image(image)
+            _image.save(_path, format="PNG")
             print(f"{_i+1} Saved image: {_path}")
+        print(idx_dict)
 
 
 class Reader:

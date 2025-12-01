@@ -7,6 +7,7 @@ from pathlib import Path
 import argparse
 
 from torchvision import datasets, transforms
+import torchvision.transforms.functional as F
 
 from diffusion_hash_inv.utils import FileIO
 from diffusion_hash_inv.utils import add_root_to_path
@@ -37,7 +38,10 @@ class ByteToImageConverter:
         
         :param self: Description
         """
-        transform = transforms.ToTensor()
+        transform = transform = transforms.Compose([
+            lambda img: F.rotate(img, -90),
+            lambda img: F.hflip(img),
+        ])
         train_dataset = datasets.EMNIST(
             root=ROOT_DIR / "data",
             split="byclass",
