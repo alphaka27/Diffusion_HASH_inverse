@@ -160,15 +160,25 @@ class Writer:
                 idx_dict[label] = 1
             else:
                 idx_dict[label] += 1
-            _path = path / f"{label}"
-            _path.mkdir(parents=True, exist_ok=True)
-            _path = _path / f"{idx_dict[label]:05d}.png"
+
             if hasattr(image, "save"):
                 _image = image
             else:
                 _image = to_pil_image(image)
             _image.save(_path, format="PNG")
-            print(f"{_i+1} Saved image: {_path}")
+            label_name = ""
+            if label < 10:
+                label_name = str(label)
+            elif 10 <= label < 36:
+                label_name = chr(ord('A') + (label - 10))
+            elif 36 <= label < 62:
+                label_name = chr(ord('a') + (label - 36))
+
+            _path = path / f"{label_name}"
+            _path.mkdir(parents=True, exist_ok=True)
+            _path = _path / f"{idx_dict[label]:05d}.png"
+
+            print(f"{_i+1:,06d} Saved image: {_path}")
         print(idx_dict)
 
 
