@@ -35,13 +35,15 @@ class BaseCalc:
         type(self).bs_byte = block_size // 8
         type(self).mask = (1 << word_size) - 1
         type(self).byteorder = byteorder
-        self.overflow_count: int = 0
         self.overflow_boolean: bool = False
+        self.total_overflow_count: int = 0
+        self.loop_overflow_count: int = 0
         assert type(self).byteorder in ('big', 'little'), "Byteorder must be 'big' or 'little'."
 
     def clear_overflow(self) -> None:
         """Clear overflow status."""
-        self.overflow_count = 0
+        self.total_overflow_count = 0
+        self.loop_overflow_count = 0
 
     @staticmethod
     def byte_to_int(b: bytes, byteorder: Optional[str] = None) -> int:
@@ -114,7 +116,8 @@ class BaseCalc:
             ret += arg
             if ret > type(self).mask:
                 self.overflow_boolean = True
-                self.overflow_count += 1
+                self.total_overflow_count += 1
+                self.loop_overflow_count += 1
             ret &= type(self).mask
 
         return ret
