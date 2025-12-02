@@ -608,6 +608,7 @@ class Logs(LogHelper, TimeHelper):
 
                 if is_loop:
                     _i = 0
+                    print(step_idx)
                     while True:
                         try:
                             loop_result = next(org)
