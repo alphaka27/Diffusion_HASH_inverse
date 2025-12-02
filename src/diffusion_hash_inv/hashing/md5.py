@@ -225,7 +225,6 @@ class MD5(MD5Calc):
             message_block (Sequence[int]): 16-words block.
             previous_hash (Dict[str, int]): Previous hash values.
         Returns:
-
         """
 
         a = previous_hash['A']
@@ -244,8 +243,7 @@ class MD5(MD5Calc):
             prev_a, prev_b, prev_c, prev_d = a, b, c, d
             res_dict: Dict[str, int] = cast(Dict[str, int], \
                             self._step4_loop(m, A=a, B=b, C=c, D=d, Round_Index=block_n))
-            print(res_dict)
-            print(type(res_dict))
+
             assert isinstance(res_dict, dict), \
                 "Result from _step4_loop must be a dictionary."
 

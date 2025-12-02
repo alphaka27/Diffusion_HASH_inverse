@@ -362,7 +362,7 @@ class FileIO:
             full_path = base / filename.name
 
         print(full_path)
-        print(type(full_path))
+
         if full_path.suffix == ".json":
             Writer.write_json(full_path, content)
         elif full_path.suffix == ".xlsx":

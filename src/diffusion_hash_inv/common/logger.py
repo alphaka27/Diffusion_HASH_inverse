@@ -9,7 +9,6 @@ from collections.abc import Hashable
 from dataclasses import dataclass, field
 import time
 import math
-import copy
 
 from functools import wraps
 
@@ -599,6 +598,8 @@ class Logs(LogHelper, TimeHelper):
                 self.step_logs.overflow = _overflow
                 _is_overflow = self.get_variable("overflow_boolean")
                 self.set_variable("overflow_boolean", False)
+                print(f"Total overflow status: {_overflow}")
+                print(f"Loop overflow status: {self.get_variable('loop_overflow_count')}")
 
                 _result = None
                 # Validate the result type based on is_loop

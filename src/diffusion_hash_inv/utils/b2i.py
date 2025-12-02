@@ -5,9 +5,9 @@ Output: Image
 """
 from pathlib import Path
 import argparse
+from functools import partial
 
 from torchvision import datasets, transforms
-from functools import partial
 import torchvision.transforms.functional as F
 
 from diffusion_hash_inv.utils import FileIO
