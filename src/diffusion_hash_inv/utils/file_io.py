@@ -217,6 +217,13 @@ class Reader:
         with open(path, "rb") as f:
             return f.read()
 
+    @staticmethod
+    def read_image(path: Path) -> Dataset:
+        """
+        Read the image content from a file.
+        """
+        raise NotImplementedError("Image reading not implemented yet.")
+
 class FileIO:
     """
     File I/O Utilities
