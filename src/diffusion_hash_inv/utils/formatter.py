@@ -60,14 +60,14 @@ class JSONFormat:
     @staticmethod
     def dumps(indent=4, **data):
         """Make JSON dump"""
-        metadat = data.get("metadata", None)
+        metadata = data.get("metadata", None)
         baselogs = data.get("baselogs", None)
         steplogs = data.get("steplogs", None)
-        assert isinstance(metadat, Metadata), "metadata must be an instance of Metadata"
+        assert isinstance(metadata, Metadata), "metadata must be an instance of Metadata"
         assert isinstance(baselogs, BaseLogs), "baselogs must be an instance of BaseLogs"
         assert isinstance(steplogs, StepLogs), \
             f"steplogs must be an instance of StepLogs, {type(steplogs)} given"
-        _all_data = {"Metadata": metadat.getter()}
+        _all_data = {"Metadata": metadata.getter()}
         _all_data.update(dict(baselogs.getter().items()))
         step_log, step_meta = steplogs.getter()
         _all_data.update({"Logs": step_log, "Step Metadata": step_meta})
