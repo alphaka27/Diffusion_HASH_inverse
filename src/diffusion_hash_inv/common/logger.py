@@ -593,6 +593,7 @@ class Logs(LogHelper, TimeHelper):
                     "The class must have 'overflow' attribute."
                 assert hasattr(self, 'get_variable'), \
                     "The class must have 'get_variable' method."
+                # Look base_calc.py if assertion fails
 
                 _overflow = self.get_variable("total_overflow_count")
                 _overflow = max(self.step_logs.overflow, _overflow)
@@ -600,7 +601,6 @@ class Logs(LogHelper, TimeHelper):
                 _is_overflow = self.get_variable("overflow_boolean")
                 self.set_variable("overflow_boolean", False)
                 print(f"Total overflow status: {_overflow}")
-                print(f"Loop overflow status: {self.get_variable('loop_overflow_count')}")
 
                 _result = None
                 # Validate the result type based on is_loop

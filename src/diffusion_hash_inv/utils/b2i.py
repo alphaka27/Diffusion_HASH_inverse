@@ -33,6 +33,7 @@ class ByteToImageConverter:
 
         self.hash_alg = kwargs.pop("hash_alg", None)
 
+
     def emnist_save(self, img_path: Path) -> None:
         """
         EMNIST dataset loading function
@@ -60,6 +61,7 @@ class ByteToImageConverter:
         all_dataset = train_dataset + test_dataset
         self.file_io.file_writer(filename=img_path, content=all_dataset, length=self.length)
 
+
     def get_json_list(self, hash_alg: str):
         """
         Loads JSON logs from a specified file path.
@@ -76,6 +78,7 @@ class ByteToImageConverter:
         json_list.sort()
         return json_list
 
+
     def json_data_loader(self, json_file_path: str):
         """
         Parses JSON data from a specified file path.
@@ -87,7 +90,21 @@ class ByteToImageConverter:
         json_path_list = self.get_json_list(json_file_path)
         for json_file in json_path_list:
             json_data = self.file_io.file_reader(json_file, self.length)
+
         return json_data
+
+
+    def log_parser(self, json_data: dict):
+        """
+        Parses log data from JSON content.
+        
+        :param self: Description
+        :param json_data: Description
+        :type json_data: dict
+        """
+        byte_string = json_data.get("BaseLogs", {}).get("message", "")
+        return byte_string
+
 
     def byte_string_to_image(self, byte_string: str):
         """
@@ -98,7 +115,6 @@ class ByteToImageConverter:
         :type byte_string: str
         """
 
-        return byte_image
 
     def main(self, test: bool = False):
         """
@@ -115,12 +131,10 @@ class ByteToImageConverter:
 
         latest_json_list = self.get_json_list(self.hash_alg)
 
-        # print(f"JSON files: {latest_json_list}")
         print(f"Found {len(latest_json_list)} JSON files.")
 
-
-
-
+        for json_file in latest_json_list:
+            pass
 
 
 if __name__ == "__main__":
