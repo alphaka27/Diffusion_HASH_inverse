@@ -589,12 +589,12 @@ class Logs(LogHelper, TimeHelper):
                 # Call the original function
                 org: bytes | Sequence | Generator | Dict = func(self, *args, **kwargs)
 
-                assert hasattr(self, 'overflow_count'), \
+                assert hasattr(self, 'total_overflow_count'), \
                     "The class must have 'overflow' attribute."
                 assert hasattr(self, 'get_variable'), \
                     "The class must have 'get_variable' method."
 
-                _overflow = self.get_variable("overflow_count")
+                _overflow = self.get_variable("total_overflow_count")
                 _overflow = max(self.step_logs.overflow, _overflow)
                 self.step_logs.overflow = _overflow
                 _is_overflow = self.get_variable("overflow_boolean")
