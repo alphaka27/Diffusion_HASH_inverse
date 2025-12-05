@@ -191,6 +191,7 @@ class MD5(MD5Calc):
             and isinstance(c, int) and isinstance(d, int), "a, b, c, d must be integers."
 
         for i in range(64):
+            self.set_variable("loop_overflow_count", 0)
             if 0 <= i <= 15:
                 f = self.f_func(b, c, d)
                 g = i
