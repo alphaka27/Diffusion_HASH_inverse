@@ -33,7 +33,7 @@ class ByteToImageConverter:
 
         self.hash_alg = kwargs.pop("hash_alg", None)
 
-    def emnist_load(self):
+    def emnist_save(self, img_path: Path) -> None:
         """
         EMNIST dataset loading function
         
@@ -57,8 +57,8 @@ class ByteToImageConverter:
             download=True,
             transform=transform,
         )
-        ret = train_dataset + test_dataset
-        return ret
+        all_dataset = train_dataset + test_dataset
+        self.file_io.file_writer(filename=img_path, content=all_dataset, length=self.length)
 
     def get_json_list(self, hash_alg: str):
         """
@@ -68,11 +68,11 @@ class ByteToImageConverter:
         :param json_file_path: Description
         :type json_file_path: str
         """
+        _hash_alg = hash_alg if self.hash_alg is None else self.hash_alg
         default_json_dir = self.file_io.select_dir(filetype="json", length=self.length)
         json_path: Path = Path(self.json_path_arg) if self.json_path_arg else default_json_dir
 
-        json_list = self.file_io.get_latest_files_by_date(json_path, hash_alg, self.length)
-
+        json_list = self.file_io.get_latest_files_by_date(json_path, _hash_alg, self.length)
         json_list.sort()
         return json_list
 
@@ -100,22 +100,27 @@ class ByteToImageConverter:
 
         return byte_image
 
-    def main(self):
+    def main(self, test: bool = False):
         """
         Main function to convert byte string to image.
         
         :param self: Description
         """
-        emnist_dataset = self.emnist_load()
-        default_outuput_dir = self.file_io.select_dir(filetype="image", \
-                                                    length=self.length, data_mode="data")
-        img_path: Path = Path(self.img_path_arg) if self.img_path_arg else default_outuput_dir
-        self.file_io.file_writer(filename=img_path, content=emnist_dataset, length=self.length)
+        if not test:
+            default_outuput_dir = self.file_io.select_dir(filetype="image", \
+                                                        length=self.length, data_mode="data")
+            img_path: Path = Path(self.img_path_arg) if self.img_path_arg else default_outuput_dir
+            print(img_path)
+            self.emnist_save(img_path)
 
-        
-        # byte_string = "example_byte_string"
-        # image = self.byte_string_to_image(byte_string)
-        # return image
+        latest_json_list = self.get_json_list(self.hash_alg)
+
+        # print(f"JSON files: {latest_json_list}")
+        print(f"Found {len(latest_json_list)} JSON files.")
+
+
+
+
 
 
 if __name__ == "__main__":
@@ -127,6 +132,7 @@ if __name__ == "__main__":
     parser.add_argument("--standalone", action="store_true", help="Run as standalone script")
     parser.add_argument("--hash_alg", type=str, required=True, \
                         help="Hash algorithm to filter JSON files")
+    parser.add_argument("-t", "--test", action="store_true", help="Run in test mode")
 
     args = parser.parse_args()
 
@@ -138,4 +144,4 @@ if __name__ == "__main__":
         is_verbose=args.is_verbose,
         hash_alg=args.hash_alg,
     )
-    converter.main()
+    converter.main(args.test)
