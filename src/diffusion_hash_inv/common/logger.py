@@ -237,6 +237,7 @@ class StepLogs:
             elif isinstance(item, int):
                 item = LogHelper.int_to_bytes(item, self.wordsize, self.byteorder)
                 temp_dict[idx_str] = Logs.bytes_to_str(item)
+
             elif isinstance(item, Sequence) and \
                 not isinstance(item, (str, bytes, bytearray)):
                 # Nested sequence handling
@@ -244,12 +245,15 @@ class StepLogs:
                 for _item in item:
                     if isinstance(_item, (bytearray, bytes)):
                         _item = Logs.bytes_to_str(_item)
+
                     elif isinstance(_item, int):
                         _item = LogHelper.int_to_bytes(_item, self.wordsize, self.byteorder)
                         _item = Logs.bytes_to_str(_item)
+
                     else:
                         raise NotImplementedError\
                             ("Unsupported type in nested sequence for step log update")
+
                     _nested_list.append(_item)
                 temp_dict[idx_str] = _nested_list
             else:

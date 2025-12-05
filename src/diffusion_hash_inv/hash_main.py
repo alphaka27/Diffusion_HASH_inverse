@@ -138,7 +138,8 @@ class Main:
         _start_total = Logs.perftimer_start()
         self.main(length, iteration)
         _end_total = Logs.perftimer_end(_start_total)
-        print(f"Total execution time: {_end_total} ns.")
+        elapsed_time = Logs.perftimer(_end_total)
+        print(f"Total execution time: {elapsed_time}")
 
         if self.flags.make_xlsx:
             _start = Logs.perftimer_start()
