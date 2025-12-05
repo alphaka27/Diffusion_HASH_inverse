@@ -363,14 +363,11 @@ class TimeHelper:
     @staticmethod
     def perftimer(elapsed_time: int) -> str:
         """Calculate elapsed performance time in nanoseconds"""
-        elapsed_time_s = elapsed_time // 1_000_000_000
-        elapsed_time %= 1_000_000_000
-        elapsed_time_ms = elapsed_time // 1_000_000
-        elapsed_time %= 1_000_000
-        elapsed_time_us = elapsed_time // 1_000
-        elapsed_time %= 1_000
+        sec, rem = divmod(elapsed_time, 1_000_000_000)
+        ms, rem = divmod(rem, 1_000_000)
+        us, ns = divmod(rem, 1_000)
 
-        return f"{elapsed_time_s} s ({elapsed_time_ms} ms, {elapsed_time_us} us, {elapsed_time} ns)"
+        return f"{elapsed_time} ns ({sec} s {ms} ms, {us} us, {ns} ns)"
 
 
 class LogHelper:
