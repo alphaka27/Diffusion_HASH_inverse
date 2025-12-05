@@ -79,21 +79,6 @@ class ByteToImageConverter:
         return json_list
 
 
-    def json_data_loader(self, json_file_path: str):
-        """
-        Parses JSON data from a specified file path.
-        
-        :param self: Description
-        :param json_file_path: Description
-        :type json_file_path: str
-        """
-        json_path_list = self.get_json_list(json_file_path)
-        for json_file in json_path_list:
-            json_data = self.file_io.file_reader(json_file, self.length)
-
-        return json_data
-
-
     def log_parser(self, json_data: dict):
         """
         Parses log data from JSON content.
@@ -134,7 +119,7 @@ class ByteToImageConverter:
         print(f"Found {len(latest_json_list)} JSON files.")
 
         for json_file in latest_json_list:
-            pass
+            print(type(json_file))
 
 
 if __name__ == "__main__":
