@@ -6,6 +6,7 @@ Output: Image
 from pathlib import Path
 import argparse
 from functools import partial
+from typing import List
 
 from torchvision import datasets, transforms
 import torchvision.transforms.functional as F
@@ -62,13 +63,14 @@ class ByteToImageConverter:
         self.file_io.file_writer(filename=img_path, content=all_dataset, length=self.length)
 
 
-    def get_json_list(self, hash_alg: str):
+    def get_json_list(self, hash_alg: str) -> List[Path]:
         """
-        Loads JSON logs from a specified file path.
-        
-        :param self: Description
-        :param json_file_path: Description
-        :type json_file_path: str
+        Get list of JSON files for a specific hash algorithm.
+
+        :param hash_alg: Specified hash algorithm
+        :type hash_alg: str
+        :return: Returns list of JSON file paths (full paths)
+        :rtype: List[Path]
         """
         _hash_alg = hash_alg if self.hash_alg is None else self.hash_alg
         default_json_dir = self.file_io.select_dir(filetype="json", length=self.length)
@@ -77,6 +79,17 @@ class ByteToImageConverter:
         json_list = self.file_io.get_latest_files_by_date(json_path, _hash_alg, self.length)
         json_list.sort()
         return json_list
+
+    def json_loader(self, json_file: Path) -> dict:
+        """
+        Loads JSON logs from a specified file path.
+        
+        :param self: Description
+        :param json_file: Description
+        :type json_file: Path
+        """
+        json_data = self.file_io.file_reader(json_file, length=self.length)
+        return json_data
 
 
     def log_parser(self, json_data: dict):
@@ -119,7 +132,7 @@ class ByteToImageConverter:
         print(f"Found {len(latest_json_list)} JSON files.")
 
         for json_file in latest_json_list:
-            print(type(json_file))
+            
 
 
 if __name__ == "__main__":
