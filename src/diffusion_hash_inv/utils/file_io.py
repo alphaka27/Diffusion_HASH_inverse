@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from datetime import datetime
 from typing import List, Optional, Any, Dict
+from PIL import Image
 import os
 import re
 
@@ -149,40 +150,15 @@ class Writer:
             f.write(content)
 
     @staticmethod
-    def image_writer(path: Path, content: Dataset):
+    def image_writer(path: Path, content: Image.Image):
         """
         Write the image content to a file.
         """
-        assert isinstance(content, Dataset), "content must be a Dataset"
-        idx_dict: Dict[str, int] = {}
-        for _i, (image, label) in enumerate(content):
-            if label not in idx_dict:
-                idx_dict[label] = 1
-            else:
-                idx_dict[label] += 1
+        par, child = path.parent, path.name
+        par.mkdir(parents=True, exist_ok=True)
+        content.save(par / child)
 
-            if hasattr(image, "save"):
-                _image = image
-            else:
-                _image = to_pil_image(image)
 
-            label_name = ""
-            if label < 10:
-                label_name = str(label)
-            elif 10 <= label < 36:
-                label_name = chr(ord('A') + (label - 10))
-            elif 36 <= label < 62:
-                label_name = chr(ord('a') + (label - 36))
-                label_name = "_" + label_name
-
-            _path = path / f"{label_name}"
-            _path.mkdir(parents=True, exist_ok=True)
-            _path = _path / f"{idx_dict[label]:05d}.png"
-
-            _image.save(_path, format="PNG")
-
-            print(f"{_i+1:,} Saved image: {_path}")
-        print(idx_dict)
 
 
 class Reader:
@@ -222,7 +198,7 @@ class Reader:
         """
         Read the image content from a file.
         """
-        raise NotImplementedError("Image reading not implemented yet.")
+
 
 class FileIO:
     """
@@ -303,7 +279,7 @@ class FileIO:
                 latest_files.append(p)
         return latest_files
 
-    def select_dir(self, filetype: Path | str, length: int, **kwargs) -> Path:
+    def select_dir(self, filetype: Path | str, length: int) -> Path:
         """
         Decide subdirectory by extension and ensure it exists.
         """
@@ -324,13 +300,7 @@ class FileIO:
             base = self.out_dir / "xlsx" / f"{length}"
 
         elif filetype.endswith(".png") or filetype in ("png", "image"):
-            data_mode = kwargs.pop("data_mode", None)
-            if data_mode in ["data", "d"]:
-                base = self.data_dir / "images"
-            elif data_mode in ["output", "o"]:
-                base = self.out_dir / "images"
-            else:
-                raise ValueError("For .png files, specify data_mode as 'data' or 'output'")
+            base = self.out_dir / "images"
         else:
             raise ValueError("Invalid file extension. Use .bin, .char, .json, .xlsx, or .png")
 

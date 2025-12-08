@@ -6,11 +6,14 @@ Output: Image
 from pathlib import Path
 import argparse
 from functools import partial
-from typing import List
+from typing import List, Dict
 
 from torchvision import datasets, transforms
 import torchvision.transforms.functional as F
+import torchvision
+import torch
 
+from diffusion_hash_inv.common import Logs
 from diffusion_hash_inv.utils import FileIO
 from diffusion_hash_inv.utils import add_root_to_path
 ROOT_DIR = add_root_to_path()
@@ -29,41 +32,22 @@ class ByteToImageConverter:
 
         self.file_io = FileIO(verbose_flag=self.is_verbose)
 
-        self.img_path_arg = kwargs.pop("img_path", None)
-        self.json_path_arg = kwargs.pop("json_path", None)
-
         self.hash_alg = kwargs.pop("hash_alg", None)
 
-
-    def emnist_save(self, img_path: Path) -> None:
-        """
-        EMNIST dataset loading function
-        
-        :param self: Description
-        """
         transform = transform = transforms.Compose([
             partial(F.rotate, angle=-90),
             F.hflip,
+            transforms.ToTensor(),
         ])
-        train_dataset = datasets.EMNIST(
+        self.dataset = datasets.EMNIST(
             root=ROOT_DIR / "data",
             split="byclass",
             train=True,
             download=True,
             transform=transform,
         )
-        test_dataset = datasets.EMNIST(
-            root=ROOT_DIR / "data",
-            split="byclass",
-            train=False,
-            download=True,
-            transform=transform,
-        )
-        all_dataset = train_dataset + test_dataset
-        self.file_io.file_writer(filename=img_path, content=all_dataset, length=self.length)
 
-
-    def get_json_list(self, hash_alg: str) -> List[Path]:
+    def get_json_list(self, hash_alg: str, json_path: Path = None) -> List[Path]:
         """
         Get list of JSON files for a specific hash algorithm.
 
@@ -73,35 +57,26 @@ class ByteToImageConverter:
         :rtype: List[Path]
         """
         _hash_alg = hash_alg if self.hash_alg is None else self.hash_alg
-        default_json_dir = self.file_io.select_dir(filetype="json", length=self.length)
-        json_path: Path = Path(self.json_path_arg) if self.json_path_arg else default_json_dir
 
         json_list = self.file_io.get_latest_files_by_date(json_path, _hash_alg, self.length)
         json_list.sort()
         return json_list
 
-    def json_loader(self, json_file: Path) -> dict:
+    def subdataset_by_labels(self, target_labels: int | str):
         """
-        Loads JSON logs from a specified file path.
-        
-        :param self: Description
-        :param json_file: Description
-        :type json_file: Path
-        """
-        json_data = self.file_io.file_reader(json_file, length=self.length)
-        return json_data
+        Creates a sub-dataset filtered by target labels.
 
-
-    def log_parser(self, json_data: dict):
+        :param target_labels: Target label ids to include
+        :type target_labels: int | str
+        :return: Filtered sub-dataset
+        :rtype: Dataset
         """
-        Parses log data from JSON content.
-        
-        :param self: Description
-        :param json_data: Description
-        :type json_data: dict
-        """
-        byte_string = json_data.get("BaseLogs", {}).get("message", "")
-        return byte_string
+        if isinstance(target_labels, int):
+            target_labels = [target_labels]
+        for img, label in self.dataset:
+            if label in target_labels:
+                return img
+        return None
 
 
     def byte_string_to_image(self, byte_string: str):
@@ -112,28 +87,158 @@ class ByteToImageConverter:
         :param byte_string: Description
         :type byte_string: str
         """
+        #['0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
+        # 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J',
+        # 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T',
+        # 'U', 'V', 'W', 'X', 'Y', 'Z',
+        # 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j',
+        # 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't',
+        # 'u', 'v', 'w', 'x', 'y', 'z']
+
+        byte_values = [int(byte, 16) for byte in byte_string]
+        print(f"Byte values: {byte_values}")
+
+        images = []
+        for byte in byte_values:
+            if '0' <= byte_string <= '9':
+                label = byte
+            elif 'A' <= byte_string <= 'Z':
+                label = byte
+            elif 'a' <= byte_string <= 'z':
+                label = byte.upper()
+            else:
+                raise ValueError(f"Invalid byte character: {byte_string}")
+            image = self.subdataset_by_labels(label)
+            assert image is not None, f"No image found for label: {label}"
+            images.append(image)
+
+        grid_image = F.to_pil_image(torchvision.utils.make_grid(images, nrow=16))
+        return grid_image
 
 
-    def main(self, test: bool = False):
+    def save_image(self, image, img_path: Path):
+        """
+        Saves the image to the specified path.
+        
+        :param self: Description
+        :param image: Description
+        :param img_path: Description
+        :type img_path: Path
+        """
+        self.file_io.file_writer(img_path, image, length=self.length)
+
+
+
+    def json_loader(self, json_file: Path) -> dict:
+        """
+        Loads JSON logs from a specified file path.
+
+        :param json_file: Description
+        :type json_file: Path
+        """
+        json_data = self.file_io.file_reader(json_file, length=self.length)
+        return json_data
+
+    def _dict_parser(self, data: Dict):
+        """
+        Parses dictionary data.
+        
+        :param self: Description
+        :param data: Description
+        :type data: Dict
+        """
+        ret = []
+        for entry in data:
+
+            if isinstance(data[entry], str):
+                print(f"String data: {data[entry]}")
+                ret.append(Logs.str_strip(data[entry]))
+
+            elif isinstance(data[entry], Dict):
+                print(f"Dict data: {data[entry]}")
+                ret.append(self._dict_parser(data[entry]))
+
+            elif isinstance(data[entry], List):
+                print(f"List data: {data[entry]}")
+                for item in data[entry]:
+                    _item = Logs.str_strip(item)
+                    ret.append(_item)
+
+            else:
+                raise TypeError(f"Unsupported data type: {type(data[entry])}")
+
+        assert ret is not None, "Parsed data is None"
+        return ret
+
+    def list_to_string(self, data: List) -> str:
+        """
+        Converts a list of items to a concatenated string.
+        
+        :param self: Description
+        :param data: Description
+        :type data: List
+        """
+
+        _list_data = [str(item) for item in data]
+        _str_data = "".join(_list_data)
+        _str_data = _str_data.replace(" ", "").replace("[", "")\
+            .replace("]", "").replace(",", "").replace("'", "")
+        return _str_data
+
+    def log_parser(self, json_data: dict, img_path: Path):
+        """
+        Parses log data from JSON content.
+        
+        :param self: Description
+        :param json_data: Description
+        :type json_data: dict
+        """
+        _json_data = json_data.get("Logs")
+        temp_data = self._dict_parser(_json_data)
+
+        for entry in _json_data:
+            print(f"Entry: {entry}")
+            temp_data = []
+
+            if isinstance(_json_data[entry], Dict):
+                temp_data += self._dict_parser(_json_data[entry])
+                _list_data = [str(item) for item in temp_data]
+                print(f"Convert data: {_list_data}")
+                _str_data = self.list_to_string(_list_data)
+                print(f"String data: {_str_data}")
+                byte_image = self.byte_string_to_image(_str_data)
+                self.save_image(byte_image, img_path / f"{entry}.png")
+
+            else:
+                print(f"Data: {_json_data[entry]}\n")
+
+            print(f"Temp data: {temp_data}")
+
+    def main(self, img_path: Path = None, json_path: Path = None):
         """
         Main function to convert byte string to image.
         
         :param self: Description
         """
-        if not test:
-            default_outuput_dir = self.file_io.select_dir(filetype="image", \
-                                                        length=self.length, data_mode="data")
-            img_path: Path = Path(self.img_path_arg) if self.img_path_arg else default_outuput_dir
-            print(img_path)
-            self.emnist_save(img_path)
 
-        latest_json_list = self.get_json_list(self.hash_alg)
+        _img_path: Path = Path(img_path) if img_path \
+            else self.file_io.select_dir(filetype="image",\
+                                            length=self.length)
+        print(_img_path)
+
+        json_path: Path = Path(json_path) if json_path \
+            else self.file_io.select_dir(filetype="json",\
+                                            length=self.length)
+
+        latest_json_list = self.get_json_list(self.hash_alg, json_path=json_path)
 
         print(f"Found {len(latest_json_list)} JSON files.")
 
-        for json_file in latest_json_list:
-            
-
+        for file_path in latest_json_list:
+            print(f"filename: {file_path.stem}")
+            json_data = self.json_loader(file_path)
+            self.log_parser(json_data, _img_path / file_path.stem)
+            print(f"Processing file: {file_path}\n\n")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Convert JSON to XLSX")
@@ -144,16 +249,20 @@ if __name__ == "__main__":
     parser.add_argument("--standalone", action="store_true", help="Run as standalone script")
     parser.add_argument("--hash_alg", type=str, required=True, \
                         help="Hash algorithm to filter JSON files")
+    parser.add_argument("--target_labels", type=int, nargs="+", \
+                        help="Explicit label ids to include (e.g., 0 1 2)")
+    parser.add_argument("--target_label_range", type=int, nargs=2, metavar=("START", "END"), \
+                        help="Inclusive label id range to include (e.g., 10 20)")
     parser.add_argument("-t", "--test", action="store_true", help="Run in test mode")
 
     args = parser.parse_args()
 
     converter = ByteToImageConverter(
         standalone=args.standalone,
-        json_path=args.json_path,
-        img_path=args.img_path,
         length=args.length,
         is_verbose=args.is_verbose,
         hash_alg=args.hash_alg,
+        target_labels=args.target_labels,
+        target_label_range=args.target_label_range,
     )
-    converter.main(args.test)
+    converter.main(img_path=args.img_path, json_path=args.json_path)
