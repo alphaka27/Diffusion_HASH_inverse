@@ -376,6 +376,11 @@ class LogHelper:
     """
 
     @staticmethod
+    def str_strip(s: str) -> str:
+        """Strip hex string"""
+        return s[2:] if s.startswith("0x") else s
+
+    @staticmethod
     def str_to_bytes(s: str) -> bytes:
         """Convert hex string to bytes"""
         _s = s[2:] if s.startswith("0x") else s
