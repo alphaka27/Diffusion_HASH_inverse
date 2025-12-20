@@ -158,9 +158,6 @@ class Writer:
         par.mkdir(parents=True, exist_ok=True)
         content.save(par / child)
 
-
-
-
 class Reader:
     """
     File Reader Utilities
@@ -279,10 +276,12 @@ class FileIO:
                 latest_files.append(p)
         return latest_files
 
-    def select_dir(self, filetype: Path | str, length: int) -> Path:
+    def select_dir(self, filetype: Path | str, **kwargs) -> Path:
         """
         Decide subdirectory by extension and ensure it exists.
         """
+        length: int = kwargs.get("length", None)
+        data_type: str = kwargs.get("data_type", None)
 
         if isinstance(filetype, Path):
             filetype = str(filetype.name)
@@ -294,13 +293,20 @@ class FileIO:
             base = self.data_dir / "character"
 
         elif filetype.endswith(".json") or filetype == "json":
+            assert length is not None, "length must be specified for JSON files"
             base = self.out_dir / "json" / f"{length}"
 
         elif filetype.endswith(".xlsx") or filetype == "xlsx":
+            assert length is not None, "length must be specified for XLSX files"
             base = self.out_dir / "xlsx" / f"{length}"
 
         elif filetype.endswith(".png") or filetype in ("png", "image"):
-            base = self.out_dir / "images"
+            assert data_type is not None, "data_type must be specified for image files"
+            assert length is not None, "length must be specified for image files"
+            if data_type == "data":
+                base = self.data_dir / "images"
+            elif data_type == "output":
+                base = self.out_dir / "images" / f"{length}"
         else:
             raise ValueError("Invalid file extension. Use .bin, .char, .json, .xlsx, or .png")
 
@@ -324,16 +330,17 @@ class FileIO:
         if start_timestamp is not None and elapsed_time is not None:
             header = Header(start_timestamp, elapsed_time, length)
             header_bytes = header.encode("utf-8", byteorder)
+        data_type = kwargs.get("data_type", None)
 
         base: Path
 
         if isinstance(filename, str):
-            base = self.select_dir(filename, length)
+            base = self.select_dir(filename, length = length, data_type=data_type)
             safe_name = self._sanitize_filename(filename)
             full_path = base / safe_name
         elif isinstance(filename, Path):
             if not filename.is_dir():
-                base = self.select_dir(filename, length)
+                base = self.select_dir(filename, length = length, data_type=data_type)
             full_path = filename
         else:
             full_path = base / filename.name
@@ -356,7 +363,7 @@ class FileIO:
         """
         Get the full path for reading a file.
         """
-        base = self.select_dir(filename, length)
+        base = self.select_dir(filename, length = length)
         if isinstance(filename, str):
             safe_name = self._sanitize_filename(filename)
             full_path = base / safe_name

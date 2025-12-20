@@ -16,3 +16,9 @@ Logging overflow event
 Add category for dataclass  
 Clean up stdout logs
 Add progress bar using tqdm
+
+Refactoring the code
+- Cleaning the codes
+- Cleaning the comments
+Refining Structure
+Refining Logs Structure

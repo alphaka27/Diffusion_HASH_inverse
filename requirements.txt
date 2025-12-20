@@ -9,7 +9,6 @@ contourpy==1.3.3
 cycler==0.12.1
 debugpy==1.8.16
 decorator==5.2.1
--e git+https://github.com/andy0000-droid/Diffusion_HASH_inverse.git@9b1406cd369d9eddb155abfd3d221a50812c8657#egg=diffusion_hash_inverse
 et_xmlfile==2.0.0
 executing==2.2.1
 filelock==3.19.1
