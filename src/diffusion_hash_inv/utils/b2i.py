@@ -96,7 +96,7 @@ class ByteToImageConverter:
         # 'u', 'v', 'w', 'x', 'y', 'z']
 
         byte_values = [int(byte, 16) for byte in byte_string]
-        print(f"Byte values: {byte_values}")
+        # print(f"Byte values: {byte_values}")
 
         images = []
         for byte in byte_values:
@@ -125,9 +125,7 @@ class ByteToImageConverter:
         :param img_path: Description
         :type img_path: Path
         """
-        self.file_io.file_writer(img_path, image, length=self.length)
-
-
+        self.file_io.file_writer(img_path, image, length=self.length, data_type="output")
 
     def json_loader(self, json_file: Path) -> dict:
         """
@@ -149,6 +147,10 @@ class ByteToImageConverter:
         """
         ret = []
         for entry in data:
+            print(f"Parsing entry: {entry}")
+            print("Data:", data[entry])
+            print(f"Data type: {type(data[entry])}")
+            breakpoint()
 
             if isinstance(data[entry], str):
                 print(f"String data: {data[entry]}")
@@ -156,6 +158,7 @@ class ByteToImageConverter:
 
             elif isinstance(data[entry], Dict):
                 print(f"Dict data: {data[entry]}")
+
                 ret.append(self._dict_parser(data[entry]))
 
             elif isinstance(data[entry], List):
@@ -194,7 +197,6 @@ class ByteToImageConverter:
         :type json_data: dict
         """
         _json_data = json_data.get("Logs")
-        temp_data = self._dict_parser(_json_data)
 
         for entry in _json_data:
             print(f"Entry: {entry}")
@@ -212,7 +214,7 @@ class ByteToImageConverter:
             else:
                 print(f"Data: {_json_data[entry]}\n")
 
-            print(f"Temp data: {temp_data}")
+            # print(f"Temp data: {temp_data}")
 
     def main(self, img_path: Path = None, json_path: Path = None):
         """
@@ -221,10 +223,10 @@ class ByteToImageConverter:
         :param self: Description
         """
 
-        _img_path: Path = Path(img_path) if img_path \
+        out_img_path: Path = Path(img_path) if img_path \
             else self.file_io.select_dir(filetype="image",\
-                                            length=self.length)
-        print(_img_path)
+                                            length=self.length, data_type="output")
+        print(out_img_path)
 
         json_path: Path = Path(json_path) if json_path \
             else self.file_io.select_dir(filetype="json",\
@@ -237,7 +239,7 @@ class ByteToImageConverter:
         for file_path in latest_json_list:
             print(f"filename: {file_path.stem}")
             json_data = self.json_loader(file_path)
-            self.log_parser(json_data, _img_path / file_path.stem)
+            self.log_parser(json_data, out_img_path / file_path.stem)
             print(f"Processing file: {file_path}\n\n")
 
 if __name__ == "__main__":

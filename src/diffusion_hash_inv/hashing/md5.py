@@ -168,6 +168,8 @@ class MD5(MD5Calc):
         prev_hash = {'A': a, 'B': b, 'C': c, 'D': d}
         return prev_hash
 
+    # TODO: Merge step4 inner and outer loops to clean up code.
+
     @Logs.steplogs_update(step_cat=4, is_loop=True)
     def _step4_loop(self, message_block: Sequence[int], **previous_hash: Dict[str, int]) \
         -> Generator[Dict[str, int], None, Dict[str, int]]:
@@ -226,7 +228,9 @@ class MD5(MD5Calc):
             message_block (Sequence[int]): 16-words block.
             previous_hash (Dict[str, int]): Previous hash values.
         Returns:
+
         """
+        # TODO: Combine step4 block loop and step4 loop
 
         a = previous_hash['A']
         b = previous_hash['B']
