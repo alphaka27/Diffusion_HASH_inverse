@@ -1,12 +1,19 @@
+"""
+Defines RGB color space subcubes and provides utilities to convert byte values to RGB tuples.
+Each subcube represents a partition of the RGB color space.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
+from dataclasses import field
 from typing import Dict, List, Tuple
 
-
 @dataclass(frozen=True)
-class CubeCoordinate:
-    """3D axis-aligned box in integer RGB space."""
+class Bounds3D:
+    """
+    Represents 3D bounds in RGB color space.
+    """
     # inclusive integer bounds
     r_min: int
     r_max: int
@@ -20,7 +27,7 @@ class CubeCoordinate:
     """
     def as_inclusive(self) -> Tuple[Tuple[int, int], Tuple[int, int], Tuple[int, int]]:
         """
-        Returns the inclusive bounds as tuples.
+        Returns the Closed bounds as tuples of RGB Color Space.
 
         :return: A tuple containing the inclusive bounds for R, G, and B axes.
         :rtype: Tuple[Tuple[int, int], Tuple[int, int], Tuple[int, int]]
@@ -29,7 +36,7 @@ class CubeCoordinate:
 
     def as_half_open(self) -> Tuple[Tuple[int, int], Tuple[int, int], Tuple[int, int]]:
         """
-        Returns the half-open bounds as tuples.
+        Returns the Half-Open bounds as tuples of RGB Color Space.
 
         :return: A tuple containing the half-open bounds for R, G, and B axes.
         :rtype: Tuple[Tuple[int, int], Tuple[int, int], Tuple[int, int]]
@@ -49,16 +56,21 @@ class CubeCoordinate:
         return (self.r_max - self.r_min + 1, self.g_max - self.g_min + 1, \
                 self.b_max - self.b_min + 1)
 
-class Byte2RGB:
+@dataclass
+class CubeInfo:
     """
-    A class to convert byte values(0x00 ~ 0xFF) to RGB color tuples.
+    Information about RGB subcubes in a reduced color space.
     """
+    min_val: int = 0
+    max_val: int = 255
+    sub_len: int
 
-    def __init__(self):
-        self.full_space_min: int = 0
-        self.full_space_max: int = 255
-        self.sub_len: int = 252
-        self.split: int = 7
+    def __post_init__(self):
+        assert self.min_val >= 0 and self.min_val < self.max_val, "Invalid min value."
+        assert self.max_val > 0, "Invalid max value."
+
+        self.sub_len = self.max_val - self.min_val + 1
+        assert self.sub_len > 0, "Invalid space length."
 
     def centered_subspace_1d(self) -> Tuple[int, int]:
         """
@@ -69,11 +81,9 @@ class Byte2RGB:
             - sub_min: Minimum value of the centered subspace.
             - sub_max: Maximum value of the centered subspace.
         """
-        full_len = self.full_space_max - self.full_space_min + 1
+        full_len = self.max_val - self.min_val + 1
         if self.sub_len <= 0:
-            raise ValueError("sub_len must be positive.")
-        if self.sub_len > full_len:
-            raise ValueError(f"sub_len({self.sub_len}) cannot exceed full length({full_len}).")
+            raise ValueError("space_len must be positive.")
 
         # leftover points split equally on both sides if possible
         leftover = full_len - self.sub_len
@@ -82,13 +92,24 @@ class Byte2RGB:
         assert leftover % 2 == 0, "Logic error: leftover should be even."
         left_pad = right_pad = leftover // 2
 
-        sub_min = self.full_space_min + left_pad
-        sub_max = self.full_space_max - right_pad
+        sub_min = self.min_val + left_pad
+        sub_max = self.max_val - right_pad
         # sanity
         if sub_max - sub_min + 1 != self.sub_len:
             raise RuntimeError("Internal error: computed subspace length mismatch.")
         return sub_min, sub_max
 
+
+class Byte2RGB:
+    """
+    A class to convert byte values(0x00 ~ 0xFF) to RGB color tuples.
+    """
+
+    def __init__(self):
+        self.full_space_min: int = 0
+        self.full_space_max: int = 255
+        self.sub_len: int = 252
+        self.split: int = 7
 
     def split_1d_inclusive(self, start: int, end: int, parts: int) -> List[Tuple[int, int]]:
         """
@@ -110,7 +131,6 @@ class Byte2RGB:
         if chunks[0][0] != start or chunks[-1][1] != end:
             raise RuntimeError("Internal error: split does not cover full range.")
         return chunks
-
 
     def rgb_subcubes(
         sub_len: int,
@@ -139,7 +159,7 @@ class Byte2RGB:
         for i, (ra, rb) in enumerate(r_chunks):
             for j, (ga, gb) in enumerate(g_chunks):
                 for k, (ba, bb) in enumerate(b_chunks):
-                    box = CubeCoordinate(ra, rb, ga, gb, ba, bb)
+                    box = Coordinate(ra, rb, ga, gb, ba, bb)
                     cubes.append(
                         {
                             "idx": (i, j, k),
