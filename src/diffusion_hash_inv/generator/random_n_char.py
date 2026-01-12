@@ -21,9 +21,9 @@ class GenerateRandomNChar:
     Generate a random string of N characters.
     """
     alphabet: ClassVar[str]
-    def __init__(self, verbose_flag=True, start_timestamp: Optional[float] = None):
+    def __init__(self, verbose_flag=True):
         self.is_verbose = verbose_flag
-        self.start_time = start_timestamp
+        self.start_time = Logs.get_current_timestamp()
 
         type(self).alphabet = string.ascii_letters \
             + string.digits + string.punctuation + " "
@@ -63,6 +63,9 @@ class GenerateRandomNChar:
         """
         assert byteorder is not None and byteorder in ("big", "little"), \
             "byteorder must be 'big' or 'little'"
+
+        if timer_start is None:
+            raise ValueError("timer_start must be provided")
 
         _pwd = self.generate(length // 8)
         _pwd = self.normalize(_pwd)
@@ -132,6 +135,6 @@ if __name__ == "__main__":
     pw_gen = GenerateRandomNChar()
 
     for _ in range(args.iterations):
+        timer = Logs.perftimer_start()
         print(f"Iteration: {_ + 1}")
-        pw_gen.main(length=BIT_LEN, byteorder='little')
-        print()
+        pw_gen.main(length=BIT_LEN, byteorder='little', timer_start=timer)
