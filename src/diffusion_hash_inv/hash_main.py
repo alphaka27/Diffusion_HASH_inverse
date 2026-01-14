@@ -27,7 +27,7 @@ class Main:
     """
     Entry point for hash generation and validation
     """
-    def __init__(self, *flags, hash_alg: str = "sha256"):
+    def __init__(self, *flags: Flags, hash_alg: str = "sha256"):
         _is_m, _is_v, _is_c, _is_d, _make_xlsx = flags
         self.flags = \
             Flags(is_message=_is_m, is_verbose=_is_v, is_clean=_is_c, \
@@ -49,8 +49,7 @@ class Main:
         """
         timer = Logs.perftimer_start()
         if self.flags.is_message:
-            generator = GenerateRandomNChar(verbose_flag=self.flags.is_verbose, \
-                                                start_timestamp=self.start_time)
+            generator = GenerateRandomNChar(verbose_flag=self.flags.is_verbose)
         else:
             generator = GenerateRandom(verbose_flag=self.flags.is_verbose, \
                                     start_timestamp=self.start_time)
