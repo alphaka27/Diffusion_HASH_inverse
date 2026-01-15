@@ -7,6 +7,7 @@ Common classes and utilities for diffusion_hash_inv.
 from .base_calc import BaseCalc
 from .logger import BaseLogs, StepLogs, Metadata, Logs
 from .rgb_type import RGB, RGBBinning
+from .byte2rgb import Byte2RGB, ConfigByte2RGB
 
 __all__ = [
     "BaseCalc",
@@ -16,4 +17,6 @@ __all__ = [
     "Logs",
     "RGB",
     "RGBBinning",
+    "Byte2RGB",
+    "ConfigByte2RGB",
 ]
