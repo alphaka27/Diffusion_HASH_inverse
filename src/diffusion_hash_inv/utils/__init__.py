@@ -10,7 +10,6 @@ from .project_root import add_root_to_path, add_src_to_path  # 프로젝트 루�
 from .formatter import JSONFormat
 from .file_io import FileIO, Reader, Writer
 from .json_to_xlsx import JSONToXLSXConverter
-from .rgb_type import RGB, Chunk1D, RGBChunks
 
 __all__ = [
     "add_root_to_path",
@@ -20,7 +19,5 @@ __all__ = [
     "Reader",
     "Writer",
     "JSONToXLSXConverter",
-    "RGB",
-    "Chunk1D",
-    "RGBChunks",
 ]
+# EOF
