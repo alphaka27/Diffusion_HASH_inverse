@@ -3,7 +3,7 @@ Logging utilities for Diffusion Hash Inversion
 """
 # pylint: disable=fixme
 from __future__ import annotations
-from typing import Any, Dict, List, Optional, Generator, Sequence, MutableMapping
+from typing import Any, Dict, List, Optional, Generator, Sequence, MutableMapping, Tuple
 from datetime import datetime
 from collections.abc import Hashable
 from dataclasses import dataclass, field
@@ -404,12 +404,49 @@ class LogHelper:
         return f"0x{b.hex()}"
 
     @staticmethod
-    def int_to_bytes(i: int, length: int, byteorder: Optional[str] = None) -> bytes:
-        """Convert int to bytes"""
+    def iter_to_bytes(t: Tuple[int] | List[int], byteorder: Optional[str] = None) -> bytes:
+        """Convert Tuple or List of int to bytes"""
+        assert byteorder is not None, "byteorder must be specified"
+        assert all(0 <= _i < 256 for _i in t), "All integers must be in range 0-255"
+        assert all(isinstance(_i, int) for _i in t), "All elements must be integers"
+
+        byte_chunks = bytearray()
+        for _i in t:
+            byte_chunks.append(_i)
+
+        return bytes(byte_chunks)
+
+
+    @staticmethod
+    def bytes_to_int(b: bytes, byteorder: Optional[str] = None) -> tuple[int]:
+        """Convert bytes to int"""
+        assert byteorder is not None, "byteorder must be specified"
+        res = []
+        for _i in range(len(b)):
+            res.append(int.from_bytes(b[_i:_i+1], byteorder=byteorder))
+        return tuple(res)
+
+    @staticmethod
+    def int_to_bytes(integer: int, length: int, byteorder: Optional[str] = None) -> bytes:
+        """
+        Convert int to bytes
+
+        Parameters:
+            integer (int):
+                Input integer
+            length (int):
+                Length in bits
+            byteorder (str):
+                Byte order ('big' or 'little')
+
+        Returns:
+            bytes_repr (bytes):
+                Byte representation of the integer
+        """
         assert byteorder is not None, "byteorder must be specified"
         assert length >= 0, "length must be greater than or equal 0"
 
-        return i.to_bytes(length // 8, byteorder=byteorder)
+        return integer.to_bytes(length // 8, byteorder=byteorder)
 
     @staticmethod
     def stdout_logs(*args, verbose: bool = True, message: bool = False, **kwargs) -> None:

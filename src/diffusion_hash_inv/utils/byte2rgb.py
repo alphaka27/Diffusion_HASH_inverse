@@ -1,79 +1,113 @@
 """
-Byte to RGB Color Model Conversion Module
+Defines RGB color space subcubes and provides utilities to convert byte values to RGB tuples.
+Each subcube represents a partition of the RGB color space.
 """
 
 from __future__ import annotations
+
 from dataclasses import dataclass
+from secrets import randbelow
+from typing import Tuple, List
 
-import numpy as np
-#from PIL import Image
-
-@dataclass
-class RGB:
-    """
-    RGB Color Model Representation.
-    """
-
-    r: int
-    g: int
-    b: int
-
+from diffusion_hash_inv.common import RGB, RGBBinning
+from diffusion_hash_inv.common import Logs
 
 @dataclass
-class Cordinate:
+class ConfigByte2RGB:
     """
-    Convert RGB Color Model to Reduced Coordinate System.
+    Configuration for Byte to RGB conversion.
     """
 
-    sep_start:int = 0
-    sep_end:int = 252
-    sep_num:int = 7
-
-    sep_point_list: tuple[int] = tuple(np.linspace(sep_start, sep_end, sep_num + 1))
-    print(sep_point_list)
-
-    def cord_valid(self):
-        """
-        Validates the coordinate values.
-        """
-
-    def cord_convert(self, byte: bytes):
-        """
-        Converts RGB values to reduced coordinate system.
-        """
-        assert len(byte) == 1, "Must input 1 byte for RGB encoding."
-
-
-
-
-
+    full_space_min: int = 0
+    full_space_max: int = 255
+    sub_len: int = 36
+    split: int = 7
 
 class Byte2RGB:
     """
-    A class to convert byte values(0x00 ~ 0xFF) to RGB color tuples.
+    A class to convert byte values(0x00 ~ 0xFF) to RGB tuples in  RGB color space.
     """
 
-    def __init__(self):
-        self.rgb: tuple[int, int, int] = (0, 0, 0)
+    def __init__(self, config: ConfigByte2RGB = ConfigByte2RGB(), byteorder: str = "little"):
 
-    def cordinate(self):
-        """
-        Returns the RGB color tuple.
-        """
+        self.byteorder = byteorder
+        RGBBinning.config(bin_num=config.split, bin_width=config.sub_len, \
+                        fr_min=config.full_space_min, fr_max=config.full_space_max)
 
-        return self.rgb
+        binning = RGBBinning()
+        rgbbins = binning()
+        self.encoding_map = {}
+        for _i, _bin in enumerate(rgbbins):
+            self.encoding_map[_i] = {
+                "r_chunk": _bin.r_chunk,
+                "g_chunk": _bin.g_chunk,
+                "b_chunk": _bin.b_chunk,
+            }
 
-    def encoder(self):
+    def encode(self, hexstring: str | bytes) -> RGB:
         """
-        Encodes a byte value to an RGB color tuple.
-        """
+        Encode a byte value (0-255) to an RGB tuple.
 
-    def decoder(self):
+        Args:
+            hexstring (str): A hexadecimal string representing the byte value to encode.
+
+        Returns:
+            RGB: The corresponding RGB tuple.
         """
-        Decodes an RGB color tuple back to a byte value.
+        byte_value = Logs.str_to_bytes(hexstring) if isinstance(hexstring, str) else hexstring
+        int_value = Logs.bytes_to_int(byte_value, byteorder=self.byteorder)
+        encode = []
+        for integer in int_value:
+            assert 0 <= integer <= 255, "Byte value must be in the range 0-255"
+            _temp_encode = self.encoding_map.get(integer)
+            _temp_r = _temp_encode["r_chunk"].as_half_open
+            _temp_g = _temp_encode["g_chunk"].as_half_open
+            _temp_b = _temp_encode["b_chunk"].as_half_open
+            _r = randbelow(_temp_r.end - _temp_r.start) + _temp_r.start
+            _g = randbelow(_temp_g.end - _temp_g.start) + _temp_g.start
+            _b = randbelow(_temp_b.end - _temp_b.start) + _temp_b.start
+            encode.append(RGB(r=_r, g=_g, b=_b))
+
+        if len(encode) == 1:
+            return encode[0]
+        return tuple(encode)
+
+    def decode(self, rgb: Tuple[RGB]) -> bytes:
         """
+        Decode an RGB tuple back to its corresponding byte value.
+
+        Args:
+            rgb (RGB): The RGB tuple to decode.
+
+        Returns:
+            bytes: The corresponding byte value.
+        """
+        decode: List[int] = []
+        assert isinstance(rgb, Tuple), "Input must be an RGB instance or a tuple of RGB instances."
+
+        for _rgb in rgb:
+            _r, _g, _b = _rgb.r, _rgb.g, _rgb.b
+            for key, val in self.encoding_map.items():
+                r_chunk = val["r_chunk"].as_inclusive
+                g_chunk = val["g_chunk"].as_inclusive
+                b_chunk = val["b_chunk"].as_inclusive
+                if (r_chunk.start <= _r <= r_chunk.end) and \
+                    (g_chunk.start <= _g <= g_chunk.end) and \
+                    (b_chunk.start <= _b <= b_chunk.end):
+                    decode.append(key)
+                    continue
+
+        decode_bytes = Logs.iter_to_bytes(decode, byteorder=self.byteorder)
+        return decode_bytes
+
 
 
 if __name__ == "__main__":
-    a = Cordinate()
-    a.cord_convert(b"\x00")
+    b2rgb = Byte2RGB()
+    test_byte = Logs.str_to_bytes("0x6e4c5a2e")
+    _rgb = b2rgb.encode(test_byte)
+    print(f"Byte {test_byte} encoded to RGB: {_rgb}")
+    print("----------------------------")
+
+    DECODE = b2rgb.decode(_rgb)
+    print(f"RGB {_rgb} decoded back to Byte: {DECODE}")
