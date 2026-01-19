@@ -6,15 +6,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from datetime import datetime
-from typing import List, Optional, Any, Dict
-from PIL import Image
+from typing import List, Optional, Any
 import os
 import re
+from PIL import Image
 
 import pandas as pd
 from torch.utils.data import Dataset
-from torchvision.transforms.functional import to_pil_image
 
+from diffusion_hash_inv.core import MainConfig
 from diffusion_hash_inv.utils import JSONFormat
 from diffusion_hash_inv.utils import add_root_to_path
 ROOT_DIR = add_root_to_path()
@@ -196,12 +196,11 @@ class Reader:
         Read the image content from a file.
         """
 
-
 class FileIO:
     """
     File I/O Utilities
     """
-    def __init__(self, verbose_flag=True):
+    def __init__(self):
         super().__init__()
         self.data_dir = ROOT_DIR / "data"
         self.out_dir = ROOT_DIR / "output"

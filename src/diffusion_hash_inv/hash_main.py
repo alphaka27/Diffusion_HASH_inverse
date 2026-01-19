@@ -4,43 +4,22 @@ Hash algorithm main module
 
 import argparse
 import sys
-from dataclasses import dataclass
 
-from diffusion_hash_inv.common import Logs, Metadata, BaseLogs
-from diffusion_hash_inv.generator import GenerateRandom, GenerateRandomNChar
+from diffusion_hash_inv.core import Logs, Metadata, BaseLogs
+from diffusion_hash_inv.core import FreezeClassVar
+from diffusion_hash_inv.core.configuration import MainConfig
+from diffusion_hash_inv.generator import GenerateRandomNBits, GenerateRandomNChar
 from diffusion_hash_inv.utils import FileIO, JSONToXLSXConverter
 from diffusion_hash_inv.validation.hash_validation import validate
 from diffusion_hash_inv import hashing
 
-@dataclass
-class Flags:
-    """
-    Command line flags
-    """
-    is_message: bool
-    is_verbose: bool
-    is_clean: bool
-    is_debug: bool
-    make_xlsx: bool
 
-class Main:
+class Main(metaclass=FreezeClassVar):
     """
     Entry point for hash generation and validation
     """
-    def __init__(self, *flags: Flags, hash_alg: str = "sha256"):
-        _is_m, _is_v, _is_c, _is_d, _make_xlsx = flags
-        self.flags = \
-            Flags(is_message=_is_m, is_verbose=_is_v, is_clean=_is_c, \
-                is_debug=_is_d, make_xlsx=_make_xlsx)
 
-        self.alg_name = hash_alg
-
-        self.file_io = FileIO(verbose_flag=self.flags.is_verbose)
-        if self.flags.is_clean:
-            self.file_io.file_clean(clear_flag=self.flags.is_clean, \
-                                    verbose_flag=self.flags.is_verbose)
-        self.flags.is_clean = False
-
+    def __init__(self):
         self.start_time = Logs.get_current_timestamp()
 
     def message_generator(self, length:int, byteorder: str) -> bytes:
@@ -48,11 +27,15 @@ class Main:
         Generate random message for hashing
         """
         timer = Logs.perftimer_start()
-        if self.flags.is_message:
-            generator = GenerateRandomNChar(verbose_flag=self.flags.is_verbose)
+
+        assert self.is_message, "Bits generation is temporarily unavailable."
+        if not self.is_message:
+            raise NotImplementedError("Bits generation is temporarily unavailable.")
+
+        if self.is_message:
+            generator = GenerateRandomNChar(verbose_flag=self.is_verbose)
         else:
-            generator = GenerateRandom(verbose_flag=self.flags.is_verbose, \
-                                    start_timestamp=self.start_time)
+            generator = GenerateRandomNBits(verbose_flag=self.is_verbose)
         _msg = generator.main(length, byteorder, timer_start=timer)
         return _msg
 
@@ -64,7 +47,7 @@ class Main:
 
         try:
             algo = getattr(hashing, n.upper())\
-                    (is_verbose=self.flags.is_verbose)
+                    (is_verbose=self.is_verbose)
         except AttributeError as e:
             if self.alg_name == "all":
                 pass
@@ -76,7 +59,7 @@ class Main:
         """
         Main entry point for hash generation and validation
         """
-        metadata = Metadata(hash_alg=self.alg_name, is_message=self.flags.is_message)
+        metadata = Metadata(hash_alg=self.alg_name, is_message=self.message_flag)
         metadata.setter(input_length=length, \
                             exec_start=self.start_time)
         baselogs = BaseLogs()
@@ -88,7 +71,7 @@ class Main:
         assert length % 8 == 0, "Length must be multiple of 8."
 
         assert iteration > 0, "Iteration count must be non-negative integer."
-        if self.flags.is_verbose:
+        if self.verbose_flag:
             print(f"Running {self.alg_name.upper()} Hash with length {length} "
                 f"for {iteration} iterations.")
 
@@ -104,7 +87,7 @@ class Main:
             input_msg = self.message_generator(length, algo.byteorder)
             generated_hash = algo.digest(input_msg)
             valid, correct_hash = \
-                validate(generated_hash, input_msg, self.alg_name, self.flags.is_verbose)
+                validate(generated_hash, input_msg, self.alg_name, self.verbose_flag)
 
             if not valid:
                 print(f"Iteration {_i + 1}/{iteration} Hash validation failed. Exiting.")

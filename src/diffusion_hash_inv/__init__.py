@@ -5,8 +5,8 @@ diffusion_hash_inverse: 해시/랜덤 비트 유틸 패키지
 
 from importlib.metadata import version, PackageNotFoundError
 
-from diffusion_hash_inv.common import BaseCalc
-from diffusion_hash_inv.common import Logs, Metadata, BaseLogs, StepLogs
+from diffusion_hash_inv.core import BaseCalc
+from diffusion_hash_inv.core import Logs, Metadata, BaseLogs, StepLogs
 
 
 from diffusion_hash_inv.utils import JSONFormat

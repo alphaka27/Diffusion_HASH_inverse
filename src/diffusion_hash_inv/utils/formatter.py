@@ -7,7 +7,7 @@ from typing import Dict, Any
 import json
 import copy
 
-from diffusion_hash_inv.common import Metadata, BaseLogs, StepLogs
+from diffusion_hash_inv.core import Metadata, BaseLogs, StepLogs
 
 class JSONFormat:
     """
