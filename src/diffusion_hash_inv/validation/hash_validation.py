@@ -7,7 +7,7 @@ Hash algorithm Validation Module
 # - Fix validation algorithm fit to hashlib.digest output
 
 import hashlib
-from diffusion_hash_inv.common import Logs
+from diffusion_hash_inv.core import Logs
 
 
 def validate(test_hash = None, message = None, hash_alg = "sha256", verbose_flag = True):

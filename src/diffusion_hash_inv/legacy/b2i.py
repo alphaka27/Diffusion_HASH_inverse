@@ -11,9 +11,8 @@ from typing import List, Dict
 from torchvision import datasets, transforms
 import torchvision.transforms.functional as F
 import torchvision
-import torch
 
-from diffusion_hash_inv.common import Logs
+from diffusion_hash_inv.core import Logs
 from diffusion_hash_inv.utils import FileIO
 from diffusion_hash_inv.utils import add_root_to_path
 ROOT_DIR = add_root_to_path()

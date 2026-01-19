@@ -3,7 +3,6 @@ Random N character Generation
 Password Generator
 """
 
-from pyclbr import Class
 import unicodedata
 from secrets import choice
 import argparse
@@ -14,7 +13,7 @@ try:
     from diffusion_hash_inv.utils.file_io import FileIO
 except ImportError as e:
     print(f"Error importing FileIO: {e}")
-from diffusion_hash_inv.common import Logs
+from diffusion_hash_inv.core import Logs
 
 class GenerateRandomNChar:
     """

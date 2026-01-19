@@ -9,26 +9,18 @@ from dataclasses import dataclass
 from secrets import randbelow
 from typing import Tuple, List
 
-from diffusion_hash_inv.common import RGB, RGBBinning
-from diffusion_hash_inv.common import Logs
+from diffusion_hash_inv.core import RGB, RGBBinning
+from diffusion_hash_inv.core import Logs
+from diffusion_hash_inv.core import Byte2RGBConfig
 
-@dataclass
-class ConfigByte2RGB:
-    """
-    Configuration for Byte to RGB conversion.
-    """
 
-    full_space_min: int = 0
-    full_space_max: int = 255
-    sub_len: int = 36
-    split: int = 7
 
 class Byte2RGB:
     """
     A class to convert byte values(0x00 ~ 0xFF) to RGB tuples in  RGB color space.
     """
 
-    def __init__(self, config: ConfigByte2RGB = ConfigByte2RGB(), byteorder: str = "little"):
+    def __init__(self, config: Byte2RGBConfig = Byte2RGBConfig(), byteorder: str = "little"):
 
         self.byteorder = byteorder
         RGBBinning.config(bin_num=config.split, bin_width=config.sub_len, \
@@ -54,8 +46,8 @@ class Byte2RGB:
         Returns:
             RGB: The corresponding RGB tuple.
         """
-        byte_value = Logs.str_to_bytes(hexstring) if isinstance(hexstring, str) else hexstring
-        int_value = Logs.bytes_to_int(byte_value, byteorder=self.byteorder)
+        bytes_value = Logs.str_to_bytes(hexstring) if isinstance(hexstring, str) else hexstring
+        int_value = Logs.bytes_to_int(bytes_value, byteorder=self.byteorder)
         encode = []
         for integer in int_value:
             assert 0 <= integer <= 255, "Byte value must be in the range 0-255"
@@ -104,10 +96,16 @@ class Byte2RGB:
 
 if __name__ == "__main__":
     b2rgb = Byte2RGB()
+
+    print("----- Byte to RGB Encoding Test -----")
     test_byte = Logs.str_to_bytes("0x6e4c5a2e")
     _rgb = b2rgb.encode(test_byte)
     print(f"Byte {test_byte} encoded to RGB: {_rgb}")
-    print("----------------------------")
 
+    print()
+
+    print("----- RGB to Byte Decoding Test -----")
     DECODE = b2rgb.decode(_rgb)
     print(f"RGB {_rgb} decoded back to Byte: {DECODE}")
+
+    assert DECODE == test_byte, "Decoded byte does not match the original byte."

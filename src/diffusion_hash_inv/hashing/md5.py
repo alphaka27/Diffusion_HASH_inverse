@@ -8,13 +8,13 @@ import math
 import copy
 
 try:
-    from diffusion_hash_inv.common import BaseCalc
+    from diffusion_hash_inv.core import BaseCalc
 except ImportError as e:
     print(f"Error importing BaseCalc: {e}")
     raise e
 
 try:
-    from diffusion_hash_inv.common import StepLogs, Logs
+    from diffusion_hash_inv.core import StepLogs, Logs
 except ImportError as e:
     print(f"Error importing StepLogs: {e}")
     raise e
