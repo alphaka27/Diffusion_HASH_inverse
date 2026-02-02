@@ -2,7 +2,7 @@
 Metaclass to freeze class variables after initialization.
 """
 
-from typing import ClassVar
+from typing import ClassVar, List
 
 class FreezeClassVar(type):
     """
@@ -11,11 +11,12 @@ class FreezeClassVar(type):
     _is_locked: ClassVar[bool] = False
 
     def __setattr__(cls, key, value):
-        if key == "_is_locked":
-            return super().__setattr__(key, value)
-
         if cls._is_locked:
             raise AttributeError("Cannot modify class variable after initialization.")
+
+        if isinstance(value, List):
+            value = tuple(value)
+
         return super().__setattr__(key, value)
 
     def __delattr__(cls, name):
@@ -27,13 +28,13 @@ class FreezeClassVar(type):
         """
         Lock the class to prevent further modifications to class variables.
         """
-        cls._is_locked = True
+        type.__setattr__(cls, '_is_locked', True)
 
     def unlock(cls):
         """
         Unlock the class to allow modifications to class variables.
         """
-        cls._is_locked = False
+        type.__setattr__(cls, '_is_locked', False)
 
     def is_locked(cls) -> bool:
         """

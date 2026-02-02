@@ -1,19 +1,18 @@
 """
 Logging utilities for Diffusion Hash Inversion
 """
-# pylint: disable=fixme
+
 from __future__ import annotations
 from typing import Any, Dict, List, Optional, Generator, Sequence, MutableMapping, Tuple
 from datetime import datetime
 from collections.abc import Hashable
 from dataclasses import dataclass, field
 import time
-import math
 
 from functools import wraps
 
 @dataclass
-class Metadata():
+class Metadata:
     """
     Metadata container  
     Contains hash algorithm, input bits length, execution start time,\
@@ -21,76 +20,51 @@ class Metadata():
     """
     hash_alg: str
     is_message: bool
+    hierarchy: Sequence[Hashable] = field(default_factory=tuple)
 
-    entropy: float = field(default_factory=float, init=False)
-    strength: str = field(default_factory=str, init=False)
+    started_at: str = field(default_factory=str, init=False)
     elapsed_time:float = field(default_factory=float, init=False)
 
     input_bits_len: int = field(default_factory=int, init=False)
-    exec_start:str = field(default_factory=str, init=False)
-
-    @staticmethod
-    def calc_entropy(char_len: int, _pwd: str) -> float:
-        """
-        Calculate the entropy of the generated password.
-        """
-        entropy = char_len * math.log2(len(_pwd))
-        return entropy
-
-    def _set_strength(self)->None:
-        """Set strength based on entropy"""
-        if self.entropy < 28:
-            self.strength = "Very Weak"
-        elif 28 <= self.entropy < 36:
-            self.strength = "Weak"
-        elif 36 <= self.entropy < 60:
-            self.strength = "Reasonable"
-        elif 60 <= self.entropy < 128:
-            self.strength = "Strong"
-        else:
-            self.strength = "Very Strong"
+    byteorder: str = field(default_factory=str, init=False)
 
     def clear(self)->None:
         """Clear all metadata"""
-        self.exec_start = ""
-        # self.elapsed_time = 0.0
+        self.started_at = ""
+        self.elapsed_time = 0.0
 
     def setter(self, input_length: int, exec_start: str)->None:
         """set metadata"""
         self.input_bits_len = input_length
-        self.exec_start = exec_start
+        self.started_at = exec_start
 
-    def update(self, entropy: float, elapsed_time: int)->None:
+    def update(self, elapsed_time: int)->None:
         """
         Update metadata
         Parameters:
-            entropy: float
-                Entropy of the generated input
-            strength: str
-                Strength of the generated input
             elapsed_time: float
                 Elapsed time for generation
         """
-        self.entropy = entropy
-        self._set_strength()
         self.elapsed_time = f"{elapsed_time} ns"
 
-    def getter(self)->Dict[str, Any]:
+    def get_dict(self)->Dict[str, Any]:
         """
-        Get Metadata
+        Get Metadata as dictionary
+        Returns:
+            Dict[str, Any]: Metadata dictionary
         """
         return {
             "Hash function": self.hash_alg,
+            "Hierarchy": self.hierarchy,
             "Input bits": self.input_bits_len,
-            "Program started at": self.exec_start,
-            "Message mode": self.is_message,
-            "Entropy": self.entropy,
-            "Strength": self.strength,
-            "Elapsed time": self.elapsed_time
+            "Message mode": "Message" if self.is_message else "Bit string",
+            "Program started at": self.started_at,
+            "Program elapsed time": self.elapsed_time,
+            "Byte order": self.byteorder
         }
 
 @dataclass
-class BaseLogs():
+class BaseLogs:
     """
     Base logs container
     Contains Message(String and Hex), Generated hash, Correct hash
@@ -110,11 +84,11 @@ class BaseLogs():
         self.message["Hex"] = Logs.bytes_to_str(message_bytes)
         if message_mode:
             try:
-                self.message["String"] = message_bytes.decode("utf-8")
+                self.message["Bit String"] = message_bytes.decode("utf-8")
             except UnicodeDecodeError:
-                self.message["String"] = message_bytes.decode("utf-8", errors="replace")
+                self.message["Bit String"] = message_bytes.decode("utf-8", errors="replace")
         else:
-            self.message.pop("String", None)
+            self.message.pop("Bit String", None)
 
     def set_hashes(self, generated_hash: str, correct_hash: str):
         """Set hash result"""
@@ -416,7 +390,6 @@ class LogHelper:
 
         return bytes(byte_chunks)
 
-
     @staticmethod
     def bytes_to_int(b: bytes, byteorder: Optional[str] = None) -> tuple[int]:
         """Convert bytes to int"""
@@ -425,6 +398,20 @@ class LogHelper:
         for _i in range(len(b)):
             res.append(int.from_bytes(b[_i:_i+1], byteorder=byteorder))
         return tuple(res)
+
+    @staticmethod
+    def byte_to_int(b: bytes, byteorder: Optional[str] = None) -> int:
+        """
+        Convert bytes to integer using the specified byteorder.
+        Parameters:
+            b (bytes): Input byte.
+        Returns:
+            int: Converted integer.
+        """
+        assert isinstance(b, bytes), "Input must be bytes."
+        assert byteorder in ('big', 'little'), "Byteorder must be 'big' or 'little'."
+
+        return int.from_bytes(b, byteorder)
 
     @staticmethod
     def int_to_bytes(integer: int, length: int, byteorder: Optional[str] = None) -> bytes:
@@ -569,6 +556,11 @@ class LogHelper:
             return "3rd" + suffix
         return f"{index}th" + suffix
 
+class MD5Logs:
+    """
+    MD5 specific logging utilities
+    """
+    
 
 class Logs(LogHelper, TimeHelper):
     """
@@ -597,7 +589,7 @@ class Logs(LogHelper, TimeHelper):
 
     #decorator
     @staticmethod
-    def steplogs_update(step_cat: Optional[str] = None, is_loop: bool = False, **desc) -> Any:
+    def steplogs_update(step_cat: Optional[str] = None) -> Any:
         """
         Update all logs
         Parameters:
@@ -609,7 +601,7 @@ class Logs(LogHelper, TimeHelper):
                 Additional description for logs in the form of kwargs
         """
 
-        step_idx = Logs.idx_setter(step_cat, " Step", **desc)
+        step_idx = Logs.idx_setter(step_cat, " Step")
 
         def decorator(func):
             @wraps(func)
@@ -617,68 +609,7 @@ class Logs(LogHelper, TimeHelper):
                 # Get block iteration and set description if exists
                 round_iteration: Optional[int] = kwargs.pop("Round_Index", None)
                 round_idx: Optional[str] = Logs.idx_setter(round_iteration, " Round")
+                
 
-                # Ensure the class has step_logs attribute
-                assert hasattr(self, 'step_logs'), \
-                    "The class must have 'step_logs' attribute."
-                assert isinstance(self.step_logs, StepLogs), \
-                    "'step_logs' must be an instance of StepLogs."
-                assert hasattr(self, 'word_size'), \
-                    "The class must have 'word_size' attribute."
-                assert hasattr(self, 'byteorder'), \
-                    "The class must have 'byteorder' attribute."
-
-                # Call the original function
-                org: bytes | Sequence | Generator | Dict = func(self, *args, **kwargs)
-
-                assert hasattr(self, 'total_overflow_count'), \
-                    "The class must have 'overflow' attribute."
-                assert hasattr(self, 'get_variable'), \
-                    "The class must have 'get_variable' method."
-                # Look base_calc.py if assertion fails
-
-                _overflow = self.get_variable("total_overflow_count")
-                _overflow = max(self.step_logs.overflow, _overflow)
-                self.step_logs.overflow = _overflow
-                _is_overflow = self.get_variable("overflow_boolean")
-                self.set_variable("overflow_boolean", False)
-                print(f"Total overflow status: {_overflow}")
-
-                _result = None
-                # Validate the result type based on is_loop
-                assert is_loop and isinstance(org, Generator) or not is_loop, \
-                    "If is_loop is True, the result must be a Generator."
-
-                if is_loop:
-                    _i = 0
-                    print(step_idx)
-                    while True:
-                        try:
-                            loop_result = next(org)
-                            StepLogs.update_loop(self.step_logs,
-                                round_idx=round_idx,
-                                step_index=step_idx,
-                                loop_index=_i,
-                                step_result=loop_result,
-                                wordsize=self.word_size,
-                                byteorder=self.byteorder,
-                                is_overflow=_is_overflow)
-                            _i += 1
-                        except StopIteration as e:
-                            _result = e.value
-                            break
-
-                else:
-                    _result = org
-                    print(step_idx)
-                    StepLogs.update(self.step_logs,
-                        round_idx=round_idx,
-                        step_index=step_idx,
-                        step_result=org,
-                        wordsize=self.word_size,
-                        byteorder=self.byteorder,
-                        is_overflow=_is_overflow)
-                assert _result is not None, "Log update failed in loop."
-                return _result
             return wrapper
         return decorator

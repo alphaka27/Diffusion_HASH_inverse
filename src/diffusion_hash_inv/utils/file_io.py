@@ -7,24 +7,27 @@ from dataclasses import dataclass
 from pathlib import Path
 from datetime import datetime
 from typing import List, Optional, Any
-import os
 import re
 from PIL import Image
 
 import pandas as pd
 from torch.utils.data import Dataset
 
-from diffusion_hash_inv.core import MainConfig
+from diffusion_hash_inv.config import MainConfig, OutputConfig as Out_CFG, HeaderConstants as HC
+from diffusion_hash_inv.config import HashConfig
+from diffusion_hash_inv.core import Logs
 from diffusion_hash_inv.utils import JSONFormat
-from diffusion_hash_inv.utils import add_root_to_path
-ROOT_DIR = add_root_to_path()
 
-# 고정 헤더 길이
-TS_LEN = 32 # 32 bytes UTF-8 timestamp
-BITLEN_LEN = 8 # 64 bits
-DIFFTIME_LEN = 8 # 64 bits
-PAD_LEN = 16 - BITLEN_LEN - DIFFTIME_LEN  # 8 bytes padding to make total 48 bytes
-HEADER_LEN = TS_LEN + DIFFTIME_LEN + BITLEN_LEN + PAD_LEN  # 48 bytes
+# Instantiate configuration once so property fields are resolved instead of accessing the class.
+
+ROOT_DIR = Out_CFG.root_dir
+
+# TODO: Change to use OutputConfig constants instead of using global constants here
+TS_LEN = HC.timestamp_length  # 32 bytes
+BITLEN_LEN = HC.bits_length # 8 bytes
+DIFFTIME_LEN = HC.difftime_length  # 8 bytes
+PAD_LEN = HC.padding_length  # 0 bytes
+HEADER_LEN = HC.header_length  # 48 bytes
 
 @dataclass
 class Header:
@@ -32,65 +35,59 @@ class Header:
     Represents the header of a binary file.
     """
     timestamp: str   # 32 Bytes
-    time_diff: int   # int
+    time_diff: int   # int64
     bit_length: int  # uint64
 
-    def encode_timestamp(self, encoding: str) -> bytes:
+    def encode_timestamp(self) -> bytes:
         """
         Encode the current timestamp as bytes.
         """
         s = self.timestamp
-        if len(s) != TS_LEN:
-            raise ValueError(f"timestamp length != {TS_LEN}: {len(s)}")
-        return s.encode(encoding)
+        if len(s) != HC.timestamp_length:
+            raise ValueError(f"timestamp length != {HC.timestamp_length}: {len(s)}")
+        return s.encode(Out_CFG.encoding)
 
-    def decode_timestamp(self, b: bytes, encoding: str) -> datetime:
+    def decode_timestamp(self, b: bytes) -> datetime:
         """
         Decode the timestamp from bytes.
         """
-        return datetime.fromisoformat(b.decode(encoding))
+        return datetime.fromisoformat(b.decode(Out_CFG.encoding))
 
-    def encode_bit_length(self, bit_length: int, byteorder: str) -> bytes:
+    def encode_bit_length(self) -> bytes:
         """
         Encode the bit length as bytes.
         """
-        if bit_length < 0:
-            raise ValueError("bit_length must be >= 0")
-        return bit_length.to_bytes(BITLEN_LEN, byteorder, signed=False)
+        return HashConfig.length.to_bytes(BITLEN_LEN, HashConfig.byteorder, signed=False)
 
-    def decode_bit_length(self, b: bytes, byteorder: str) -> int:
+    def decode_bit_length(self, b: bytes) -> int:
         """
         Decode the bit length from bytes.
         """
-        return int.from_bytes(b, byteorder, signed=False)
+        return int.from_bytes(b, HashConfig.byteorder, signed=False)
 
-    def encode_timediff(self, byteorder: str) -> bytes:
+    def encode_timediff(self) -> bytes:
         """
         Encode the time difference as bytes.
         """
-        if self.time_diff < 0:
-            raise ValueError("time_diff must be >= 0")
-        return self.time_diff.to_bytes(DIFFTIME_LEN, byteorder, signed=False)
+        return self.time_diff.to_bytes(DIFFTIME_LEN, HashConfig.byteorder, signed=False)
 
-    def decode_timediff(self, b: bytes, byteorder: str) -> int:
+    def decode_timediff(self, b: bytes) -> int:
         """
         Decode the time difference from bytes.
         """
-        return int.from_bytes(b, byteorder, signed=False)
+        return int.from_bytes(b, HashConfig.byteorder, signed=False)
 
-    def encode(self, encoding: Optional[str] = None, byteorder: Optional[str] = None) -> bytes:
+    def encode(self) -> bytes:
         """
         Encode the header to bytes.
         """
-        assert encoding is not None, "encoding must be specified"
-        assert byteorder is not None, "byteorder must be specified"
         header_bytes = bytearray()
-        header_bytes.extend(self.encode_timestamp(encoding))
-        header_bytes.extend(self.encode_timediff(byteorder))
-        header_bytes.extend(self.encode_bit_length(self.bit_length, byteorder))
-        header_bytes.extend(b'\x00' * PAD_LEN)  # Padding
-        assert len(header_bytes) == HEADER_LEN, \
-            f"Header length != {HEADER_LEN}: {len(header_bytes)}"
+        header_bytes.extend(self.encode_timestamp())
+        header_bytes.extend(self.encode_timediff())
+        header_bytes.extend(self.encode_bit_length())
+        header_bytes.extend(b'\x00' * HC.padding_length)  # Padding
+        assert len(header_bytes) == HC.header_length, \
+            f"Header length != {HC.header_length}: {len(header_bytes)}"
         return bytes(header_bytes)
 
     def decode(self, b: bytes, encoding: Optional[str] = None, \
@@ -100,15 +97,15 @@ class Header:
         """
         assert encoding is not None, "encoding must be specified"
         assert byteorder is not None, "byteorder must be specified"
-        if len(b) != HEADER_LEN:
-            raise ValueError(f"Header length != {HEADER_LEN}: {len(b)}")
-        timestamp_bytes = b[0:TS_LEN]
-        time_diff_bytes = b[TS_LEN:TS_LEN + DIFFTIME_LEN]
-        bit_length_bytes = b[TS_LEN + DIFFTIME_LEN:TS_LEN + DIFFTIME_LEN + BITLEN_LEN]
-
-        timestamp = self.decode_timestamp(timestamp_bytes, encoding)
-        time_diff = self.decode_timediff(time_diff_bytes, byteorder)
-        bit_length = self.decode_bit_length(bit_length_bytes, byteorder)
+        if len(b) != HC.header_length:
+            raise ValueError(f"Header length != {HC.header_length}: {len(b)}")
+        timestamp_bytes = b[0:HC.timestamp_length]
+        time_diff_bytes = b[HC.timestamp_length:HC.timestamp_length + HC.difftime_length]
+        bit_length_bytes = b[HC.timestamp_length + HC.difftime_length:\
+                            HC.timestamp_length + HC.difftime_length + HC.bits_length]
+        timestamp = self.decode_timestamp(timestamp_bytes)
+        time_diff = self.decode_timediff(time_diff_bytes)
+        bit_length = self.decode_bit_length(bit_length_bytes)
 
         return Header(timestamp=timestamp.isoformat(), time_diff=time_diff, bit_length=bit_length)
 
@@ -196,61 +193,69 @@ class Reader:
         Read the image content from a file.
         """
 
+
 class FileIO:
     """
     File I/O Utilities
     """
-    def __init__(self):
-        super().__init__()
-        self.data_dir = ROOT_DIR / "data"
-        self.out_dir = ROOT_DIR / "output"
-        self.is_verbose = verbose_flag
+    def __init__(self, main_config: MainConfig):
+        self.main_config = main_config
+        self.data_dir = Out_CFG.data_dir
+        self.out_dir = Out_CFG.output_dir
+        self.allow_extensions = (".bin", ".char", ".json", ".xlsx", ".png")
 
-    #pylint: disable=broad-exception-caught, too-many-branches, too-many-nested-blocks
-    def file_clean(self, clear_flag = False, verbose_flag = True):
+        if self.main_config.verbose_flag:
+            print(f"Data Directory: {self.data_dir}")
+            print(f"Output Directory: {self.out_dir}")
+
+    def _dfs_remove(self, cur: Path, depth: int) -> None:
+        if cur.is_symlink():
+            print("\t"*depth + cur.name+"@")
+            cur.unlink()
+            return
+
+        if cur.is_dir():
+            print("\t"*depth + cur.name+"/")
+            children = sorted(cur.iterdir(), key=lambda x: (not x.is_dir(), x.name))
+            for child in children:
+                self._dfs_remove(child, depth + 1)
+            cur.rmdir()
+
+        else:
+            print("\t"*depth + cur.name)
+            cur.unlink()
+
+    def file_clean(self):
         """
         Clean up the generated files.
         """
-        print("Clearing generated files...")
-        if not clear_flag:
+
+        if not self.main_config.clean_flag:
             return
 
+        print("Clearing generated files...")
+
         targets = [self.data_dir, self.out_dir]
-        for root_dir in targets:
-            if not root_dir:
-                continue
-            if not os.path.isdir(root_dir):
-                if verbose_flag:
-                    print(f"[SKIP] 디렉터리가 아님: {root_dir}")
-                continue
+        root_dir: Path = Out_CFG.root_dir
+        _root = root_dir.resolve()
 
-            # 하위부터 올라오며 파일/디렉터리 삭제
-            for cur, dirs, files in os.walk(root_dir, topdown=False, followlinks=False):
-                # 파일 삭제
-                for name in files:
-                    p = os.path.join(cur, name)
-                    try:
-                        os.unlink(p)  # 파일/하드링크/심볼릭링크 모두 처리
-                        if verbose_flag:
-                            print(f"Remove file: {p}")
-                    except Exception as e:
-                        print(f"[SKIP] {p}: {e}")
+        if self.main_config.verbose_flag:
+            print(f"Root Directory: {_root}")
 
-                # 디렉터리(or 디렉터리 링크) 삭제
-                for name in dirs:
-                    p = os.path.join(cur, name)
-                    try:
-                        if os.path.islink(p):
-                            os.unlink(p)      # 디렉터리 링크는 unlink
-                            if verbose_flag:
-                                print(f"Remove symlink dir: {p}")
-                        else:
-                            if verbose_flag:
-                                print(f"Remove directory: {p}")
-                            os.rmdir(p)       # 하위가 이미 지워져서 비어 있음
-                    except Exception as e:
-                        print(f"[SKIP] {p}: {e}")
-    #pylint: enable=broad-exception-caught, too-many-branches, too-many-nested-blocks
+        for target in targets:
+            _target = (_root / target).resolve()
+            _target.relative_to(_root)  # Ensure _target is within _root
+            if self.main_config.verbose_flag:
+                print(f"Removing Directory: {_target}")
+
+            if not _target.exists():
+                raise FileNotFoundError(f"Directory not found: {_target}")
+            if not _target.is_dir():
+                raise NotADirectoryError(f"Not a directory: {_target}")
+
+            self._dfs_remove(_target, 0)
+
+        self.main_config.reset_clean_flag()
 
     def get_latest_files_by_date(self, dir_path: str, hash_alg: str, length: int) -> str:
         """
@@ -279,8 +284,11 @@ class FileIO:
         """
         Decide subdirectory by extension and ensure it exists.
         """
-        length: int = kwargs.get("length", None)
-        data_type: str = kwargs.get("data_type", None)
+        if isinstance(filetype, str):
+            if not any(filetype.endswith(ext) for ext in self.allow_extensions):
+                raise ValueError(f"Invalid file extension. Use {', '.join(self.allow_extensions)}")
+        length: int = kwargs.pop("length", None)
+        data_type: str = kwargs.pop("data_type", None)
 
         if isinstance(filetype, Path):
             filetype = str(filetype.name)
@@ -307,7 +315,7 @@ class FileIO:
             elif data_type == "output":
                 base = self.out_dir / "images" / f"{length}"
         else:
-            raise ValueError("Invalid file extension. Use .bin, .char, .json, .xlsx, or .png")
+            raise ValueError(f"Invalid file extension. Use {', '.join(self.allow_extensions)}")
 
         base.mkdir(parents=True, exist_ok=True)  # ← 실제 타깃 디렉터리 생성
 
@@ -328,7 +336,7 @@ class FileIO:
         byteorder = kwargs.get("byteorder", None)
         if start_timestamp is not None and elapsed_time is not None:
             header = Header(start_timestamp, elapsed_time, length)
-            header_bytes = header.encode("utf-8", byteorder)
+            header_bytes = header.encode()
         data_type = kwargs.get("data_type", None)
 
         base: Path
@@ -356,7 +364,7 @@ class FileIO:
         elif full_path.suffix == ".png" or isinstance(content, Dataset):
             Writer.image_writer(full_path, content)
         else:
-            raise ValueError("Invalid file extension. Use .bin, .char, .json, .xlsx, or .png")
+            raise ValueError(f"Invalid file extension. Use {', '.join(self.allow_extensions)}")
 
     def file_reader(self, filename: Path | str, length: int) -> Any:
         """

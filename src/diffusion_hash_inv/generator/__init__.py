@@ -4,7 +4,6 @@
 - nist_pwgen_utf8, random_n_char 모듈은 네임스페이스로 공개
 """
 
-from ..deprecated.random_n_bits import GenerateRandomNBits
 from .random_n_char import GenerateRandomNChar
 
 __all__ = [
