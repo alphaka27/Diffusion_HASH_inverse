@@ -5,28 +5,28 @@ Each subcube represents a partition of the RGB color space.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from secrets import randbelow
 from typing import Tuple, List
 
 from diffusion_hash_inv.core import RGB, RGBBinning
 from diffusion_hash_inv.core import Logs
-from diffusion_hash_inv.core import Byte2RGBConfig
-
-
+from diffusion_hash_inv.config import Byte2RGBConfig, HashConfig, MainConfig
 
 class Byte2RGB:
     """
     A class to convert byte values(0x00 ~ 0xFF) to RGB tuples in  RGB color space.
     """
 
-    def __init__(self, config: Byte2RGBConfig = Byte2RGBConfig(), byteorder: str = "little"):
-
-        self.byteorder = byteorder
-        RGBBinning.config(bin_num=config.split, bin_width=config.sub_len, \
-                        fr_min=config.full_space_min, fr_max=config.full_space_max)
-
+    def __init__(self, rgb_config: Byte2RGBConfig = Byte2RGBConfig(), \
+                hash_config: HashConfig = HashConfig("md5", 256)):
+        self.byteorder = hash_config.byteorder
         binning = RGBBinning()
+        binning.config(
+            bin_num=rgb_config.bin_num,
+            bin_width=rgb_config.bin_width,
+            fr_min=rgb_config.fr_min,
+            fr_max=rgb_config.fr_max,
+        )
         rgbbins = binning()
         self.encoding_map = {}
         for _i, _bin in enumerate(rgbbins):
@@ -36,7 +36,7 @@ class Byte2RGB:
                 "b_chunk": _bin.b_chunk,
             }
 
-    def encode(self, hexstring: str | bytes) -> RGB:
+    def encode(self, hexstring: str | bytes) -> RGB | Tuple[RGB, ...]:
         """
         Encode a byte value (0-255) to an RGB tuple.
 
@@ -60,11 +60,14 @@ class Byte2RGB:
             _b = randbelow(_temp_b.end - _temp_b.start) + _temp_b.start
             encode.append(RGB(r=_r, g=_g, b=_b))
 
+        if MainConfig.verbose_flag:
+            print(f"Encoded byte value: {bytes_value} to RGB: {encode}")
+
         if len(encode) == 1:
             return encode[0]
         return tuple(encode)
 
-    def decode(self, rgb: Tuple[RGB]) -> bytes:
+    def decode(self, rgb: RGB | Tuple[RGB, ...]) -> bytes:
         """
         Decode an RGB tuple back to its corresponding byte value.
 
@@ -90,6 +93,10 @@ class Byte2RGB:
                     continue
 
         decode_bytes = Logs.iter_to_bytes(decode, byteorder=self.byteorder)
+
+        if MainConfig.verbose_flag:
+            print(f"Decoded RGB: {rgb} to byte value: {decode_bytes}")
+
         return decode_bytes
 
 
@@ -100,12 +107,10 @@ if __name__ == "__main__":
     print("----- Byte to RGB Encoding Test -----")
     test_byte = Logs.str_to_bytes("0x6e4c5a2e")
     _rgb = b2rgb.encode(test_byte)
-    print(f"Byte {test_byte} encoded to RGB: {_rgb}")
 
     print()
 
     print("----- RGB to Byte Decoding Test -----")
     DECODE = b2rgb.decode(_rgb)
-    print(f"RGB {_rgb} decoded back to Byte: {DECODE}")
 
     assert DECODE == test_byte, "Decoded byte does not match the original byte."

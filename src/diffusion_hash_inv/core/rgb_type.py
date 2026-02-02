@@ -8,8 +8,6 @@ from dataclasses import dataclass, field
 
 from typing import Tuple, List, Dict, ClassVar, Optional
 
-from diffusion_hash_inv.core import FreezeClassVar
-
 @dataclass
 class Chunk1D:
     """
@@ -30,6 +28,9 @@ class Chunk1D:
 
         if self.start >= _max or self.end <= _min:
             raise ValueError("Chunk values must be in the range [0, 255].")
+
+    def __call__(self, *args, **kwds):
+        return Chunk1D(start=self.start, end=self.end)
 
     @property
     def length(self) -> int:
@@ -316,23 +317,18 @@ class RGBBin:
                                     g_chunk=self.g_chunk,
                                     b_chunk=self.b_chunk)
 
-
-
 @dataclass(frozen=True)
-class RGBBinning(metaclass=FreezeClassVar):
+class RGBBinning:
     """
     Data structure for intermediate conversion space between bytes and RGB values.
     """
-    bin_num: ClassVar[int] = 7
-    bin_width: ClassVar[int] = 36
+    bin_num: int = 7
+    bin_width: int = 36
 
-    fr_min: ClassVar[int] = 0
-    fr_max: ClassVar[int] = 255
-
-    full_range: ClassVar[Chunk1D] = field(default=Chunk1D(start=fr_min, end=fr_max), init=False)
-    tot_bins_width: ClassVar[int] = field(default=bin_num * bin_width, init=False)
-
-    Encoding_space: ClassVar[List[Dict[str, object]]] = field(default=None, init=False)
+    fr_min: int = 0
+    fr_max: int = 255
+    full_range: Chunk1D = field(default_factory=Chunk1D(start=fr_min, end=fr_max), init=False)
+    tot_bins_width: int = field(default=bin_num * bin_width, init=False)
 
     def __post_init__(self):
         if self.bin_num <= 0 or self.bin_width <= 0:
@@ -348,20 +344,17 @@ class RGBBinning(metaclass=FreezeClassVar):
     def __call__(self, *args, **kwargs):
         return self.quantization(*args, **kwargs)
 
-    @classmethod
-    def config(cls, bin_num: int, bin_width: int, fr_min: int = 0, fr_max: int = 255):
+    def config(self, bin_num: int = 7, bin_width: int = 36, fr_min: int = 0, fr_max: int = 255):
         """
         Configure the RGBBinning class with custom
         bin_num, bin_width, fr_min, and fr_max.
         """
-        cls.unlock()
-        cls.bin_num = bin_num
-        cls.bin_width = bin_width
-        cls.fr_min = fr_min
-        cls.fr_max = fr_max
-        cls.full_range = Chunk1D(start=fr_min, end=fr_max)
-        cls.tot_bins_width = bin_num * bin_width
-        cls.lock()
+        object.__setattr__(self, 'bin_num', bin_num)
+        object.__setattr__(self, 'bin_width', bin_width)
+        object.__setattr__(self, 'fr_min', fr_min)
+        object.__setattr__(self, 'fr_max', fr_max)
+        object.__setattr__(self, 'full_range', Chunk1D(start=fr_min, end=fr_max))
+        object.__setattr__(self, 'tot_bins_width', bin_num * bin_width)
 
     def alignment(self) -> Chunk1D:
         """
@@ -506,16 +499,14 @@ class RGBBinning(metaclass=FreezeClassVar):
             if bin3d.bin_idx not in ex_idx:
                 included_bins3d.append(bin3d)
 
-        type(self).unlock()
-        type(self).Encoding_space = tuple(included_bins3d)
-        type(self).lock()
-
         return included_bins3d
 
     def quantization(self) -> List[RGBBin]:
         """
         Perform RGB binning and return the included bins after exclusion.
         """
+        self.config(self.bin_num, self.bin_width, self.fr_min, self.fr_max)
+
         bins3d = self.binning3d()
         excluded_idx = self.ex_idx()
         included_bins3d = self.inc_bins(bins3d=bins3d, excluded_idx=excluded_idx)
@@ -524,12 +515,9 @@ class RGBBinning(metaclass=FreezeClassVar):
 
 if __name__ == "__main__":
     _test = RGBBinning()
-    quantized_bins = _test.inc_bins()
+    quantized_bins = _test.quantization()
     print(f"Total included bins: {len(quantized_bins)}")
     print("Sample included bins:")
     for _i, _bin in enumerate(quantized_bins):
-        print(f"{_i} Bin Index: {_bin.bin_idx}, R Chunk: {_bin.r_chunk.as_inclusive}, "
+        print(f"{_i+1} Bin Index: {_bin.bin_idx}, R Chunk: {_bin.r_chunk.as_inclusive}, "
             f"G Chunk: {_bin.g_chunk.as_inclusive}, B Chunk: {_bin.b_chunk.as_inclusive}")
-
-    print("Class variable Encoding_space is now locked and cannot be modified.")
-    print(f"Encoding_space has {len(RGBBinning.Encoding_space)} bins.")

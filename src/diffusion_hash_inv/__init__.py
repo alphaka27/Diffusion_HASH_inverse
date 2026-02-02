@@ -14,7 +14,7 @@ from diffusion_hash_inv.utils import FileIO
 from diffusion_hash_inv.utils import JSONToXLSXConverter
 
 from diffusion_hash_inv.hashing import MD5
-from diffusion_hash_inv.hashing import SHA256
+# from diffusion_hash_inv.hashing import SHA256
 
 __all__ = [
     "BaseCalc",
@@ -26,12 +26,13 @@ __all__ = [
     "FileIO",
     "JSONToXLSXConverter",
     "MD5",
-    "SHA256"
+    # "SHA256"
 ]
 
 # dev 패키지 버전
 try:
     __version__ = version("diffusion-hash-inv")
+
 except PackageNotFoundError:
     # 개발환경(로컬)에서 pyproject 설치 전인 경우 대비
     __version__ = "0.0.0.dev"
