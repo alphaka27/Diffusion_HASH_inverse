@@ -5,10 +5,10 @@ Hash algorithm main module
 import argparse
 import sys
 
-from diffusion_hash_inv.core import Logs, Metadata, BaseLogs
+from diffusion_hash_inv.core import Logs, Metadata, BaseLogs, StepLogs
 from diffusion_hash_inv.config import MainConfig, HashConfig
 from diffusion_hash_inv.generator import GenerateRandomNChar
-from diffusion_hash_inv.utils import FileIO, JSONToXLSXConverter
+from diffusion_hash_inv.utils import FileIO
 from diffusion_hash_inv.validation import validate
 from diffusion_hash_inv import hashing
 
@@ -45,16 +45,15 @@ class Main:
         _msg = generator.main(length, byteorder, timer_start=timer)
         return _msg
 
-    def get_hasher(self):
+    @staticmethod
+    def get_hasher(alg_name: str, main_cfg: MainConfig, hash_cfg: HashConfig, steplogs: StepLogs):
         """
         Get the hashing algorithm instance based on name
         """
-
         try:
-            algo = getattr(hashing, self.alg_name)\
-                    (self.main_cfg, self.hash_cfg)
+            algo = getattr(hashing, alg_name)(main_cfg, hash_cfg, steplogs)
         except AttributeError as e:
-            raise ValueError(f"Unsupported algo: {self.alg_name}") from e
+            raise ValueError(f"Unsupported algo: {alg_name}") from e
 
         return algo
 
@@ -62,45 +61,51 @@ class Main:
         """
         Main entry point for hash generation and validation
         """
-        metadata = Metadata(hash_alg=self.alg_name, is_message=self.main_cfg.message_flag)
-        metadata.setter(input_length=length, \
-                            exec_start=self.start_time)
+        metadata = Metadata(hash_alg=self.alg_name, is_message=self.main_cfg.message_flag, \
+                            input_bits_len=length, started_at=self.start_time)
+
         baselogs = BaseLogs()
+        steplogs = StepLogs(wordsize=self.hash_cfg.ws_bits, byteorder=self.hash_cfg.byteorder, \
+                            hierarchy=self.hash_cfg.hierarchy)
 
         assert length > 0, "Length must be positive."
         assert length % 8 == 0, "Length must be multiple of 8."
 
-        assert iteration > 0, "Iteration count must be non-negative integer."
+        assert iteration >= 0, "Iteration count must be non-negative integer."
+
         if self.main_cfg.verbose_flag:
             print(f"Running {self.alg_name} Hash with length {length} "
                 f"for {iteration} iterations.")
 
-        algo = self.get_hasher()
+        algo = self.get_hasher(self.alg_name, self.main_cfg, self.hash_cfg, steplogs)
 
         for _i in range(iteration):
             perf_timer_start = Logs.perftimer_start()
             print(f"--- Iteration {_i + 1}/{iteration} ---")
             algo.reset()
+            Logs.clear(baselogs=baselogs, steplogs=steplogs)
 
             json_file_name = f"{self.alg_name}_{length}_{self.start_time[:19]}_{_i}.json"
 
             input_msg = self.message_generator(length, algo.byteorder)
             generated_hash = algo.digest(input_msg)
-            valid, correct_hash = \
+            valid, right_hash = \
                 validate(generated_hash, input_msg, self.alg_name, self.main_cfg.verbose_flag)
 
             if not valid:
                 print(f"Iteration {_i + 1}/{iteration} Hash validation failed. Exiting.")
-                raise RuntimeError(f"Hash va!lidation failed at iteration {_i + 1}.")
+                print(f"Generated Hash: {Logs.bytes_to_str(generated_hash)}")
+                print(f"Correct   Hash: {Logs.bytes_to_str(right_hash)}")
+                raise RuntimeError(f"Hash validation failed at iteration {_i + 1}.")
 
             print(f"Iteration {_i + 1}/{iteration} completed.\n")
             # Logs.stdout_writer(generated_hash, valid, correct_hash, iteration_index=_i)
-
-            metadata.update(elapsed_time=Logs.perftimer_end(perf_timer_start))
+            perf_timer_end = Logs.perftimer_end(perf_timer_start)
+            metadata.time_logger(perf_timer_end)
 
             baselogs.update(message=input_msg, \
                             generated_hash=generated_hash, \
-                            correct_hash=correct_hash, \
+                            correct_hash=right_hash, \
                             is_message=self.main_cfg.message_flag)
 
             if self.main_cfg.is_debug:
@@ -108,7 +113,7 @@ class Main:
                     breakpoint()
 
             self.io_controller.file_writer(filename=json_file_name, content={"metadata": metadata, \
-                    "baselogs": baselogs, "steplogs": algo.step_logs}, length=length)
+                    "baselogs": baselogs, "steplogs": steplogs}, length=length)
 
     def run(self, length:int, iteration: int = 0):
         """
@@ -117,23 +122,13 @@ class Main:
         if iteration == 0:
             sys.exit()
 
-        json_to_xlsx_converter = JSONToXLSXConverter(verbose_flag=self.main_cfg.verbose_flag, \
-                                                    length=length)
         _start_total = Logs.perftimer_start()
 
         self.main(length, iteration)
 
         _end_total = Logs.perftimer_end(_start_total)
-        elapsed_time = Logs.perftimer(_end_total)
+        elapsed_time = Logs.perftimer_str(_end_total)
         print("Total execution time:", elapsed_time)
-
-        if self.main_cfg.make_xlsx_flag:
-            _start = Logs.perftimer_start()
-            json_to_xlsx_converter.convert_to_xlsx(self.alg_name.lower())
-            print(f"JSON to XLSX conversion completed in "
-                f"{Logs.perftimer_end(_start)} ns.")
-
-
 
 if __name__ == "__main__":
     # Argument parsing
@@ -201,5 +196,6 @@ if __name__ == "__main__":
         hash_alg=_args.hash_alg,
         length=LENGTH,
     )
+
     main_app = Main(_main_flags, _hash_flags)
     main_app.run(length=LENGTH, iteration=_args.iteration)

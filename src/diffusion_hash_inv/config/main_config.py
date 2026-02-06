@@ -20,7 +20,8 @@ class MainConfig:
     make_xlsx_flag: bool
 
     def __getattribute__(self, name):
-        if not hasattr(self, name):
+        fields = object.__getattribute__(self, "__dataclass_fields__")
+        if name not in fields:
             raise ValueError(f"MainConfig has no attribute '{name}'.")
 
         ret = super().__getattribute__(name)
@@ -66,7 +67,8 @@ class OutputConfig:
         object.__setattr__(self, "output_dir", _root_dir / "output")
 
     def __getattribute__(self, name):
-        if not hasattr(self, name):
+        fields = object.__getattribute__(self, "__dataclass_fields__")
+        if name not in fields:
             raise ValueError(f"OutputConfig has no attribute '{name}'.")
 
         ret = super().__getattribute__(name)

@@ -3,13 +3,18 @@ Logging utilities for Diffusion Hash Inversion
 """
 
 from __future__ import annotations
-from typing import Any, Dict, List, Optional, Generator, Sequence, MutableMapping, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple, ClassVar
+
 from datetime import datetime
 from collections.abc import Hashable
 from dataclasses import dataclass, field
 import time
-
+import inspect
+import types
+from enum import Enum
+import sys
 from functools import wraps
+import threading
 
 @dataclass
 class Metadata:
@@ -19,33 +24,41 @@ class Metadata:
         elapsed time, entropy, strength
     """
     hash_alg: str
-    is_message: bool
-    hierarchy: Sequence[Hashable] = field(default_factory=tuple)
+    is_message: bool = field(default_factory=bool)
 
-    started_at: str = field(default_factory=str, init=False)
-    elapsed_time:float = field(default_factory=float, init=False)
+    started_at: str = field(default_factory=str)
+    input_bits_len: int = field(default_factory=int)
 
-    input_bits_len: int = field(default_factory=int, init=False)
     byteorder: str = field(default_factory=str, init=False)
+    hierarchy: Sequence[Hashable] = field(default_factory=tuple, init=False)
+    elapsed_time:str = field(default_factory=str, init=False)
 
     def clear(self)->None:
         """Clear all metadata"""
         self.started_at = ""
-        self.elapsed_time = 0.0
+        self.elapsed_time = ""
 
-    def setter(self, input_length: int, exec_start: str)->None:
-        """set metadata"""
-        self.input_bits_len = input_length
-        self.started_at = exec_start
-
-    def update(self, elapsed_time: int)->None:
+    def hash_property(self, byteorder: str, hierarchy: Sequence[Hashable])->None:
         """
-        Update metadata
+        Set hash properties
         Parameters:
-            elapsed_time: float
-                Elapsed time for generation
+            byteorder: str
+                Byte order
+            hierarchy: Sequence[Hashable]
+                Hierarchy levels
         """
-        self.elapsed_time = f"{elapsed_time} ns"
+        self.byteorder = byteorder
+        self.hierarchy = hierarchy
+
+    def time_logger(self, elapsed_time: int)->None:
+        """
+        Update elapsed time
+
+        Parameters:
+            elapsed_time: int
+                Elapsed time in nanoseconds
+        """
+        self.elapsed_time = Logs.perftimer_str(elapsed_time)
 
     def get_dict(self)->Dict[str, Any]:
         """
@@ -145,6 +158,7 @@ class StepLogs:
     hierarchy: Sequence[Hashable] = field(default_factory=tuple)
 
     logs: Dict[str, Any] = field(default_factory=dict, init=False)
+
     overflow_log: Dict[str, Any] = field(default_factory=dict, init=False)
     step_metadata: Dict[str, Any] = field(default_factory=dict, init=False)
     overflow: int = field(default_factory=int, init=False)
@@ -152,162 +166,22 @@ class StepLogs:
     def clear(self) -> None:
         """Clear all step logs"""
         self.logs.clear()
+        self.overflow_log.clear()
         self.step_metadata.clear()
         self.overflow = -1
 
-    @staticmethod
-    def _ensure_nested_dict(root: MutableMapping, path: Sequence[Hashable]) -> MutableMapping:
+    def update_step(self):
+        """Update step logs"""
+
+    def update_overflow(self, step) -> None:
         """
-        path[:-1]까지는 dict로 내려가고, 없으면 {}로 생성해서 내려가요.
-        마지막 key 직전의 dict를 반환해요.
+        Update overflow logs
+
+        Parameters:
+            step: Any
+                Step information
         """
-        cur: MutableMapping = root
-        for key in path:
-            if key is None:
-                pass
-            cur = cur.setdefault(key, {})
-        return cur
 
-    # 1) 그냥 값 통째로 넣기 (bytes, dict, list 등 어떤 타입이든)
-    def set_value(self, path: Sequence[Hashable], value: Any) -> None:
-        """
-        path 위치에 value를 그대로 넣어요.
-        예: ("Step1",) -> bytes
-            ("Step2",) -> 전체 list
-            ("Step3",) -> 전체 dict
-        """
-        if not path:
-            raise ValueError("path는 비어 있을 수 없어요.")
-        *parents, last = path
-        parent_dict = self._ensure_nested_dict(self.logs, parents)
-        parent_dict[last] = value
-
-    def dict_updater(self, **data) -> Dict[str, Any]:
-        """Update dictionary type step logs"""
-        temp_dict = {}
-        for key, value in data.items():
-            if isinstance(value, (bytearray, bytes)):
-                temp_dict[key] = Logs.bytes_to_str(value)
-
-            elif isinstance(value, int):
-                value = LogHelper.int_to_bytes(value, self.wordsize, self.byteorder)
-                temp_dict[key] = Logs.bytes_to_str(value)
-
-            else:
-                raise NotImplementedError("Unsupported type in dict for step log update")
-
-            temp_dict[key] = Logs.bytes_to_str(value)
-        return temp_dict
-
-    def list_updater(self, data) -> Dict[str, Any]:
-        """Update step logs list directly"""
-        temp_dict = {}
-        for idx, item in enumerate(data):
-            idx_str = Logs.idx_setter(idx, " Block")
-
-            if isinstance(item, (bytearray, bytes)):
-                temp_dict[idx_str] = Logs.bytes_to_str(item)
-
-            elif isinstance(item, int):
-                item = LogHelper.int_to_bytes(item, self.wordsize, self.byteorder)
-                temp_dict[idx_str] = Logs.bytes_to_str(item)
-
-            elif isinstance(item, Sequence) and \
-                not isinstance(item, (str, bytes, bytearray)):
-                # Nested sequence handling
-                _nested_list = []
-                for _item in item:
-                    if isinstance(_item, (bytearray, bytes)):
-                        _item = Logs.bytes_to_str(_item)
-
-                    elif isinstance(_item, int):
-                        _item = LogHelper.int_to_bytes(_item, self.wordsize, self.byteorder)
-                        _item = Logs.bytes_to_str(_item)
-
-                    else:
-                        raise NotImplementedError\
-                            ("Unsupported type in nested sequence for step log update")
-
-                    _nested_list.append(_item)
-                temp_dict[idx_str] = _nested_list
-            else:
-                raise NotImplementedError("Unsupported type in sequence for step log update")
-        return temp_dict
-
-    def update(self, **kwargs) -> Dict[str, Any]:
-        """
-        Update step logs
-        """
-        _hier_path = []
-        if self.hierarchy:
-            for level in self.hierarchy:
-                round_idx: Optional[str] = kwargs.get("round_idx", None)
-                if round_idx is not None and level == "Round":
-                    _hier_path.append(round_idx)
-
-                step_index: Optional[str] = kwargs.get("step_index", None)
-                if step_index is not None and level == "Step":
-                    _hier_path.append(step_index)
-
-        step_result: Dict | Sequence | bytes | bytearray = kwargs.get("step_result", None)
-
-        assert step_result is not None, "step_result must be provided"
-        assert isinstance(step_result, (Dict, Sequence, bytes, bytearray)), \
-            "step_result must be Dict, Sequence, or bytes-like"
-
-        _logs: Dict[str, Any] | str = None
-        if isinstance(step_result, Dict):
-            _logs = self.dict_updater(**step_result)
-
-        elif isinstance(step_result, Sequence) and \
-        not isinstance(step_result, (str, bytes, bytearray)):
-            _logs = self.list_updater(step_result)
-
-        elif isinstance(step_result, (bytes, bytearray)):
-            # For bytes results, store as hex string
-            _logs = Logs.bytes_to_str(step_result)
-
-        else:
-            raise NotImplementedError("Unsupported type for step log update")
-        self.set_value(_hier_path, _logs)
-
-    def update_loop(self, **kwargs) -> Dict[str, Any]:
-        """Update step logs in loop"""
-        _hier_path = []
-        if self.hierarchy:
-            for level in self.hierarchy:
-                round_idx: Optional[str] = kwargs.get("round_idx", None)
-                if round_idx is not None and level == "Round":
-                    _hier_path.append(round_idx)
-
-                step_index: Optional[str] = kwargs.get("step_index", None)
-                if step_index is not None and level == "Step":
-                    _hier_path.append(step_index)
-
-                loop_index: Optional[int] = kwargs.get("loop_index", None)
-                loop_idx_str = Logs.idx_setter(loop_index, " Loop")
-                if loop_index is not None and level == "Loop":
-                    _hier_path.append(loop_idx_str)
-
-        loop_result: Any = kwargs.get("step_result", None)
-        assert loop_result is not None, "step_result must be provided"
-        assert isinstance(loop_result, (Dict, Sequence, bytes, bytearray)), \
-            "loop_result must be Dict, Sequence, or bytes-like"
-
-        if isinstance(loop_result, Dict):
-            # For dict results, store directly
-            _logs = self.dict_updater(**loop_result)
-
-        else:
-            raise NotImplementedError("Unsupported type for step log update")
-        self.set_value(_hier_path, _logs)
-
-    def getter(self) -> Dict[str, Any]:
-        """Get step logs"""
-        self.step_metadata.update({"word_size": self.wordsize, "byteorder": self.byteorder})
-        self.step_metadata.update({"hierarchy": self.hierarchy})
-        self.step_metadata.update({"overflow_count": self.overflow})
-        return self.logs, self.step_metadata
 
 class TimeHelper:
     """
@@ -335,14 +209,49 @@ class TimeHelper:
         return end_time - start_time
 
     @staticmethod
-    def perftimer(elapsed_time: int) -> str:
-        """Calculate elapsed performance time in nanoseconds"""
+    def perftimer_str(elapsed_time: int) -> str:
+        """Get elapsed time as formatted string"""
         sec, rem = divmod(elapsed_time, 1_000_000_000)
         ms, rem = divmod(rem, 1_000_000)
         us, ns = divmod(rem, 1_000)
 
-        return f"{elapsed_time} ns ({sec} s {ms} ms, {us} us, {ns} ns)"
+        parts = []
+        if sec > 0:
+            parts.append(f"{sec} s")
+        if ms > 0:
+            parts.append(f"{ms} ms")
+        if us > 0:
+            parts.append(f"{us} us")
+        if ns > 0 or not parts:
+            parts.append(f"{ns} ns")
 
+        return ", ".join(parts)
+
+class MemberKind(Enum):
+    """
+    Enum for classifying member kinds
+    """
+    # class attributes
+    CLASS_STATICMETHOD = "class: staticmethod"
+    CLASS_CLASSMETHOD = "class: classmethod"
+    CLASS_FUNCTION = "class: function (binds as instance method)"
+    CLASS_PROPERTY = "class: property"
+    CLASS_OTHER = "class: other"
+
+    # module attributes
+    MODULE_FUNCTION = "module: function"
+    MODULE_CLASS = "module: class"
+    MODULE_MODULE = "module: module"
+    MODULE_BUILTIN = "module: builtin"          # e.g., math.sin
+    MODULE_OTHER = "module: other"
+
+    # fallback
+    OWNER_UNSUPPORTED = "owner: unsupported"
+
+    @property
+    def description(self) -> str:
+        """Get description of the member kind"""
+        return self.value
 
 class LogHelper:
     """
@@ -536,31 +445,65 @@ class LogHelper:
         print(f"Validation: {valid_message}")
 
     @staticmethod
-    def idx_setter(index: Optional[int], suffix: str, **desc) -> Optional[str]:
+    def idx_setter(index: Optional[int], prefix: str) -> Optional[str]:
         """Convert index to string"""
         # TODO
         # Add description for logs
-        _desc = desc.get("description", None)
-        suffix = f"{suffix}" if _desc is None else f"{suffix}-{_desc}"
+
         if index is None:
             return None
 
-        if "Step" not in suffix:
+        if "Step" not in prefix:
             index += 1
 
-        if index == 1:
-            return "1st" + suffix
-        if index == 2:
-            return "2nd" + suffix
-        if index == 3:
-            return "3rd" + suffix
-        return f"{index}th" + suffix
+        return f"{prefix} {index}"
 
-class MD5Logs:
-    """
-    MD5 specific logging utilities
-    """
-    
+    @staticmethod
+    def _classify_class_attr(raw) -> str:
+        """Classify class attribute type"""
+        if isinstance(raw, staticmethod):
+            return MemberKind.CLASS_STATICMETHOD.name
+        if isinstance(raw, classmethod):
+            return MemberKind.CLASS_CLASSMETHOD.name
+        if inspect.isfunction(raw):
+            return MemberKind.CLASS_FUNCTION.name
+        if isinstance(raw, property):
+            return MemberKind.CLASS_PROPERTY.name
+        return MemberKind.CLASS_OTHER.name
+
+    @staticmethod
+    def _classify_module_attr(raw) -> str:
+        """Classify module attribute type"""
+        if inspect.isfunction(raw):
+            return MemberKind.MODULE_FUNCTION.name
+        if inspect.isclass(raw):
+            return MemberKind.MODULE_CLASS.name
+        if inspect.ismodule(raw):
+            return MemberKind.MODULE_MODULE.name
+        if inspect.isbuiltin(raw):
+            return MemberKind.MODULE_BUILTIN.name
+        return MemberKind.MODULE_OTHER.name
+
+    @staticmethod
+    def classify_member(owner, name: str) -> str:
+        """
+        Classify member type
+        Parameters:
+            owner: class 또는 module
+            name: 그 안의 속성 이름
+        """
+        raw = inspect.getattr_static(owner, name)
+
+        # class에 붙은 경우: staticmethod/classmethod/일반 메서드 후보 구분 가능
+        if isinstance(owner, type):
+            return LogHelper._classify_class_attr(raw)
+
+        # module에 붙은 경우: 모듈 레벨 함수/클래스/변수 구분
+        if isinstance(owner, types.ModuleType):
+            return LogHelper._classify_module_attr(raw)
+
+        return f"owner type not supported: {type(owner).__name__}"
+
 
 class Logs(LogHelper, TimeHelper):
     """
@@ -576,9 +519,16 @@ class Logs(LogHelper, TimeHelper):
             base_logs: BaseLogs
             step_logs: StepLogs
         """
-        _metadata: Optional[Metadata] = kwargs.get("metadata")
-        _base_logs: Optional[BaseLogs] = kwargs.get("base_logs")
-        _step_logs: Optional[StepLogs] = kwargs.get("step_logs")
+        _metadata: Optional[Metadata] = None
+        _base_logs: Optional[BaseLogs] = None
+        _step_logs: Optional[StepLogs] = None
+
+        if "metadata" in kwargs:
+            _metadata: Optional[Metadata] = kwargs.get("metadata")
+        if "base_logs" in kwargs:
+            _base_logs: Optional[BaseLogs] = kwargs.get("base_logs")
+        if "step_logs" in kwargs:
+            _step_logs: Optional[StepLogs] = kwargs.get("step_logs")
 
         if _metadata is not None:
             _metadata.clear()
@@ -587,29 +537,110 @@ class Logs(LogHelper, TimeHelper):
         if _step_logs is not None:
             _step_logs.clear()
 
-    #decorator
     @staticmethod
-    def steplogs_update(step_cat: Optional[str] = None) -> Any:
+    def is_dunder(name: str) -> bool:
+        """Check if the name is a dunder method"""
+        return name.startswith("__") and name.endswith("__")
+
+    @staticmethod
+    def trace_wrapper(fn, watch_vars, output, **kwargs):
+        """
+        Trace wrapper for logging
+        Parameters:
+            fn: Callable
+                Target function to trace
+            output: Any
+        """
+        tl = threading.local()
+        if "show_return" in kwargs:
+            tl.show_return = kwargs["show_return"]
+        else:
+            tl.show_return = True
+
+        def tracer(frame, event, arg):
+            """
+            Trace function for logging
+            Parameters:
+                fn: Callable
+                    Target function to trace
+                frame: FrameType
+                event: str
+                arg: Any
+            """
+            nonlocal tl
+            nonlocal output
+
+            tl.target_code = fn.__code__
+            tl.active = False
+            tl.depth = 0
+            tl.local_vars = dict(frame.f_locals)
+            tl.loop_tracker_j = 0
+            tl.loop_tracker_i = 0
+
+
+            if not tl.active:
+                if event == "call" and frame.f_code is tl.target_code:
+                    tl.active = True
+                    tl.depth = 1
+                    print("  " * (tl.depth-1) + f"→ {fn.__name__}:{frame.f_lineno}")
+                    return tracer
+                return None
+
+            if event == "call":
+                tl.depth += 1
+                if not Logs.is_dunder(fn.__name__):
+                    print("  " * (tl.depth-1) + f"→ {fn.__name__}:{frame.f_lineno}")
+                return tracer
+
+            if event == "line":
+                if not Logs.is_dunder(fn.__name__):
+                    print("  " * (tl.depth-1) + f"↷ {fn.__name__}:{frame.f_lineno}")
+                    print("  " * (tl.depth) + f"At line {frame.f_lineno}:")
+                    print("  " * (tl.depth) + "All local variables:")
+                    for var_name, var_value in tl.local_vars.items():
+                        print("  " * (tl.depth) + f"{var_name} = {var_value!r}")
+                    print("  " * (tl.depth) + "Watching variables:")
+
+            if event == "return":
+                if tl.show_return:
+                    msg = f"← {fn.__name__}:{frame.f_lineno}"
+                    print("  " * (tl.depth-1) + msg)
+                    print("  " * (tl.depth-1) + f"  ret={arg!r}\n")
+
+                tl.depth -= 1
+                if tl.depth == 0:
+                    tl.active = False
+                return tracer
+
+    @classmethod
+    def logger(cls, step: int, watch_var: Tuple[str, ...], logs_save: str, show_ret = True) -> Any:
         """
         Update all logs
         Parameters:
             step_cat (Optional[str]):
                 Step category
-            is_loop (bool):
-                Whether the decorated function is a loop
-            desc (Dict[str, Any]):
-                Additional description for logs in the form of kwargs
         """
+        step_cat: str = Logs.idx_setter(step, "Step")
 
-        step_idx = Logs.idx_setter(step_cat, " Step")
+        def deco(fn):
+            @wraps(fn)
+            def wrapper(*args, **kwargs):
+                self = args[0]
 
-        def decorator(func):
-            @wraps(func)
-            def wrapper(self, *args, **kwargs):
-                # Get block iteration and set description if exists
-                round_iteration: Optional[int] = kwargs.pop("Round_Index", None)
-                round_idx: Optional[str] = Logs.idx_setter(round_iteration, " Round")
-                
+                print(f"{self.__class__.__name__}.{fn.__name__} called.")
+
+                assert hasattr(self, logs_save), \
+                    f"{logs_save} is not an attribute of {type(self).__name__}."
+
+                logs = getattr(self, logs_save)
+                old = sys.gettrace()
+                sys.settrace(Logs.trace_wrapper(fn, \
+                                                watch_vars=watch_var, output=logs, show_return=show_ret))
+
+                try:
+                    return fn(*args, **kwargs)
+                finally:
+                    sys.settrace(old)
 
             return wrapper
-        return decorator
+        return deco

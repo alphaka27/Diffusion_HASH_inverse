@@ -78,6 +78,8 @@ class MD5(MD5Calc):
         self.logs: StepLogs = steplogs
 
         self.init_hash: Dict[str, bytes] = None
+        self.k = copy.deepcopy(self.hash_config.constants.k)
+        self.s = copy.deepcopy(self.hash_config.constants.s)
 
         self.reset()
         assert self.init_hash is not None, "Initial hash must be set."
@@ -88,6 +90,7 @@ class MD5(MD5Calc):
         """
         self.init_hash = copy.deepcopy(self.hash_config.init_hash)
 
+    @Logs.logger(step=1, watch_var=("padded",), logs_save="logs")
     def step1(self, data: bytes) -> bytes:
         """
         Step 1 of MD5 processing.  
@@ -103,6 +106,7 @@ class MD5(MD5Calc):
 
         return padded
 
+    @Logs.logger(step=2, watch_var=("pre_processed_blocks",), logs_save="logs")
     def step2(self, data: bytes, original_bit_len: int) -> Sequence[Sequence[bytes]]:
         """
         Step 2 of MD5 processing.
@@ -131,6 +135,7 @@ class MD5(MD5Calc):
             pre_processed_blocks.append(block)
         return pre_processed_blocks
 
+    @Logs.logger(step=3, watch_var=("prev_hash",), logs_save="logs")
     def step3(self) -> Dict[str, int]:
         """
         Step 3 of MD5 processing.
@@ -148,8 +153,9 @@ class MD5(MD5Calc):
         prev_hash = {'A': a, 'B': b, 'C': c, 'D': d}
         return prev_hash
 
+
     @contextmanager
-    def _step4_outer(self, **prev_hash) \
+    def _step4_outer(self, a: int, b: int, c: int, d: int) \
                         -> Generator[Dict[str, Any], None, None]:
         """
         Wrapper for the inner loop of step 4 for MD5 processing.
@@ -159,8 +165,7 @@ class MD5(MD5Calc):
 
         """
 
-        prev_a, prev_b, prev_c, prev_d = \
-            prev_hash["A"], prev_hash["B"], prev_hash["C"], prev_hash["D"]
+        prev_a, prev_b, prev_c, prev_d = a, b, c, d
 
         loop_params = {'A': prev_a, 'B': prev_b, 'C': prev_c, 'D': prev_d,
                     "res_list": []}
@@ -185,6 +190,10 @@ class MD5(MD5Calc):
             loop_params["C"] = _c
             loop_params["D"] = _d
 
+    @Logs.logger(step=4, \
+                watch_var=("a", "b", "c", "d", \
+                        "prev_hash", "updated_hash"), \
+                logs_save="logs")
     def step4(self, data: Sequence[Sequence[bytes]], init_hash: Dict[str, int]) \
         -> Dict[str, int]:
         """
@@ -192,9 +201,10 @@ class MD5(MD5Calc):
         Process Message in 16-Word Blocks
         """
         updated_hash: Dict[str, int] = dict(init_hash)
-        for block in data:
-            prev_hash = dict(updated_hash)
-            with self._step4_outer(**prev_hash) as outer_params:
+        for _, block in enumerate(data):
+            prev_hash = updated_hash # Previous hash values
+            with self._step4_outer(prev_hash["A"], prev_hash["B"], prev_hash["C"], prev_hash["D"]) \
+                as outer_params:
                 a = outer_params["A"]
                 b = outer_params["B"]
                 c = outer_params["C"]
@@ -216,16 +226,18 @@ class MD5(MD5Calc):
                         g = (7 * i) % 16
 
                     f = self.modular_add(f, a)
-                    f = self.modular_add(f, self.hash_config.constants.k[i])
+                    f = self.modular_add(f, self.k[i])
                     f = self.modular_add(f, self.word_to_int(block[g]))
+
                     a, b, c, d =(
                         d,
-                        self.modular_add(b, self.rotl(f, self.hash_config.constants.s[i])),
+                        self.modular_add(b, self.rotl(f, self.s[i])),
                         b,
                         c
                     )
 
                     res_list.append({'A': a, 'B': b, 'C': c, 'D': d})
+
                 outer_params["A"] = a
                 outer_params["B"] = b
                 outer_params["C"] = c
@@ -236,16 +248,17 @@ class MD5(MD5Calc):
             updated_hash['C'] = outer_params['C']
             updated_hash['D'] = outer_params['D']
 
-
         return updated_hash
 
+    @Logs.logger(step=5, watch_var=("digest_bytes",), logs_save="logs")
     def step5(self, data: Dict[str, int]) -> bytes:
         """
         Step 5 of MD5 processing.  
         Output
         """
-        return struct.pack('<4I', \
+        digest_bytes: bytes = struct.pack('<4I', \
                         data['A'], data['B'], data['C'], data['D'])
+        return digest_bytes
 
     def digest(self, data: bytes) -> bytes:
         """

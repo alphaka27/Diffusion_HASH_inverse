@@ -178,6 +178,16 @@ class HashConfig:
 
         return self.constants.mask
 
+    @property
+    def hierarchy(self) -> Tuple[str, str, str]:
+        """
+        Get the hierarchy configuration.
+        """
+        if self.constants.hierarchy is None:
+            raise ValueError("hierarchy is not set in hash algorithm constants.")
+
+        return self.constants.hierarchy
+
     def __getattribute__(self, name):
         try:
             return super().__getattribute__(name)
