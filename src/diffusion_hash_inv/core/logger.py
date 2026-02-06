@@ -543,7 +543,7 @@ class Logs(LogHelper, TimeHelper):
         return name.startswith("__") and name.endswith("__")
 
     @staticmethod
-    def trace_wrapper(fn, watch_vars, output, **kwargs):
+    def trace_wrapper(fn, watch_vars, **kwargs):
         """
         Trace wrapper for logging
         Parameters:
@@ -568,7 +568,7 @@ class Logs(LogHelper, TimeHelper):
                 arg: Any
             """
             nonlocal tl
-            nonlocal output
+            nonlocal watch_vars
 
             tl.target_code = fn.__code__
             tl.active = False
@@ -631,11 +631,14 @@ class Logs(LogHelper, TimeHelper):
 
                 assert hasattr(self, logs_save), \
                     f"{logs_save} is not an attribute of {type(self).__name__}."
-
+                assert isinstance(getattr(self, logs_save), StepLogs), \
+                    f"{logs_save} must be an instance of StepLogs."
                 logs = getattr(self, logs_save)
+
                 old = sys.gettrace()
                 sys.settrace(Logs.trace_wrapper(fn, \
-                                                watch_vars=watch_var, output=logs, show_return=show_ret))
+                                                watch_vars=watch_var, \
+                                                show_return=show_ret))
 
                 try:
                     return fn(*args, **kwargs)
