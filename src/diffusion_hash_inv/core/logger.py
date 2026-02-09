@@ -557,6 +557,13 @@ class Logs(LogHelper, TimeHelper):
         else:
             tl.show_return = True
 
+        tl.target_code = fn.__code__
+        tl.active = False
+        tl.depth = 0
+        tl.local_vars = {}
+        tl.loop_tracker_j = 0
+        tl.loop_tracker_i = 0
+
         def tracer(frame, event, arg):
             """
             Trace function for logging
@@ -570,12 +577,7 @@ class Logs(LogHelper, TimeHelper):
             nonlocal tl
             nonlocal watch_vars
 
-            tl.target_code = fn.__code__
-            tl.active = False
-            tl.depth = 0
             tl.local_vars = dict(frame.f_locals)
-            tl.loop_tracker_j = 0
-            tl.loop_tracker_i = 0
 
 
             if not tl.active:
@@ -611,6 +613,10 @@ class Logs(LogHelper, TimeHelper):
                 if tl.depth == 0:
                     tl.active = False
                 return tracer
+
+            return tracer
+
+        return tracer
 
     @classmethod
     def logger(cls, step: int, watch_var: Tuple[str, ...], logs_save: str, show_ret = True) -> Any:
