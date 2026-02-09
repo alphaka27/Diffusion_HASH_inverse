@@ -62,31 +62,23 @@ class MD5Calc(BaseCalc):
 
         return self.modular_xor(y, self.modular_or(x, self.modular_not(z)))
 
-class MD5(MD5Calc):
+class MD5Logic(MD5Calc):
     """
-    MD5 Hashing Class
+    MD5 Logic Class
     """
-    def __init__(self, main_config: MainConfig, hash_config: HashConfig, steplogs: StepLogs):
-
-        hash_cfg = hash_config if hash_config is not None \
-            else HashConfig(hash_alg="md5", length=256)
-
-        super().__init__(hash_cfg)
-
-        self.hash_config = hash_cfg
-        self.is_verbose = main_config.verbose_flag if main_config is not None else True
-        self.logs: StepLogs = steplogs
+    def __init__(self, hash_config: HashConfig):
+        super().__init__(hash_config)
+        self.hash_config = hash_config
 
         self.init_hash: Dict[str, bytes] = None
         self.k = copy.deepcopy(self.hash_config.constants.k)
         self.s = copy.deepcopy(self.hash_config.constants.s)
-
-        self.reset()
+        self.initialize()
         assert self.init_hash is not None, "Initial hash must be set."
 
-    def reset(self):
+    def initialize(self):
         """
-        Reset the MD5 instance for a new computation.
+        Reset the MD5 logic instance for a new computation.
         """
         self.init_hash = copy.deepcopy(self.hash_config.init_hash)
 
@@ -260,6 +252,28 @@ class MD5(MD5Calc):
                         data['A'], data['B'], data['C'], data['D'])
         return digest_bytes
 
+
+class MD5(MD5Logic):
+    """
+    MD5 Hashing Class
+    """
+    def __init__(self, main_config: MainConfig, hash_config: HashConfig, steplogs: StepLogs):
+
+        hash_cfg = hash_config if hash_config is not None \
+            else HashConfig(hash_alg="md5", length=256)
+
+        super().__init__(hash_cfg)
+
+        self.is_verbose = main_config.verbose_flag if main_config is not None else True
+        self.logs: StepLogs = steplogs
+        self.reset()
+
+    def reset(self):
+        """
+        Reset the MD5 instance for a new computation.
+        """
+        super().initialize()
+
     def digest(self, data: bytes) -> bytes:
         """
         Return the binary MD5 digest of the data.  
@@ -270,23 +284,16 @@ class MD5(MD5Calc):
             print(f"Original data length (bits): {org_data_len}")
             print(f"Original data (bytes): {data}")
 
-        padded_data = self.step1(data)
-        # Logs.stdout_logs("After Step 1 (Padding bits):", padded_data, self.is_verbose)
+        padded_data = super().step1(data)
 
-        processed_data: Sequence[Sequence[bytes]] = self.step2(padded_data, org_data_len)
-        # Logs.stdout_logs("After Step 2 (Pre-processing):", \
-        #         f"{len(processed_data)} blocks of 16 words", self.is_verbose)
-        # Logs.stdout_logs(processed_data, self.is_verbose)
+        processed_data: Sequence[Sequence[bytes]] = super().step2(padded_data, org_data_len)
 
-        init_hash: Dict[str, int] = self.step3()
-        # Logs.stdout_logs("After Step 3 (Initialize MD Buffer):", init_hash, self.is_verbose)
+        init_hash: Dict[str, int] = super().step3()
 
-        generated_hash: Dict[str, int] = self.step4(processed_data, init_hash=init_hash)
-        # Logs.stdout_logs("After Step 4 (Process Message in 16-Word Blocks):", \
-        # generated_hash, self.is_verbose)
+        generated_hash: Dict[str, int] = super().step4(processed_data, init_hash=init_hash)
 
-        digest_bytes: bytes = self.step5(generated_hash)
-        # Logs.stdout_logs("After Step 5 (Output):", digest_bytes, self.is_verbose)
+        digest_bytes: bytes = super().step5(generated_hash)
+
         return digest_bytes
 
     def hexdigest(self, data: bytes) -> str:
