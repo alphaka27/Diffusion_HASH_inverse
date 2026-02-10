@@ -18,8 +18,10 @@ class GenerateRandomNChar:
     Generate a random string of N characters.
     """
     alphabet: ClassVar[str]
-    def __init__(self, main_config: MainConfig):
+
+    def __init__(self, main_config: MainConfig, file_io: FileIO) -> None:
         self.main_config = main_config
+        self.file_io = file_io
         self.is_verbose = self.main_config.verbose_flag
         self.start_time = Logs.get_current_timestamp()
 
@@ -71,8 +73,8 @@ class GenerateRandomNChar:
         if self.is_verbose:
             self.help()
         filename = f"random_{length}_char_{self.start_time[:19]}.char"
-        file_io = FileIO()
-        file_io.file_writer(filename, _pwd, length, timestamp=self.start_time, \
+
+        self.file_io.file_writer(filename, _pwd, length, timestamp=self.start_time, \
             elapsed_time=elapsed_time, byteorder=byteorder)
 
         return _pwd

@@ -6,7 +6,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional, Sequence, Tuple, ClassVar
 
 from datetime import datetime
-from collections.abc import Hashable
+from collections.abc import Hashable, MutableMapping
 from dataclasses import dataclass, field
 import time
 import inspect
@@ -75,6 +75,10 @@ class Metadata:
             "Program elapsed time": self.elapsed_time,
             "Byte order": self.byteorder
         }
+
+    def getter(self) -> Dict[str, Any]:
+        """Compatibility alias for metadata serialization."""
+        return self.get_dict()
 
 @dataclass
 class BaseLogs:
@@ -163,24 +167,165 @@ class StepLogs:
     step_metadata: Dict[str, Any] = field(default_factory=dict, init=False)
     overflow: int = field(default_factory=int, init=False)
 
+    @staticmethod
+    def _ordinal(n: int) -> str:
+        """Return English ordinal text such as 1st, 2nd, 3rd, 4th."""
+        assert n > 0, "index must be positive"
+        if 10 <= (n % 100) <= 20:
+            suffix = "th"
+        else:
+            suffix = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+        return f"{n}{suffix}"
+
+    @classmethod
+    def index_label(cls, index: int, label: str) -> str:
+        """Build a stable key for Step/Round/Loop/Block."""
+        return f"{cls._ordinal(index)} {label}"
+
     def clear(self) -> None:
-        """Clear all step logs"""
+        """Clear all step logs."""
         self.logs.clear()
         self.overflow_log.clear()
         self.step_metadata.clear()
-        self.overflow = -1
+        self.overflow = 0
 
-    def update_step(self):
-        """Update step logs"""
+    @staticmethod
+    def _ensure_nested_dict(
+        root: MutableMapping[Hashable, Any],
+        path: Sequence[Hashable],
+    ) -> MutableMapping[Hashable, Any]:
+        """Create missing dictionaries for path and return the deepest dict."""
+        cur: MutableMapping[Hashable, Any] = root
+        for key in path:
+            if key is None:
+                continue
+            nxt = cur.get(key)
+            if not isinstance(nxt, dict):
+                nxt = {}
+                cur[key] = nxt
+            cur = nxt
+        return cur
 
-    def update_overflow(self, step) -> None:
+    def _int_to_hex(self, value: int) -> str:
+        """Convert integer to hex string using configured word size/byte order."""
+        if value < 0:
+            raise ValueError("negative integers are not supported in step logs")
+        if self.wordsize is not None and self.byteorder in ("big", "little"):
+            masked = value & ((1 << self.wordsize) - 1)
+            return Logs.bytes_to_str(
+                LogHelper.int_to_bytes(masked, self.wordsize, byteorder=self.byteorder)
+            )
+
+        width = max(1, (value.bit_length() + 7) // 8)
+        return Logs.bytes_to_str(value.to_bytes(width, byteorder="big", signed=False))
+
+    def _normalize_value(self, value: Any) -> Any:
+        """Normalize value for JSON logging."""
+        if isinstance(value, (bytes, bytearray)):
+            return Logs.bytes_to_str(bytes(value))
+
+        if isinstance(value, int):
+            return self._int_to_hex(value)
+
+        if isinstance(value, dict):
+            return {k: self._normalize_value(v) for k, v in value.items()}
+
+        if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+            blocks: Dict[str, Any] = {}
+            for idx, item in enumerate(value, start=1):
+                block_key = self.index_label(idx, "Block")
+                if isinstance(item, Sequence) and not isinstance(item, (str, bytes, bytearray)):
+                    blocks[block_key] = [self._normalize_value(sub) for sub in item]
+                else:
+                    blocks[block_key] = self._normalize_value(item)
+            return blocks
+
+        return value
+
+    def set_value(self, path: Sequence[Hashable], value: Any, normalize: bool = True) -> None:
+        """Set value at a nested path under step logs."""
+        if not path:
+            raise ValueError("path must not be empty")
+        *parents, last = path
+        parent_dict = self._ensure_nested_dict(self.logs, parents)
+        parent_dict[last] = self._normalize_value(value) if normalize else value
+
+    def update(
+        self,
+        *,
+        step_index: int,
+        step_result: Any,
+        round_idx: Optional[int] = None,
+    ) -> None:
+        """Update step-level or round-level value."""
+        step_key = self.index_label(step_index, "Step")
+        if round_idx is None:
+            self.set_value((step_key,), step_result)
+            return
+        round_key = self.index_label(round_idx, "Round")
+        self.set_value((step_key, round_key), step_result)
+
+    def update_loop(
+        self,
+        *,
+        step_index: int,
+        round_idx: int,
+        loop_index: int,
+        step_result: Any,
+    ) -> None:
+        """Update a loop-level value under a round."""
+        step_key = self.index_label(step_index, "Step")
+        round_key = self.index_label(round_idx, "Round")
+        loop_key = self.index_label(loop_index, "Loop")
+        self.set_value((step_key, round_key, loop_key), step_result)
+
+    def update_step(
+        self,
+        step_idx: int | str,
+        step_result: Any = None,
+        *,
+        level2: Optional[Tuple[str, int | str]] = None,
+        level3: Optional[Tuple[str, int | str]] = None,
+    ) -> None:
         """
-        Update overflow logs
-
-        Parameters:
-            step: Any
-                Step information
+        Compatibility updater used by legacy/local-variable tracer.
         """
+        if step_result is None:
+            return
+
+        step_key = step_idx if isinstance(step_idx, str) else self.index_label(step_idx, "Step")
+        path: List[Hashable] = [step_key]
+
+        if level2 is not None:
+            _, level2_idx = level2
+            if isinstance(level2_idx, int):
+                path.append(self.index_label(level2_idx, "Round"))
+            elif level2_idx is not None:
+                path.append(str(level2_idx))
+
+        if level3 is not None:
+            _, level3_idx = level3
+            if isinstance(level3_idx, int):
+                path.append(self.index_label(level3_idx, "Loop"))
+            elif level3_idx is not None:
+                path.append(str(level3_idx))
+
+        self.set_value(tuple(path), step_result)
+
+    def update_overflow(self, step: int) -> None:
+        """Store overflow count in metadata."""
+        assert isinstance(step, int), "overflow count must be integer"
+        self.overflow = step
+
+    def getter(self) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+        """Get logs and metadata in dump-ready form."""
+        self.step_metadata = {
+            "word_size": self.wordsize,
+            "byteorder": self.byteorder,
+            "hierarchy": list(self.hierarchy),
+            "overflow_count": self.overflow,
+        }
+        return self.logs, self.step_metadata
 
 
 class TimeHelper:

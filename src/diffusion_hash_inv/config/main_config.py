@@ -20,12 +20,13 @@ class MainConfig:
     make_xlsx_flag: bool
 
     def __getattribute__(self, name):
-        fields = object.__getattribute__(self, "__dataclass_fields__")
-        if name not in fields:
-            raise ValueError(f"MainConfig has no attribute '{name}'.")
+        try:
+            ret = super().__getattribute__(name)
+        except AttributeError as exc:
+            raise ValueError(f"MainConfig has no attribute '{name}'.") from exc
 
-        ret = super().__getattribute__(name)
-        if ret is None:
+        fields = object.__getattribute__(self, "__dataclass_fields__")
+        if name in fields and ret is None:
             raise ValueError(f"MainConfig attribute '{name}' is not initialized.")
         return ret
 
@@ -58,21 +59,20 @@ class OutputConfig:
     encoding: str = "utf-8"
 
     def __post_init__(self):
-        _root_dir = self.get_project_root()
-
-        if self.root_dir is None:
-            object.__setattr__(self, "root_dir", _root_dir)
-
-        object.__setattr__(self, "data_dir", _root_dir / "data")
-        object.__setattr__(self, "output_dir", _root_dir / "output")
+        configured_root = object.__getattribute__(self, "root_dir")
+        resolved_root = configured_root if configured_root is not None else self.get_project_root()
+        object.__setattr__(self, "root_dir", resolved_root)
+        object.__setattr__(self, "data_dir", resolved_root / "data")
+        object.__setattr__(self, "output_dir", resolved_root / "output")
 
     def __getattribute__(self, name):
-        fields = object.__getattribute__(self, "__dataclass_fields__")
-        if name not in fields:
-            raise ValueError(f"OutputConfig has no attribute '{name}'.")
+        try:
+            ret = super().__getattribute__(name)
+        except AttributeError as exc:
+            raise ValueError(f"OutputConfig has no attribute '{name}'.") from exc
 
-        ret = super().__getattribute__(name)
-        if ret is None:
+        fields = object.__getattribute__(self, "__dataclass_fields__")
+        if name in fields and ret is None:
             raise ValueError(f"OutputConfig attribute '{name}' is not initialized.")
         return ret
 

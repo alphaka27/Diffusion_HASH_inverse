@@ -22,13 +22,16 @@ class JSONFormat:
         meta_raw = data.get("Metadata")
         if meta_raw is None:
             raise ValueError("Metadata not found in JSON.")
-        metadata = Metadata(hash_alg=meta_raw.get("Hash function"), \
-                            is_message=meta_raw.get("Message mode"))
+        message_mode = meta_raw.get("Message mode")
+        is_message = message_mode == "Message" if isinstance(message_mode, str) else bool(message_mode)
+        metadata = Metadata(hash_alg=meta_raw.get("Hash function"), is_message=is_message)
         metadata.input_bits_len = meta_raw.get("Input bits", 0)
-        metadata.exec_start = meta_raw.get("Program started at", "")
-        metadata.entropy = meta_raw.get("Entropy", 0.0)
-        metadata.strength = meta_raw.get("Strength", "")
-        metadata.elapsed_time = meta_raw.get("Elapsed time", "")
+        metadata.started_at = meta_raw.get("Program started at", "")
+        metadata.elapsed_time = meta_raw.get("Program elapsed time", "")
+        if "Byte order" in meta_raw:
+            metadata.byteorder = meta_raw.get("Byte order", "")
+        if "Hierarchy" in meta_raw:
+            metadata.hierarchy = tuple(meta_raw.get("Hierarchy", ()))
         ret_meta: Dict[str, Any] = {"Metadata": copy.deepcopy(metadata.getter())}
 
         baselog_key_map = {
