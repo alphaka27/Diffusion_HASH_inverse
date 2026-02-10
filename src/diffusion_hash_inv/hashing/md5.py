@@ -13,7 +13,7 @@ from diffusion_hash_inv.core import (
     Logs,
     MD5RoundTrace,
     MD5Step4Trace,
-    LogDecorators,
+    MD5Logger,
 )
 from diffusion_hash_inv.config import MainConfig, HashConfig
 
@@ -93,7 +93,7 @@ class MD5Logic(MD5Calc):
         """Build MD5 register snapshot."""
         return {"A": a, "B": b, "C": c, "D": d}
 
-    @LogDecorators.step(step_index=1)
+    @MD5Logger.step(step_index=1)
     def step1(self, data: bytes) -> bytes:
         """
         Step 1 of MD5 processing.  
@@ -110,7 +110,7 @@ class MD5Logic(MD5Calc):
         return padded
 
 
-    @LogDecorators.step(step_index=2)
+    @MD5Logger.step(step_index=2)
     def step2(self, data: bytes, original_bit_len: int) -> Sequence[Sequence[bytes]]:
         """
         Step 2 of MD5 processing.
@@ -140,7 +140,7 @@ class MD5Logic(MD5Calc):
         return pre_processed_blocks
 
 
-    @LogDecorators.step(step_index=3)
+    @MD5Logger.step(step_index=3)
     def step3(self) -> Dict[str, int]:
         """
         Step 3 of MD5 processing.
@@ -195,7 +195,7 @@ class MD5Logic(MD5Calc):
             loop_params["D"] = _d
 
 
-    @LogDecorators.md5_step4(step_index=4)
+    @MD5Logger.step(step_index=4)
     def step4(self, data: Sequence[Sequence[bytes]], init_hash: Dict[str, int]) \
         -> MD5Step4Trace:
         """
@@ -205,7 +205,7 @@ class MD5Logic(MD5Calc):
         updated_hash: Dict[str, int] = dict(init_hash)
         rounds: List[MD5RoundTrace] = []
 
-        for block in data:
+        for _ in data:
             prev_hash = dict(updated_hash)
             a = prev_hash["A"]
             b = prev_hash["B"]
@@ -230,7 +230,7 @@ class MD5Logic(MD5Calc):
 
                 f = self.modular_add(f, a)
                 f = self.modular_add(f, self.k[i])
-                f = self.modular_add(f, self.word_to_int(block[g]))
+                f = self.modular_add(f, self.word_to_int(_[g]))
 
                 a, b, c, d = (
                     d,
@@ -261,7 +261,7 @@ class MD5Logic(MD5Calc):
         return MD5Step4Trace(updated_hash=updated_hash, rounds=rounds)
 
 
-    @LogDecorators.step(step_index=5, update_overflow=True)
+    @MD5Logger.step(step_index=5, update_overflow=True)
     def step5(self, data: Dict[str, int]) -> bytes:
         """
         Step 5 of MD5 processing.  

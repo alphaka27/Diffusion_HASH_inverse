@@ -3,18 +3,13 @@ Logging utilities for Diffusion Hash Inversion
 """
 
 from __future__ import annotations
-from typing import Any, Dict, List, Optional, Sequence, Tuple, ClassVar, Callable, TypeVar, cast
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Callable, TypeVar, cast
 
 from datetime import datetime
 from collections.abc import Hashable, MutableMapping
 from dataclasses import dataclass, field
 import time
-import inspect
-import types
-from enum import Enum
-import sys
 from functools import wraps
-import threading
 
 @dataclass
 class Metadata:
@@ -346,7 +341,7 @@ class MD5Step4Trace:
 F = TypeVar("F", bound=Callable[..., Any])
 
 
-class LogDecorators:
+class MD5Logger:
     """
     Centralized logging decorators.
     """
@@ -357,6 +352,27 @@ class LogDecorators:
         Log a step return value into `self.logs`.
         """
         assert step_index > 0, "step_index must be positive"
+        if step_index == 4:
+            def deco_step4(fn: F) -> F:
+                @wraps(fn)
+                def wrapper(self, *args, **kwargs):
+                    trace: MD5Step4Trace = fn(self, *args, **kwargs)
+                    logs = getattr(self, "logs", None)
+                    if isinstance(logs, StepLogs):
+                        step_key = logs.index_label(step_index, "Step")
+                        for round_idx, round_trace in enumerate(trace.rounds, start=1):
+                            round_key = logs.index_label(round_idx, "Round")
+                            round_payload: Dict[str, Any] = {"Loop Start": round_trace.loop_start}
+                            for loop_idx, state in enumerate(round_trace.loop_states, start=1):
+                                loop_key = logs.index_label(loop_idx, "Loop")
+                                round_payload[loop_key] = state
+                            round_payload["Loop End"] = round_trace.loop_end
+                            logs.set_value((step_key, round_key), round_payload)
+                    return trace.updated_hash
+
+                return cast(F, wrapper)
+
+            return deco_step4
 
         def deco(fn: F) -> F:
             @wraps(fn)
@@ -373,33 +389,6 @@ class LogDecorators:
 
         return deco
 
-    @staticmethod
-    def md5_step4(step_index: int = 4) -> Callable[[F], F]:
-        """
-        Log MD5 step4 round/loop traces from MD5Step4Trace payload.
-        """
-        assert step_index > 0, "step_index must be positive"
-
-        def deco(fn: F) -> F:
-            @wraps(fn)
-            def wrapper(self, *args, **kwargs):
-                trace: MD5Step4Trace = fn(self, *args, **kwargs)
-                logs = getattr(self, "logs", None)
-                if isinstance(logs, StepLogs):
-                    step_key = logs.index_label(step_index, "Step")
-                    for round_idx, round_trace in enumerate(trace.rounds, start=1):
-                        round_key = logs.index_label(round_idx, "Round")
-                        round_payload: Dict[str, Any] = {"Loop Start": round_trace.loop_start}
-                        for loop_idx, state in enumerate(round_trace.loop_states, start=1):
-                            loop_key = logs.index_label(loop_idx, "Loop")
-                            round_payload[loop_key] = state
-                        round_payload["Loop End"] = round_trace.loop_end
-                        logs.set_value((step_key, round_key), round_payload)
-                return trace.updated_hash
-
-            return cast(F, wrapper)
-
-        return deco
 
 
 class TimeHelper:
@@ -445,32 +434,6 @@ class TimeHelper:
             parts.append(f"{ns} ns")
 
         return ", ".join(parts)
-
-class MemberKind(Enum):
-    """
-    Enum for classifying member kinds
-    """
-    # class attributes
-    CLASS_STATICMETHOD = "class: staticmethod"
-    CLASS_CLASSMETHOD = "class: classmethod"
-    CLASS_FUNCTION = "class: function (binds as instance method)"
-    CLASS_PROPERTY = "class: property"
-    CLASS_OTHER = "class: other"
-
-    # module attributes
-    MODULE_FUNCTION = "module: function"
-    MODULE_CLASS = "module: class"
-    MODULE_MODULE = "module: module"
-    MODULE_BUILTIN = "module: builtin"          # e.g., math.sin
-    MODULE_OTHER = "module: other"
-
-    # fallback
-    OWNER_UNSUPPORTED = "owner: unsupported"
-
-    @property
-    def description(self) -> str:
-        """Get description of the member kind"""
-        return self.value
 
 class LogHelper:
     """
