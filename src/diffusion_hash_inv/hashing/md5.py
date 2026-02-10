@@ -2,14 +2,77 @@
 MD5 implementation aligned with the diffusion_hash_inv codebase.
 """
 
-from typing import Optional, Dict, Generator, Sequence, Any
+from typing import Optional, Dict, Generator, Sequence, Any, List, Callable, TypeVar, cast
 import struct
 import copy
+from dataclasses import dataclass
 from contextlib import contextmanager
+from functools import wraps
 
 from diffusion_hash_inv.core import BaseCalc
 from diffusion_hash_inv.core import StepLogs, Logs
 from diffusion_hash_inv.config import MainConfig, HashConfig
+
+F = TypeVar("F", bound=Callable[..., Any])
+
+
+@dataclass
+class MD5RoundTrace:
+    """Snapshot bundle for one MD5 block round."""
+    loop_start: Dict[str, int]
+    loop_states: List[Dict[str, int]]
+    loop_end: Dict[str, int]
+
+
+@dataclass
+class MD5Step4Trace:
+    """Step4 result plus round traces for decorator-driven logging."""
+    updated_hash: Dict[str, int]
+    rounds: List[MD5RoundTrace]
+
+
+def md5_step_logger(step_index: int, update_overflow: bool = False) -> Callable[[F], F]:
+    """
+    Decorator that logs a step return value into `self.logs`.
+    """
+    def deco(fn: F) -> F:
+        @wraps(fn)
+        def wrapper(self, *args, **kwargs):
+            result = fn(self, *args, **kwargs)
+            logs = getattr(self, "logs", None)
+            if isinstance(logs, StepLogs):
+                logs.update(step_index=step_index, step_result=result)
+                if update_overflow:
+                    logs.update_overflow(getattr(self, "total_overflow_count", 0))
+            return result
+
+        return cast(F, wrapper)
+
+    return deco
+
+
+def md5_step4_logger(fn: F) -> F:
+    """
+    Decorator for MD5 step4 that writes round/loop logs from trace payload.
+    """
+    @wraps(fn)
+    def wrapper(self, *args, **kwargs):
+        trace: MD5Step4Trace = fn(self, *args, **kwargs)
+        logs = getattr(self, "logs", None)
+        if isinstance(logs, StepLogs):
+            step_key = logs.index_label(4, "Step")
+            for round_idx, round_trace in enumerate(trace.rounds, start=1):
+                round_key = logs.index_label(round_idx, "Round")
+                round_payload: Dict[str, Any] = {"Loop Start": round_trace.loop_start}
+                for loop_idx, state in enumerate(round_trace.loop_states, start=1):
+                    loop_key = logs.index_label(loop_idx, "Loop")
+                    round_payload[loop_key] = state
+                round_payload["Loop End"] = round_trace.loop_end
+                logs.set_value((step_key, round_key), round_payload)
+        return trace.updated_hash
+
+    return cast(F, wrapper)
+
 
 class MD5Calc(BaseCalc):
     """
@@ -87,6 +150,7 @@ class MD5Logic(MD5Calc):
         """Build MD5 register snapshot."""
         return {"A": a, "B": b, "C": c, "D": d}
 
+    @md5_step_logger(step_index=1)
     def step1(self, data: bytes) -> bytes:
         """
         Step 1 of MD5 processing.  
@@ -103,6 +167,7 @@ class MD5Logic(MD5Calc):
         return padded
 
 
+    @md5_step_logger(step_index=2)
     def step2(self, data: bytes, original_bit_len: int) -> Sequence[Sequence[bytes]]:
         """
         Step 2 of MD5 processing.
@@ -132,6 +197,7 @@ class MD5Logic(MD5Calc):
         return pre_processed_blocks
 
 
+    @md5_step_logger(step_index=3)
     def step3(self) -> Dict[str, int]:
         """
         Step 3 of MD5 processing.
@@ -186,29 +252,24 @@ class MD5Logic(MD5Calc):
             loop_params["D"] = _d
 
 
+    @md5_step4_logger
     def step4(self, data: Sequence[Sequence[bytes]], init_hash: Dict[str, int]) \
-        -> Dict[str, int]:
+        -> MD5Step4Trace:
         """
         Step 4 of MD5 processing.  
         Process Message in 16-Word Blocks
         """
         updated_hash: Dict[str, int] = dict(init_hash)
-        logs: Optional[StepLogs] = getattr(self, "logs", None)
-        step_key: Optional[str] = None
-        if isinstance(logs, StepLogs):
-            step_key = logs.index_label(4, "Step")
+        rounds: List[MD5RoundTrace] = []
 
-        for round_idx, block in enumerate(data, start=1):
+        for _ in data:
             prev_hash = dict(updated_hash)
             a = prev_hash["A"]
             b = prev_hash["B"]
             c = prev_hash["C"]
             d = prev_hash["D"]
-
-            round_key: Optional[str] = None
-            if isinstance(logs, StepLogs):
-                round_key = logs.index_label(round_idx, "Round")
-                logs.set_value((step_key, round_key, "Loop Start"), self._state(a, b, c, d))
+            loop_start = self._state(a, b, c, d)
+            loop_states: List[Dict[str, int]] = []
 
             for i in range(64):
                 if 0 <= i <= 15:
@@ -226,7 +287,7 @@ class MD5Logic(MD5Calc):
 
                 f = self.modular_add(f, a)
                 f = self.modular_add(f, self.k[i])
-                f = self.modular_add(f, self.word_to_int(block[g]))
+                f = self.modular_add(f, self.word_to_int(_[g]))
 
                 a, b, c, d = (
                     d,
@@ -234,14 +295,7 @@ class MD5Logic(MD5Calc):
                     b,
                     c,
                 )
-
-                if isinstance(logs, StepLogs):
-                    logs.update_loop(
-                        step_index=4,
-                        round_idx=round_idx,
-                        loop_index=i + 1,
-                        step_result=self._state(a, b, c, d),
-                    )
+                loop_states.append(self._state(a, b, c, d))
 
             a = self.modular_add(a, prev_hash["A"])
             b = self.modular_add(b, prev_hash["B"])
@@ -253,13 +307,18 @@ class MD5Logic(MD5Calc):
             updated_hash["C"] = c
             updated_hash["D"] = d
 
-            if isinstance(logs, StepLogs):
-                assert step_key is not None and round_key is not None
-                logs.set_value((step_key, round_key, "Loop End"), self._state(a, b, c, d))
+            rounds.append(
+                MD5RoundTrace(
+                    loop_start=loop_start,
+                    loop_states=loop_states,
+                    loop_end=self._state(a, b, c, d),
+                )
+            )
 
-        return updated_hash
+        return MD5Step4Trace(updated_hash=updated_hash, rounds=rounds)
 
 
+    @md5_step_logger(step_index=5, update_overflow=True)
     def step5(self, data: Dict[str, int]) -> bytes:
         """
         Step 5 of MD5 processing.  
@@ -302,23 +361,14 @@ class MD5(MD5Logic):
             print(f"Original data (bytes): {data}")
 
         padded_data = super().step1(data)
-        if isinstance(self.logs, StepLogs):
-            self.logs.update(step_index=1, step_result=padded_data)
 
         processed_data: Sequence[Sequence[bytes]] = super().step2(padded_data, org_data_len)
-        if isinstance(self.logs, StepLogs):
-            self.logs.update(step_index=2, step_result=processed_data)
 
         init_hash: Dict[str, int] = super().step3()
-        if isinstance(self.logs, StepLogs):
-            self.logs.update(step_index=3, step_result=init_hash)
 
         generated_hash: Dict[str, int] = super().step4(processed_data, init_hash=init_hash)
 
         digest_bytes: bytes = super().step5(generated_hash)
-        if isinstance(self.logs, StepLogs):
-            self.logs.update(step_index=5, step_result=digest_bytes)
-            self.logs.update_overflow(self.total_overflow_count)
 
         return digest_bytes
 
