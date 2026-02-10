@@ -82,7 +82,11 @@ class MD5Logic(MD5Calc):
         """
         self.init_hash = copy.deepcopy(self.hash_config.init_hash)
 
-    @Logs.logger(step=1, watch_var=("padded",), logs_save="logs")
+    @staticmethod
+    def _state(a: int, b: int, c: int, d: int) -> Dict[str, int]:
+        """Build MD5 register snapshot."""
+        return {"A": a, "B": b, "C": c, "D": d}
+
     def step1(self, data: bytes) -> bytes:
         """
         Step 1 of MD5 processing.  
@@ -98,7 +102,7 @@ class MD5Logic(MD5Calc):
 
         return padded
 
-    @Logs.logger(step=2, watch_var=("pre_processed_blocks",), logs_save="logs")
+
     def step2(self, data: bytes, original_bit_len: int) -> Sequence[Sequence[bytes]]:
         """
         Step 2 of MD5 processing.
@@ -127,7 +131,7 @@ class MD5Logic(MD5Calc):
             pre_processed_blocks.append(block)
         return pre_processed_blocks
 
-    @Logs.logger(step=3, watch_var=("prev_hash",), logs_save="logs")
+
     def step3(self) -> Dict[str, int]:
         """
         Step 3 of MD5 processing.
@@ -144,7 +148,6 @@ class MD5Logic(MD5Calc):
         d = self.init_hash['D']
         prev_hash = {'A': a, 'B': b, 'C': c, 'D': d}
         return prev_hash
-
 
     @contextmanager
     def _step4_outer(self, a: int, b: int, c: int, d: int) \
@@ -182,10 +185,7 @@ class MD5Logic(MD5Calc):
             loop_params["C"] = _c
             loop_params["D"] = _d
 
-    @Logs.logger(step=4, \
-                watch_var=("a", "b", "c", "d", \
-                        "prev_hash", "updated_hash"), \
-                logs_save="logs")
+
     def step4(self, data: Sequence[Sequence[bytes]], init_hash: Dict[str, int]) \
         -> Dict[str, int]:
         """
@@ -193,56 +193,73 @@ class MD5Logic(MD5Calc):
         Process Message in 16-Word Blocks
         """
         updated_hash: Dict[str, int] = dict(init_hash)
-        for _, block in enumerate(data):
-            prev_hash = updated_hash # Previous hash values
-            with self._step4_outer(prev_hash["A"], prev_hash["B"], prev_hash["C"], prev_hash["D"]) \
-                as outer_params:
-                a = outer_params["A"]
-                b = outer_params["B"]
-                c = outer_params["C"]
-                d = outer_params["D"]
-                res_list = outer_params["res_list"]
+        logs: Optional[StepLogs] = getattr(self, "logs", None)
+        step_key: Optional[str] = None
+        if isinstance(logs, StepLogs):
+            step_key = logs.index_label(4, "Step")
 
-                for i in range(64):
-                    if 0 <= i <= 15:
-                        f = self.f_func(b, c, d)
-                        g = i
-                    elif 16 <= i <= 31:
-                        f = self.g_func(b, c, d)
-                        g = (5 * i + 1) % 16
-                    elif 32 <= i <= 47:
-                        f = self.h_func(b, c, d)
-                        g = (3 * i + 5) % 16
-                    else:
-                        f = self.i_func(b, c, d)
-                        g = (7 * i) % 16
+        for round_idx, block in enumerate(data, start=1):
+            prev_hash = dict(updated_hash)
+            a = prev_hash["A"]
+            b = prev_hash["B"]
+            c = prev_hash["C"]
+            d = prev_hash["D"]
 
-                    f = self.modular_add(f, a)
-                    f = self.modular_add(f, self.k[i])
-                    f = self.modular_add(f, self.word_to_int(block[g]))
+            round_key: Optional[str] = None
+            if isinstance(logs, StepLogs):
+                round_key = logs.index_label(round_idx, "Round")
+                logs.set_value((step_key, round_key, "Loop Start"), self._state(a, b, c, d))
 
-                    a, b, c, d =(
-                        d,
-                        self.modular_add(b, self.rotl(f, self.s[i])),
-                        b,
-                        c
+            for i in range(64):
+                if 0 <= i <= 15:
+                    f = self.f_func(b, c, d)
+                    g = i
+                elif 16 <= i <= 31:
+                    f = self.g_func(b, c, d)
+                    g = (5 * i + 1) % 16
+                elif 32 <= i <= 47:
+                    f = self.h_func(b, c, d)
+                    g = (3 * i + 5) % 16
+                else:
+                    f = self.i_func(b, c, d)
+                    g = (7 * i) % 16
+
+                f = self.modular_add(f, a)
+                f = self.modular_add(f, self.k[i])
+                f = self.modular_add(f, self.word_to_int(block[g]))
+
+                a, b, c, d = (
+                    d,
+                    self.modular_add(b, self.rotl(f, self.s[i])),
+                    b,
+                    c,
+                )
+
+                if isinstance(logs, StepLogs):
+                    logs.update_loop(
+                        step_index=4,
+                        round_idx=round_idx,
+                        loop_index=i + 1,
+                        step_result=self._state(a, b, c, d),
                     )
 
-                    res_list.append({'A': a, 'B': b, 'C': c, 'D': d})
+            a = self.modular_add(a, prev_hash["A"])
+            b = self.modular_add(b, prev_hash["B"])
+            c = self.modular_add(c, prev_hash["C"])
+            d = self.modular_add(d, prev_hash["D"])
 
-                outer_params["A"] = a
-                outer_params["B"] = b
-                outer_params["C"] = c
-                outer_params["D"] = d
+            updated_hash["A"] = a
+            updated_hash["B"] = b
+            updated_hash["C"] = c
+            updated_hash["D"] = d
 
-            updated_hash['A'] = outer_params['A']
-            updated_hash['B'] = outer_params['B']
-            updated_hash['C'] = outer_params['C']
-            updated_hash['D'] = outer_params['D']
+            if isinstance(logs, StepLogs):
+                assert step_key is not None and round_key is not None
+                logs.set_value((step_key, round_key, "Loop End"), self._state(a, b, c, d))
 
         return updated_hash
 
-    @Logs.logger(step=5, watch_var=("digest_bytes",), logs_save="logs")
+
     def step5(self, data: Dict[str, int]) -> bytes:
         """
         Step 5 of MD5 processing.  
@@ -285,14 +302,23 @@ class MD5(MD5Logic):
             print(f"Original data (bytes): {data}")
 
         padded_data = super().step1(data)
+        if isinstance(self.logs, StepLogs):
+            self.logs.update(step_index=1, step_result=padded_data)
 
         processed_data: Sequence[Sequence[bytes]] = super().step2(padded_data, org_data_len)
+        if isinstance(self.logs, StepLogs):
+            self.logs.update(step_index=2, step_result=processed_data)
 
         init_hash: Dict[str, int] = super().step3()
+        if isinstance(self.logs, StepLogs):
+            self.logs.update(step_index=3, step_result=init_hash)
 
         generated_hash: Dict[str, int] = super().step4(processed_data, init_hash=init_hash)
 
         digest_bytes: bytes = super().step5(generated_hash)
+        if isinstance(self.logs, StepLogs):
+            self.logs.update(step_index=5, step_result=digest_bytes)
+            self.logs.update_overflow(self.total_overflow_count)
 
         return digest_bytes
 

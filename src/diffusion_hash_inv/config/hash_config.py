@@ -118,7 +118,12 @@ class HashConfig:
         if self.constants.byteorder not in ("little", "big"):
             raise ValueError("byteorder must be either 'little' or 'big'")
 
-        return self.constants.byteorder
+        ret = None
+        if isinstance(self.constants.byteorder, str):
+            ret = str(self.constants.byteorder)
+        assert ret is not None, "byteorder conversion failed."
+
+        return ret
 
     @property
     def ws_bits(self) -> int:

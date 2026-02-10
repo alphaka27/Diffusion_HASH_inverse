@@ -36,7 +36,7 @@ class Main:
         generator = None
 
         if self.main_cfg.message_flag:
-            generator = GenerateRandomNChar(self.main_cfg)
+            generator = GenerateRandomNChar(self.main_cfg, self.io_controller)
         else:
             raise NotImplementedError("Bits generation is temporarily unavailable.")
             # generator = GenerateRandomNBits()
@@ -108,7 +108,7 @@ class Main:
                             correct_hash=right_hash, \
                             is_message=self.main_cfg.message_flag)
 
-            if self.main_cfg.is_debug:
+            if self.main_cfg.debug_flag:
                 if _i == 0:
                     breakpoint()
 

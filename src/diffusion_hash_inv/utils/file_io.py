@@ -37,6 +37,7 @@ class Header:
     timestamp: str   # 32 Bytes
     time_diff: int   # int64
     bit_length: int  # uint64
+    byteorder: str
 
     def encode_timestamp(self) -> bytes:
         """
@@ -57,25 +58,25 @@ class Header:
         """
         Encode the bit length as bytes.
         """
-        return HashConfig.length.to_bytes(BITLEN_LEN, HashConfig.byteorder, signed=False)
+        return self.bit_length.to_bytes(BITLEN_LEN, self.byteorder, signed=False)
 
     def decode_bit_length(self, b: bytes) -> int:
         """
         Decode the bit length from bytes.
         """
-        return int.from_bytes(b, HashConfig.byteorder, signed=False)
+        return int.from_bytes(b, self.byteorder, signed=False)
 
     def encode_timediff(self) -> bytes:
         """
         Encode the time difference as bytes.
         """
-        return self.time_diff.to_bytes(DIFFTIME_LEN, HashConfig.byteorder, signed=False)
+        return self.time_diff.to_bytes(DIFFTIME_LEN, self.byteorder, signed=False)
 
     def decode_timediff(self, b: bytes) -> int:
         """
         Decode the time difference from bytes.
         """
-        return int.from_bytes(b, HashConfig.byteorder, signed=False)
+        return int.from_bytes(b, self.byteorder, signed=False)
 
     def encode(self) -> bytes:
         """
@@ -107,7 +108,8 @@ class Header:
         time_diff = self.decode_timediff(time_diff_bytes)
         bit_length = self.decode_bit_length(bit_length_bytes)
 
-        return Header(timestamp=timestamp.isoformat(), time_diff=time_diff, bit_length=bit_length)
+        return Header(timestamp=timestamp.isoformat(), \
+                    time_diff=time_diff, bit_length=bit_length, byteorder=byteorder)
 
 
 class Writer:
@@ -198,10 +200,10 @@ class FileIO:
     """
     File I/O Utilities
     """
-    def __init__(self, main_config: MainConfig):
+    def __init__(self, main_config: MainConfig) -> None:
         self.main_config = main_config
-        self.data_dir = Out_CFG.data_dir
-        self.out_dir = Out_CFG.output_dir
+        self.data_dir = Out_CFG().data_dir
+        self.out_dir = Out_CFG().output_dir
         self.allow_extensions = (".bin", ".char", ".json", ".xlsx", ".png")
 
         if self.main_config.verbose_flag:
@@ -335,7 +337,7 @@ class FileIO:
         elapsed_time = kwargs.get("elapsed_time", None)
         byteorder = kwargs.get("byteorder", None)
         if start_timestamp is not None and elapsed_time is not None:
-            header = Header(start_timestamp, elapsed_time, length)
+            header = Header(start_timestamp, elapsed_time, length, byteorder)
             header_bytes = header.encode()
         data_type = kwargs.get("data_type", None)
 
