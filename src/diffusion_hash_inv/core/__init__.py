@@ -7,7 +7,7 @@ Common classes and utilities for diffusion_hash_inv.
 """
 
 from .base_calc import BaseCalc
-from .logger import BaseLogs, StepLogs, Metadata, Logs, MD5RoundTrace, MD5Step4Trace, LogDecorators
+from .logger import BaseLogs, StepLogs, Metadata, Logs, MD5RoundTrace, MD5Step4Trace, MD5Logger
 from .rgb_type import RGB, RGBBinning
 from .byte2rgb import Byte2RGB
 from .fix_class_var import FreezeClassVar
@@ -20,7 +20,7 @@ __all__ = [
     "Logs",
     "MD5RoundTrace",
     "MD5Step4Trace",
-    "LogDecorators",
+    "MD5Logger",
     "RGB",
     "RGBBinning",
     "Byte2RGB",
