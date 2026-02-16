@@ -5,6 +5,7 @@ from typing import List, Tuple, Dict, Any
 from pathlib import Path
 from PIL import Image
 import numpy as np
+import re
 
 from diffusion_hash_inv.config import MainConfig, HashConfig, ImgConfig
 from diffusion_hash_inv.core import RGB, RGBA
@@ -23,6 +24,7 @@ class RGBImgMaker:
         self.io_controller = io_controller
         self.byte2rgb = Byte2RGB(main_config=self.main_cfg, hash_config=self.hash_cfg)
         self.log_hierarchy: Dict[str, Any] = {}
+
 
     def _image_concater(self, images: List[Image.Image], direction: str) -> Image.Image:
         """
@@ -53,6 +55,7 @@ class RGBImgMaker:
             offset += img.height if direction == "vertical" else img.width
         return new_img
 
+
     def _image_formatter(self, \
                         rgb_data: Tuple[RGB] | Tuple[RGBA], \
                         image_size: Tuple[int, int], \
@@ -74,7 +77,9 @@ class RGBImgMaker:
 
         assert len(rgb_data) > 0, "RGB data cannot be empty."
         assert all(isinstance(pixel, (RGB, RGBA)) for pixel in rgb_data), \
-            "All items in rgb_data must be of type RGB or RGBA."
+            "All items in rgb_data must be of type RGB or RGBA. " \
+            f"Got types: {[type(pixel) for pixel in rgb_data]}" \
+            f" with values: {rgb_data}"
         assert image_size[0] > center_size[0] + center_x and \
             image_size[1] > center_size[1] + center_y, \
             "Image size must be large enough to accommodate center size with offset."
@@ -93,31 +98,41 @@ class RGBImgMaker:
         assert ret is not None, "Failed to create image from RGB data."
         return ret
 
+
     def image_formatter(self, \
                         rgb_data: Tuple[RGB] | List[Tuple[RGB]] | Tuple[RGBA] | List[Tuple[RGBA]]) \
                         -> Image.Image:
         """
         Make RGB image from RGB data.
         """
+        assert len(rgb_data) > 0, "RGB data cannot be empty."
         img_size = (ImgConfig().img_size[0], ImgConfig().img_size[1])  # Width, Height
         center_size = (ImgConfig().center_size[0], ImgConfig().center_size[1])  # Width, Height
 
         if isinstance(rgb_data, Tuple):
-            return self._image_formatter(rgb_data, img_size, center_size)
+            if isinstance(rgb_data[0], (RGB, RGBA)):
+                return self._image_formatter(rgb_data, img_size, center_size)
 
-        if isinstance(rgb_data, List):
-            ret = None
-            for data in rgb_data:
-                if not isinstance(data, Tuple):
-                    raise ValueError("All items in rgb_data list must be of type Tuple[RGB]")
-                ret = self._image_formatter(data, img_size, center_size) if ret is None else \
-                    self._image_concater(
-                        [ret,
-                        self._image_formatter(data, img_size, center_size)],
-                        direction="vertical")
-            return ret
+            if isinstance(rgb_data[0], Tuple):
+                ret = None
+                for data in rgb_data:
+                    if not isinstance(data, Tuple):
+                        raise ValueError(
+                            "All items in rgb_data tuple must be of type Tuple[RGB] or Tuple[RGBA]"
+                            )
+                    img = self._image_formatter(data, img_size, center_size)
+                    if ret is None:
+                        ret = img
+                    else:
+                        ret = self._image_concater([ret, img], direction="vertical")
+                assert ret is not None, "Failed to create image from RGB data."
+                return ret
 
-        raise ValueError("rgb_data must be of type Tuple[RGB] or List[Tuple[RGB]]")
+            raise ValueError(
+                "All items in rgb_data tuple must be of type Tuple[RGB] or Tuple[RGBA]"
+                )
+
+        raise ValueError("rgb_data must be a tuple of RGB or RGBA tuples.")
 
 
     def get_logs(self) -> List[Dict]:
@@ -129,7 +144,7 @@ class RGBImgMaker:
                                                         self.hash_cfg.length)
         latest_logs.sort()
         logs: List[Dict] = []
-        hierarchy: Dict[str, Any] = None
+        hierarchy: List[str] = None
 
         assert len(latest_logs) > 0, "No Logs files found."
         if self.main_cfg.verbose_flag:
@@ -147,8 +162,10 @@ class RGBImgMaker:
                 assert hierarchy == _hierarchy, "Hierarchy mismatch in Logs."
             logs.append({log_file.stem: log})
 
-        self.log_hierarchy = hierarchy
+        self.log_hierarchy = hierarchy + ["Block"]
+
         return logs
+
 
     def data_encoder(self, data: str | bytes) \
         -> Tuple[RGB] | Tuple[RGBA]:
@@ -185,6 +202,7 @@ class RGBImgMaker:
 
         raise ValueError("Unsupported data type for encoding.")
 
+
     def img_writer(self, logs: List[Dict]) -> None:
         """
         Write RGB image data to file.
@@ -193,8 +211,6 @@ class RGBImgMaker:
             filename, message, step_logs = self.log_parser(log_dict)
 
             parsed_logs = self.steplogs_parser(step_logs)
-            if self.main_cfg.verbose_flag:
-                print(f"Parsed step logs: {parsed_logs}")
 
             encoded_message = self.data_encoder(message)
             print(type(encoded_message), len(encoded_message))
@@ -207,16 +223,20 @@ class RGBImgMaker:
             for log in parsed_logs:
                 assert isinstance(log, dict), "Parsed log must be a dictionary."
                 path = list(log.keys())
-                assert len(path) == 1, "Parsed log dictionary must have exactly one key."
+                assert len(path) == 1, \
+                    f"Parsed log dictionary must have exactly one key. {len(path)} keys found."
                 path = path[0]
                 data = log[path]
                 _file_name = path.split("/")[-1]
-                path = "/".join(path.split("/")[:-1])
-                path = Path(path)
                 assert isinstance(data, (str, int, float, list, tuple, bytes)), \
                     "Parsed log data must be of type str, int, float, list, tuple, or bytes."
-
+                encoded_log = None
                 encoded_log = self.data_encoder(data)
+                print(encoded_log)
+                if path == "3rd Step":
+                    breakpoint()
+                path = "/".join(path.split("/")[:-1])
+                path = Path(path)
                 rgb_log = self.image_formatter(encoded_log)
                 self.io_controller.file_writer(f"{_file_name}.png",
                                             rgb_log,
@@ -225,24 +245,38 @@ class RGBImgMaker:
 
 
     def _dfs_searcher(self, data_dict: Dict[str, Any], key_path: Path = None) \
-        -> Tuple[Dict[str, Any]]:
+        -> List[Dict[str, Any]]:
         """
         Depth-first search to traverse the log hierarchy.
         """
-        _key_path = key_path if key_path is not None else None
-
+        ret = None
+        assert isinstance(data_dict, dict), "Data must be a dictionary."
         for key, value in data_dict.items():
-            if self.main_cfg.verbose_flag:
-                print(f"Visiting node: {key}")
+            current_path = key_path / key if key_path is not None else Path(key)
+            if isinstance(value, (str, int, float, list, tuple, bytes)):
+                if ret is None:
+                    ret = [{str(current_path): value},]
+                else:
+                    ret += [{str(current_path): value},]
+            elif isinstance(value, dict):
+                has_match = any(h in k for k in value for h in self.log_hierarchy)
 
-            if isinstance(value, dict):
-                _key_path = key_path / key if key_path is not None else Path(key)
-                if self.main_cfg.verbose_flag:
-                    print(f"Descending into dictionary at node: {key} with path: {_key_path}")
-                self._dfs_searcher(value, _key_path)
+                if not has_match:
+                    _temp = [v for v in value.values() \
+                            if isinstance(v, (str, int, float, list, tuple, bytes))]
+                    _ret = [{str(current_path): _temp},] if len(_temp) > 0 else None
+                else:
+                    _ret = self._dfs_searcher(value, current_path)
+
+                if _ret is not None:
+                    ret = _ret if ret is None else ret + _ret
+
             else:
-                if self.main_cfg.verbose_flag:
-                    print(f"Reached leaf node: {key} with value: {value}")
+                raise ValueError(
+                    f"Unsupported data type in log hierarchy: {type(value)} at path: {current_path}"
+                    )
+        return ret if ret is not None else []
+
 
     def steplogs_parser(self, step_logs: Dict[str, Any]) -> Tuple[Dict[str, Any]]:
         """
@@ -257,7 +291,6 @@ class RGBImgMaker:
         """
         ret = None
 
-
         assert isinstance(step_logs, dict), "Step logs must be a dictionary."
         for step_name, log in step_logs.items():
             ret_dict = {}
@@ -271,15 +304,22 @@ class RGBImgMaker:
                 else:
                     ret += [ret_dict,]
 
-            if isinstance(log, list):
-                pass
-
             if isinstance(log, dict):
-                pass
+                has_match = any(h in k for k in log for h in self.log_hierarchy)
 
+                if not has_match:
+                    _temp = [v for v in log.values() \
+                            if isinstance(v, (str, int, float, list, tuple, bytes))]
+                    _ret = [{step_name: _temp},] if len(_temp) > 0 else None
+                else:
+                    _ret = self._dfs_searcher(log, Path(step_name))
+
+                if _ret is not None:
+                    ret = _ret if ret is None else ret + _ret
 
         assert ret is not None, "Failed to parse step logs."
         return tuple(ret)
+
 
     def log_parser(self, log_dict: Dict[str, Any]) -> Tuple[str, str, Dict[str, Any]]:
         """
@@ -306,6 +346,7 @@ class RGBImgMaker:
         assert step_logs is not None, "No step_logs found in log."
 
         return file_name, message, step_logs
+
 
     def main(self) -> None:
         """

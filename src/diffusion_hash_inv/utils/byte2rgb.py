@@ -151,7 +151,7 @@ if __name__ == "__main__":
     b2rgb = Byte2RGB(_main_cfg, _hash_cfg)
 
     print("----- Byte to RGB Encoding Test -----")
-    TEST_HEX = "0x306a75277e7e2a7c6d7a6451283f3c7667456342672b37723c50395b375c702d"
+    TEST_HEX = "0x89abcdef"
     test_byte = Logs.str_to_bytes(TEST_HEX)
     _rgb = b2rgb.rgb_encoder(test_byte)
 
