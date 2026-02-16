@@ -4,8 +4,10 @@ Validation module for diffusion_hash_inv package.
 """
 
 from .hash_validation import validate
+from .encoding_validation import encoding_validate
 
 __all__ = [
     "validate",
+    "encoding_validate",
 ]
 # EOF

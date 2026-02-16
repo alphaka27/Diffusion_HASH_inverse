@@ -13,15 +13,10 @@ from PIL import Image
 import pandas as pd
 from torch.utils.data import Dataset
 
-from diffusion_hash_inv.config import MainConfig, OutputConfig as Out_CFG, HeaderConstants as HC
-from diffusion_hash_inv.config import HashConfig
-from diffusion_hash_inv.core import Logs
+from diffusion_hash_inv.config import MainConfig, OutputConfig, HeaderConstants as HC
 from diffusion_hash_inv.utils import JSONFormat
 
 # Instantiate configuration once so property fields are resolved instead of accessing the class.
-
-ROOT_DIR = Out_CFG.root_dir
-
 # TODO: Change to use OutputConfig constants instead of using global constants here
 TS_LEN = HC.timestamp_length  # 32 bytes
 BITLEN_LEN = HC.bits_length # 8 bytes
@@ -46,13 +41,13 @@ class Header:
         s = self.timestamp
         if len(s) != HC.timestamp_length:
             raise ValueError(f"timestamp length != {HC.timestamp_length}: {len(s)}")
-        return s.encode(Out_CFG.encoding)
+        return s.encode(OutputConfig.encoding)
 
     def decode_timestamp(self, b: bytes) -> datetime:
         """
         Decode the timestamp from bytes.
         """
-        return datetime.fromisoformat(b.decode(Out_CFG.encoding))
+        return datetime.fromisoformat(b.decode(OutputConfig.encoding))
 
     def encode_bit_length(self) -> bytes:
         """
@@ -124,7 +119,7 @@ class Writer:
         """
         Write the JSON content to a file.
         """
-        with open(path, "w", encoding="UTF-8", newline="\n") as j:
+        with open(path, "w", encoding=OutputConfig.encoding, newline="\n") as j:
             j.write(JSONFormat.dumps(indent=4, **content))
 
     @staticmethod
@@ -155,6 +150,7 @@ class Writer:
         """
         par, child = path.parent, path.name
         par.mkdir(parents=True, exist_ok=True)
+        print(f"Saving image to: {path}")
         content.save(par / child)
 
 class Reader:
@@ -169,7 +165,7 @@ class Reader:
         """
         Read the JSON content from a file.
         """
-        with open(path, "r", encoding="UTF-8") as j:
+        with open(path, "r", encoding=OutputConfig.encoding) as j:
             temp = j.read()
             return JSONFormat.loads(temp)
 
@@ -200,15 +196,19 @@ class FileIO:
     """
     File I/O Utilities
     """
-    def __init__(self, main_config: MainConfig) -> None:
+    def __init__(self, main_config: MainConfig, output_cfg: OutputConfig) -> None:
         self.main_config = main_config
-        self.data_dir = Out_CFG().data_dir
-        self.out_dir = Out_CFG().output_dir
+        self.root_dir = output_cfg.root_dir
+        self.data_dir = output_cfg.data_dir
+        self.out_dir = output_cfg.output_dir
         self.allow_extensions = (".bin", ".char", ".json", ".xlsx", ".png")
 
         if self.main_config.verbose_flag:
             print(f"Data Directory: {self.data_dir}")
             print(f"Output Directory: {self.out_dir}")
+
+        if self.main_config.clean_flag:
+            self.file_clean()
 
     def _dfs_remove(self, cur: Path, depth: int) -> None:
         if cur.is_symlink():
@@ -238,7 +238,7 @@ class FileIO:
         print("Clearing generated files...")
 
         targets = [self.data_dir, self.out_dir]
-        root_dir: Path = Out_CFG.root_dir
+        root_dir: Path = self.root_dir
         _root = root_dir.resolve()
 
         if self.main_config.verbose_flag:
@@ -259,13 +259,14 @@ class FileIO:
 
         self.main_config.reset_clean_flag()
 
-    def get_latest_files_by_date(self, dir_path: str, hash_alg: str, length: int) -> str:
+    def get_latest_files_by_date(self, hash_alg: str, length: int, dir_path: Path = None) \
+        -> List[Path]:
         """
         Parse the filename to extract base name without extension.
         """
         pattern = re.compile(r'(\d{4}-\d{2}-\d{2}) (\d{2}-\d{2}-\d{2})')
-        base = dir_path
-        candidates = list(base.glob(f"{hash_alg}_{length}_*.json"))
+        base = dir_path if dir_path is not None else self.out_dir / "json" / f"{length}"
+        candidates = list(base.glob(f"{hash_alg.upper()}_{length}_*.json"))
         latest_dt: Optional[datetime] = None
         latest_files: List[Path] = []
 
@@ -282,40 +283,39 @@ class FileIO:
                 latest_files.append(p)
         return latest_files
 
-    def select_dir(self, filetype: Path | str, **kwargs) -> Path:
+    def select_dir(self, filepath: Path | str, **kwargs) -> Path:
         """
         Decide subdirectory by extension and ensure it exists.
         """
-        if isinstance(filetype, str):
-            if not any(filetype.endswith(ext) for ext in self.allow_extensions):
+        if isinstance(filepath, str):
+            if not any(filepath.endswith(ext) for ext in self.allow_extensions):
                 raise ValueError(f"Invalid file extension. Use {', '.join(self.allow_extensions)}")
         length: int = kwargs.pop("length", None)
         data_type: str = kwargs.pop("data_type", None)
 
-        if isinstance(filetype, Path):
-            filetype = str(filetype.name)
+        if isinstance(filepath, Path):
+            filepath = str(filepath.name)
 
-        if filetype.endswith(".bin") or filetype == "bin":
+        if filepath.endswith(".bin") or filepath == "bin":
             base = self.data_dir / "binary"
 
-        elif filetype.endswith(".char") or filetype == "char":
+        elif filepath.endswith(".char") or filepath == "char":
             base = self.data_dir / "character"
 
-        elif filetype.endswith(".json") or filetype == "json":
+        elif filepath.endswith(".json") or filepath == "json":
             assert length is not None, "length must be specified for JSON files"
             base = self.out_dir / "json" / f"{length}"
 
-        elif filetype.endswith(".xlsx") or filetype == "xlsx":
+        elif filepath.endswith(".xlsx") or filepath == "xlsx":
             assert length is not None, "length must be specified for XLSX files"
             base = self.out_dir / "xlsx" / f"{length}"
 
-        elif filetype.endswith(".png") or filetype in ("png", "image"):
+        elif filepath.endswith(".png") or filepath in ("png", "image"):
             assert data_type is not None, "data_type must be specified for image files"
-            assert length is not None, "length must be specified for image files"
             if data_type == "data":
                 base = self.data_dir / "images"
             elif data_type == "output":
-                base = self.out_dir / "images" / f"{length}"
+                base = self.out_dir / "images"
         else:
             raise ValueError(f"Invalid file extension. Use {', '.join(self.allow_extensions)}")
 
@@ -327,32 +327,41 @@ class FileIO:
         # 윈도우/범용 안전: 콜론, 슬래시, 역슬래시 등 치환
         return name.replace(":", "-").replace("/", "_").replace("\\", "_")
 
-    def file_writer(self, filename: Path | str, content: Any, length: int, **kwargs) -> None:
+    def file_writer(self, filename: Path | str, content: Any, **kwargs) -> None:
         """
         Get the full path for writing a file, ensuring directories exist.
         """
         header = None
         header_bytes = None
-        start_timestamp = kwargs.get("timestamp", None)
-        elapsed_time = kwargs.get("elapsed_time", None)
-        byteorder = kwargs.get("byteorder", None)
+        start_timestamp = kwargs.pop("timestamp", None)
+        elapsed_time = kwargs.pop("elapsed_time", None)
+        byteorder = kwargs.pop("byteorder", None)
+        length = kwargs.pop("length", None)
         if start_timestamp is not None and elapsed_time is not None:
             header = Header(start_timestamp, elapsed_time, length, byteorder)
             header_bytes = header.encode()
-        data_type = kwargs.get("data_type", None)
+        data_type = kwargs.pop("data_type", None)
+        parent_dir = kwargs.pop("parent_dir", None)
+        if parent_dir is not None:
+            if isinstance(filename, str):
+                filename = Path(parent_dir) / filename
+            elif isinstance(filename, Path):
+                filename = parent_dir / filename
+            else:
+                raise ValueError(f"filename must be a string or Path, got {type(filename)}")
 
         base: Path
 
         if isinstance(filename, str):
-            base = self.select_dir(filename, length = length, data_type=data_type)
+            base = self.select_dir(filename, length=length, data_type=data_type)
             safe_name = self._sanitize_filename(filename)
             full_path = base / safe_name
         elif isinstance(filename, Path):
             if not filename.is_dir():
-                base = self.select_dir(filename, length = length, data_type=data_type)
-            full_path = filename
+                base = self.select_dir(filename, length=length, data_type=data_type)
+            full_path = base / filename
         else:
-            full_path = base / filename.name
+            raise ValueError(f"filename must be a string or Path, got {type(filename)}")
 
         print(full_path)
 

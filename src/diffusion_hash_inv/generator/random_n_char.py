@@ -11,7 +11,7 @@ from typing import Optional, ClassVar
 
 from diffusion_hash_inv.config import MainConfig
 from diffusion_hash_inv.utils import FileIO
-from diffusion_hash_inv.core import Logs
+from diffusion_hash_inv.logger import Logs
 
 class GenerateRandomNChar:
     """
@@ -74,7 +74,7 @@ class GenerateRandomNChar:
             self.help()
         filename = f"random_{length}_char_{self.start_time[:19]}.char"
 
-        self.file_io.file_writer(filename, _pwd, length, timestamp=self.start_time, \
+        self.file_io.file_writer(filename, _pwd, length=length, timestamp=self.start_time, \
             elapsed_time=elapsed_time, byteorder=byteorder)
 
         return _pwd

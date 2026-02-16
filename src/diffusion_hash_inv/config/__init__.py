@@ -3,7 +3,7 @@ Configuration package for Diffusion Hash Inversion project.
 """
 
 from .main_config import MainConfig, OutputConfig, HeaderConstants
-from .rgb_config import Byte2RGBConfig
+from .rgb_config import Byte2RGBConfig, ImgConfig
 from .hash_config import HashConfig
 
 __all__ = [
@@ -12,4 +12,5 @@ __all__ = [
     "OutputConfig",
     "HeaderConstants",
     "Byte2RGBConfig",
+    "ImgConfig",
 ]

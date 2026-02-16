@@ -223,12 +223,12 @@ class ByteToImageConverter:
         """
 
         out_img_path: Path = Path(img_path) if img_path \
-            else self.file_io.select_dir(filetype="image",\
+            else self.file_io.select_dir(filepath="image",\
                                             length=self.length, data_type="output")
         print(out_img_path)
 
         json_path: Path = Path(json_path) if json_path \
-            else self.file_io.select_dir(filetype="json",\
+            else self.file_io.select_dir(filepath="json",\
                                             length=self.length)
 
         latest_json_list = self.get_json_list(self.hash_alg, json_path=json_path)

@@ -62,7 +62,7 @@ class Metadata:
             Dict[str, Any]: Metadata dictionary
         """
         return {
-            "Hash function": self.hash_alg,
+            "Hash Algorithm": self.hash_alg,
             "Hierarchy": self.hierarchy,
             "Input bits": self.input_bits_len,
             "Message mode": "Message" if self.is_message else "Bit string",
@@ -471,27 +471,36 @@ class LogHelper:
     @staticmethod
     def iter_to_bytes(t: Tuple[int] | List[int], byteorder: Optional[str] = None) -> bytes:
         """Convert Tuple or List of int to bytes"""
-        assert byteorder is not None, "byteorder must be specified"
         assert all(0 <= _i < 256 for _i in t), "All integers must be in range 0-255"
         assert all(isinstance(_i, int) for _i in t), "All elements must be integers"
+        assert byteorder in ("big", "little"), "byteorder must be 'big' or 'little'"
 
         byte_chunks = bytearray()
-        for _i in t:
-            byte_chunks.append(_i)
+        if byteorder == "big":
+            for _i in reversed(t):
+                byte_chunks.append(_i)
+        else:
+            for _i in t:
+                byte_chunks.append(_i)
 
         return bytes(byte_chunks)
 
     @staticmethod
     def bytes_to_int(b: bytes, byteorder: Optional[str] = None) -> tuple[int]:
         """Convert bytes to int"""
-        assert byteorder is not None, "byteorder must be specified"
+        assert byteorder in ("big", "little"), "byteorder must be specified"
         res = []
-        for _i in range(len(b)):
-            res.append(int.from_bytes(b[_i:_i+1], byteorder=byteorder))
+        if byteorder == "big":
+            for _i in range(len(b)-1, -1, -1):
+                res.append(int.from_bytes(b[_i:_i+1], byteorder=byteorder))
+        else:
+            for _i in range(len(b)):
+                res.append(int.from_bytes(b[_i:_i+1], byteorder=byteorder))
+
         return tuple(res)
 
     @staticmethod
-    def byte_to_int(b: bytes, byteorder: Optional[str] = None) -> int:
+    def byte_to_int(b: bytes) -> int:
         """
         Convert bytes to integer using the specified byteorder.
         Parameters:
@@ -500,9 +509,9 @@ class LogHelper:
             int: Converted integer.
         """
         assert isinstance(b, bytes), "Input must be bytes."
-        assert byteorder in ('big', 'little'), "Byteorder must be 'big' or 'little'."
+        assert len(b) == 1, "Input bytes length must be 1."
 
-        return int.from_bytes(b, byteorder)
+        return int.from_bytes(b, byteorder="big")
 
     @staticmethod
     def int_to_bytes(integer: int, length: int, byteorder: Optional[str] = None) -> bytes:
@@ -540,6 +549,17 @@ class LogHelper:
 
         return f"{prefix} {index}"
 
+    @staticmethod
+    def json_file_namer(hash_alg: str, \
+                        length: int, \
+                        start_time: str, \
+                        iteration: int, \
+                        iteration_max: int) -> str:
+        """Generate JSON file name"""
+        width = len(str(abs(iteration_max)))
+        ret = f"{hash_alg}_{length}_{start_time[:19]}_{str(iteration).zfill(width)}.json"
+
+        return ret
 
 class Logs(LogHelper, TimeHelper):
     """

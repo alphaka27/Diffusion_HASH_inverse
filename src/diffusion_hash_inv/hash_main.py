@@ -5,10 +5,10 @@ Hash algorithm main module
 import argparse
 import sys
 
-from diffusion_hash_inv.core import Logs, Metadata, BaseLogs, StepLogs
-from diffusion_hash_inv.config import MainConfig, HashConfig
+from diffusion_hash_inv.logger import Logs, Metadata, BaseLogs, StepLogs
+from diffusion_hash_inv.config import MainConfig, HashConfig, OutputConfig
 from diffusion_hash_inv.generator import GenerateRandomNChar
-from diffusion_hash_inv.utils import FileIO
+from diffusion_hash_inv.utils import FileIO, RGBImgMaker
 from diffusion_hash_inv.validation import validate
 from diffusion_hash_inv import hashing
 
@@ -17,14 +17,24 @@ class Main:
     Entry point for hash generation and validation
     """
 
-    def __init__(self, main_config: MainConfig, hash_config: HashConfig) -> None:
+    def __init__(self, main_config: MainConfig, \
+                hash_config: HashConfig, \
+                output_config: OutputConfig):
         self.start_time = Logs.get_current_timestamp()
 
         self.main_cfg = main_config
         self.hash_cfg = hash_config
+        self.output_cfg = output_config
+        print("Main configuration, Hash configuration, and Output configuration loaded.")
+        print("=========================")
+        print("Main Configuration:", self.main_cfg)
+        print("Hash Configuration:", self.hash_cfg)
+        print("Output Configuration:", self.output_cfg)
+
+
         self.alg_name = self.hash_cfg.hash_alg.upper()
 
-        self.io_controller = FileIO(self.main_cfg)
+        self.io_controller = FileIO(self.main_cfg, self.output_cfg)
 
     def message_generator(self, length:int, byteorder: str) -> bytes:
         """
@@ -63,6 +73,8 @@ class Main:
         """
         metadata = Metadata(hash_alg=self.alg_name, is_message=self.main_cfg.message_flag, \
                             input_bits_len=length, started_at=self.start_time)
+        metadata.hash_property(byteorder=self.hash_cfg.byteorder, \
+                            hierarchy=self.hash_cfg.hierarchy)
 
         baselogs = BaseLogs()
         steplogs = StepLogs(wordsize=self.hash_cfg.ws_bits, byteorder=self.hash_cfg.byteorder, \
@@ -85,7 +97,8 @@ class Main:
             algo.reset()
             Logs.clear(baselogs=baselogs, steplogs=steplogs)
 
-            json_file_name = f"{self.alg_name}_{length}_{self.start_time[:19]}_{_i}.json"
+            json_file_name = Logs.json_file_namer(self.alg_name, length, \
+                                                self.start_time, _i + 1, iteration)
 
             input_msg = self.message_generator(length, algo.byteorder)
             generated_hash = algo.digest(input_msg)
@@ -128,7 +141,26 @@ class Main:
 
         _end_total = Logs.perftimer_end(_start_total)
         elapsed_time = Logs.perftimer_str(_end_total)
-        print("Total execution time:", elapsed_time)
+        print("Hash Calculation time:", elapsed_time)
+        print("Process completed.")
+        print("=========================")
+
+        print("RGB Image Maker Module Loaded.")
+        _img_make_start = Logs.perftimer_start()
+
+        rgb_encoder = RGBImgMaker(self.main_cfg, self.hash_cfg, self.io_controller)
+        rgb_encoder.main()
+
+        _img_make_end = Logs.perftimer_end(_img_make_start)
+        img_elapsed_time = Logs.perftimer_str(_img_make_end)
+        print("RGB Image Maker execution time:", img_elapsed_time)
+        print("RGB Image Maker process completed.")
+        print("=========================")
+        print()
+        print("Total Execution Time:", Logs.perftimer_str(_end_total + _img_make_end))
+
+
+
 
 if __name__ == "__main__":
     # Argument parsing
@@ -196,6 +228,7 @@ if __name__ == "__main__":
         hash_alg=_args.hash_alg,
         length=LENGTH,
     )
+    _output_config = OutputConfig()
 
-    main_app = Main(_main_flags, _hash_flags)
+    main_app = Main(_main_flags, _hash_flags, _output_config)
     main_app.run(length=LENGTH, iteration=_args.iteration)
