@@ -167,6 +167,21 @@ class RGBImgMaker:
                             f"Original data: {data}\n"
                             f"Decoded data: {self.byte2rgb.rgb_decoder(ret)}\n"
                             f"Success: {success}")
+        if isinstance(data, list):
+            ret = []
+            for item in data:
+                if not isinstance(item, (str, bytes)):
+                    raise ValueError("All items in data list must be of type str or bytes.")
+                encoded_item = self.byte2rgb.rgb_encoder(item)
+                success = encoding_validate(item, encoded_item, self.byte2rgb)
+                if not success:
+                    raise RuntimeError(f"Encoding validation failed for item: {item}\n"
+                                    f"Encoded RGB: {encoded_item}\n"
+                                    f"Original item: {item}\n"
+                                    f"Decoded item: {self.byte2rgb.rgb_decoder(encoded_item)}\n"
+                                    f"Success: {success}")
+                ret.append(encoded_item)
+            return tuple(ret)
 
         raise ValueError("Unsupported data type for encoding.")
 
@@ -195,12 +210,15 @@ class RGBImgMaker:
                 assert len(path) == 1, "Parsed log dictionary must have exactly one key."
                 path = path[0]
                 data = log[path]
+                _file_name = path.split("/")[-1]
+                path = "/".join(path.split("/")[:-1])
+                path = Path(path)
                 assert isinstance(data, (str, int, float, list, tuple, bytes)), \
                     "Parsed log data must be of type str, int, float, list, tuple, or bytes."
 
                 encoded_log = self.data_encoder(data)
                 rgb_log = self.image_formatter(encoded_log)
-                self.io_controller.file_writer(f"{data}.png",
+                self.io_controller.file_writer(f"{_file_name}.png",
                                             rgb_log,
                                             parent_dir=Path(filename, path),
                                             data_type="data")
@@ -252,6 +270,9 @@ class RGBImgMaker:
                     ret = [ret_dict,]
                 else:
                     ret += [ret_dict,]
+
+            if isinstance(log, list):
+                pass
 
             if isinstance(log, dict):
                 pass
