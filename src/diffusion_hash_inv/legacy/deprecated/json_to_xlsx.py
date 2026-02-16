@@ -137,9 +137,9 @@ class JSONToXLSXConverter:
         _hash_alg = hash_alg if hash_alg is not None else self.hash_alg
 
         json_path: Path = Path(self.json_path_arg) if self.json_path_arg \
-            else self.file_io.select_dir(filetype="json", length=self.length)
+            else self.file_io.select_dir(filepath="json", length=self.length)
         xlsx_path: Path = Path(self.xlsx_path_arg) if self.xlsx_path_arg \
-            else self.file_io.select_dir(filetype="xlsx", length=self.length)
+            else self.file_io.select_dir(filepath="xlsx", length=self.length)
 
         json_list = self.file_io.get_latest_files_by_date(json_path, _hash_alg, self.length)
 

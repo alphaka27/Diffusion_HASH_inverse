@@ -8,18 +8,21 @@ from __future__ import annotations
 from secrets import randbelow
 from typing import Tuple, List
 
-from diffusion_hash_inv.core import RGB, RGBBinning
-from diffusion_hash_inv.core import Logs
+from diffusion_hash_inv.core import RGB, RGBA, RGBBinning
+from diffusion_hash_inv.logger import Logs
 from diffusion_hash_inv.config import Byte2RGBConfig, HashConfig, MainConfig
+
 
 class Byte2RGB:
     """
     A class to convert byte values(0x00 ~ 0xFF) to RGB tuples in  RGB color space.
     """
 
-    def __init__(self, rgb_config: Byte2RGBConfig = Byte2RGBConfig(), \
-                hash_config: HashConfig = HashConfig("md5", 256)):
-        self.byteorder = hash_config.byteorder
+    def __init__(self, main_config: MainConfig, \
+                hash_config: HashConfig, \
+                rgb_config: Byte2RGBConfig = Byte2RGBConfig()):
+        self.main_cfg = main_config
+        self.hash_cfg = hash_config
         binning = RGBBinning()
         binning.config(
             bin_num=rgb_config.bin_num,
@@ -36,9 +39,9 @@ class Byte2RGB:
                 "b_chunk": _bin.b_chunk,
             }
 
-    def encode(self, hexstring: str | bytes) -> RGB | Tuple[RGB, ...]:
+    def _rgb_encoding(self, hexstring: str, byteorder: str) -> RGB | Tuple[RGB, ...]:
         """
-        Encode a byte value (0-255) to an RGB tuple.
+        Encoding hexstring to RGB tuple
 
         Args:
             hexstring (str): A hexadecimal string representing the byte value to encode.
@@ -47,7 +50,7 @@ class Byte2RGB:
             RGB: The corresponding RGB tuple.
         """
         bytes_value = Logs.str_to_bytes(hexstring) if isinstance(hexstring, str) else hexstring
-        int_value = Logs.bytes_to_int(bytes_value, byteorder=self.byteorder)
+        int_value = Logs.bytes_to_int(bytes_value, byteorder=byteorder)
         encode = []
         for integer in int_value:
             assert 0 <= integer <= 255, "Byte value must be in the range 0-255"
@@ -60,19 +63,52 @@ class Byte2RGB:
             _b = randbelow(_temp_b.end - _temp_b.start) + _temp_b.start
             encode.append(RGB(r=_r, g=_g, b=_b))
 
-        if MainConfig.verbose_flag:
-            print(f"Encoded byte value: {bytes_value} to RGB: {encode}")
+        if self.main_cfg.verbose_flag:
+            print(f"Encoded byte value: {bytes_value} or {hexstring} to RGB: \n{encode}")
+
 
         if len(encode) == 1:
             return encode[0]
         return tuple(encode)
 
-    def decode(self, rgb: RGB | Tuple[RGB, ...]) -> bytes:
+    # TODO: Implement RGBA encoding
+    def _rgba_encoding(self, hexstring: str | bytes, byteorder: str):
+        """
+        Encoding hexstring to RGBA tuple
+        """
+        alpha_max = 255
+
+        raise NotImplementedError("RGBA encoding is not yet implemented.")
+
+    def rgb_encoder(self, hexstring: str | bytes, encoding: str = "RGB") \
+            -> RGB | RGBA | Tuple[RGB, ...] | Tuple[RGBA, ...]:
+        """
+        Encoding hexstring to RGB tuple or RGBA tuple depends on encoding
+
+        Args:
+            hexstring (str | bytes): A hexadecimal string or bytes representing the byte value.
+            byteorder (str): The byte order to use for encoding ("big" or "little").
+            encoding (str): The encoding type, either "RGB" or "RGBA".
+
+        Returns:
+            RGB | RGBA | Tuple[RGB, ...] | Tuple[RGBA, ...]: The corresponding RGB or RGBA tuple(s).
+        """
+        if encoding == "RGB":
+            ret = self._rgb_encoding(hexstring, self.hash_cfg.byteorder)
+        elif encoding == "RGBA":
+            ret = self._rgba_encoding(hexstring, self.hash_cfg.byteorder) # pylint: disable=assignment-from-no-return
+        else:
+            raise ValueError("Unsupported encoding type. Use 'RGB' or 'RGBA'.")
+
+        return ret
+
+
+    def rgb_decoder(self, rgb: RGB | Tuple[RGB, ...]) -> bytes:
         """
         Decode an RGB tuple back to its corresponding byte value.
 
         Args:
-            rgb (RGB): The RGB tuple to decode.
+            rgb (RGB | Tuple[RGB, ...]): The RGB tuple or tuples to decode.
 
         Returns:
             bytes: The corresponding byte value.
@@ -92,9 +128,9 @@ class Byte2RGB:
                     decode.append(key)
                     continue
 
-        decode_bytes = Logs.iter_to_bytes(decode, byteorder=self.byteorder)
+        decode_bytes = Logs.iter_to_bytes(decode, byteorder=self.hash_cfg.byteorder)
 
-        if MainConfig.verbose_flag:
+        if self.main_cfg.verbose_flag:
             print(f"Decoded RGB: {rgb} to byte value: {decode_bytes}")
 
         return decode_bytes
@@ -102,15 +138,26 @@ class Byte2RGB:
 
 
 if __name__ == "__main__":
-    b2rgb = Byte2RGB()
+    _main_cfg = MainConfig(
+        message_flag=True,
+        verbose_flag=True,
+        clean_flag=False,
+        debug_flag=False,
+        make_xlsx_flag=False,
+    )
+    _hash_cfg = HashConfig(hash_alg="md5", length=1024)
+
+
+    b2rgb = Byte2RGB(_main_cfg, _hash_cfg)
 
     print("----- Byte to RGB Encoding Test -----")
-    test_byte = Logs.str_to_bytes("0x6e4c5a2e")
-    _rgb = b2rgb.encode(test_byte)
+    TEST_HEX = "0x306a75277e7e2a7c6d7a6451283f3c7667456342672b37723c50395b375c702d"
+    test_byte = Logs.str_to_bytes(TEST_HEX)
+    _rgb = b2rgb.rgb_encoder(test_byte)
 
     print()
 
     print("----- RGB to Byte Decoding Test -----")
-    DECODE = b2rgb.decode(_rgb)
+    DECODE = b2rgb.rgb_decoder(_rgb)
 
     assert DECODE == test_byte, "Decoded byte does not match the original byte."

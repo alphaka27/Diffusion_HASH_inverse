@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from typing import Tuple, List, Dict, ClassVar, Optional
+from typing import Tuple, List, Dict, Optional
 
 @dataclass
 class Chunk1D:
@@ -171,6 +171,29 @@ class RGB:
         Creates an RGB instance from a tuple.
         """
         return RGB(r=rgb_tuple[0], g=rgb_tuple[1], b=rgb_tuple[2])
+
+@dataclass
+class RGBA:
+    """
+    Coordinates of a point in RGBA space.
+    """
+    rgb: RGB
+    a: int
+
+    @property
+    def as_tuple(self) -> Tuple[int, int, int, int]:
+        """
+        Returns the RGBA coordinates as a tuple.
+        """
+        return (self.rgb.r, self.rgb.g, self.rgb.b, self.a)
+
+    @staticmethod
+    def from_tuple(rgba_tuple: Tuple[int, int, int, int]) -> RGBA:
+        """
+        Creates an RGBA instance from a tuple.
+        """
+        rgb = RGB(r=rgba_tuple[0], g=rgba_tuple[1], b=rgba_tuple[2])
+        return RGBA(rgb=rgb, a=rgba_tuple[3])
 
 # pylint: disable=too-many-instance-attributes
 @dataclass
@@ -348,6 +371,11 @@ class RGBBinning:
         """
         Configure the RGBBinning class with custom
         bin_num, bin_width, fr_min, and fr_max.
+        Args:
+            bin_num (int): Number of bins along each RGB axis.
+            bin_width (int): Width of each bin.
+            fr_min (int): Minimum value of the full RGB range.
+            fr_max (int): Maximum value of the full RGB range.
         """
         object.__setattr__(self, 'bin_num', bin_num)
         object.__setattr__(self, 'bin_width', bin_width)

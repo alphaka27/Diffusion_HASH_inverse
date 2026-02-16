@@ -8,7 +8,7 @@ import copy
 from contextlib import contextmanager
 
 from diffusion_hash_inv.core import BaseCalc
-from diffusion_hash_inv.core import (
+from diffusion_hash_inv.logger import (
     StepLogs,
     Logs,
     MD5RoundTrace,

@@ -99,7 +99,6 @@ class HashConfig:
 
         print("HashConfig initialized with algorithm:", self.hash_alg)
         print("Length (bits):", self.length)
-        print("Constants:", self.constants)
 
         if self.length <= 0 or self.length % 8 != 0:
             raise ValueError("length must be a positive multiple of 8")
