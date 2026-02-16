@@ -68,9 +68,7 @@ class RGBImgMaker:
         assert center_size[0] <= image_size[0] and center_size[1] <= image_size[1], \
             "Center size must be smaller than or equal to image size."
 
-        canvas = np.empty((image_size[1], image_size[0], 4), dtype=np.uint8)
         background_color = (255, 255, 255, 255)  # White with full opacity
-        canvas[:, :] = background_color
         center_x = (image_size[0] - center_size[0]) // 2
         center_y = (image_size[1] - center_size[1]) // 2
         assert center_x >= 0 and center_y >= 0, "Center size must be smaller than image size."
@@ -84,19 +82,18 @@ class RGBImgMaker:
             image_size[1] > center_size[1] + center_y, \
             "Image size must be large enough to accommodate center size with offset."
 
-        ret = None
+        frames: List[Image.Image] = []
         for rgb in rgb_data:
+            canvas = np.zeros((image_size[1], image_size[0], 4), dtype=np.uint8)
+            canvas[:, :] = background_color
             canvas[center_y:center_y + center_size[1], center_x:center_x + center_size[0]] = \
                 (rgb.r, rgb.g, rgb.b, 255) if isinstance(rgb, RGB) else (rgb.r, rgb.g, rgb.b, rgb.a)
-            if ret is None:
-                ret = Image.fromarray(canvas, "RGBA")
-            else:
-                ret = self._image_concater(
-                    [ret,
-                    Image.fromarray(canvas, "RGBA")],
-                    direction="horizontal")
-        assert ret is not None, "Failed to create image from RGB data."
-        return ret
+            frames.append(Image.fromarray(canvas, "RGBA"))
+
+        assert len(frames) > 0, "Failed to create image from RGB data."
+        if len(frames) == 1:
+            return frames[0]
+        return self._image_concater(frames, direction="horizontal")
 
 
     def image_formatter(self, \
@@ -233,7 +230,7 @@ class RGBImgMaker:
                 encoded_log = None
                 encoded_log = self.data_encoder(data)
                 print(encoded_log)
-                if path == "3rd Step":
+                if path == "3rd Step" and self.main_cfg.debug_flag:
                     breakpoint()
                 path = "/".join(path.split("/")[:-1])
                 path = Path(path)
