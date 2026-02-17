@@ -163,7 +163,7 @@ class Main:
 
 if __name__ == "__main__":
     # Argument parsing
-    parser = argparse.ArgumentParser(description="SHA-256 Hash Generator")
+    parser = argparse.ArgumentParser(description="Hash Generation and Image Creation Script")
     parser.add_argument('-l', '--length', type=int, default=argparse.SUPPRESS,
                         help='Length of random bits to generate (default: 512)')
     parser.add_argument('-e', '--exponentiation', type=int, default=argparse.SUPPRESS,

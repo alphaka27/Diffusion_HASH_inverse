@@ -130,15 +130,21 @@ class Writer:
         df.to_excel(path, engine="openpyxl", index=True)
 
     @staticmethod
-    def write_binary(path: Path, header: Optional[bytes] = None, \
-                    content: Optional[bytes] = None, byteorder: Optional[str] = None):
+    def write_binary(path: Path, content: Optional[bytes] = None, **kwargs):
         """
         Write the binary content to a file.
         """
-        assert byteorder in ('big', 'little'), "byteorder must be 'big', 'little'"
         assert content is not None and isinstance(content, bytes), "content must be bytes"
-        assert header is not None and isinstance(header, bytes), "header must be bytes"
-        content = header + content
+        length = kwargs.pop("length", None)
+        header = None
+        header_bytes = None
+        start_timestamp = kwargs.pop("timestamp", None)
+        elapsed_time = kwargs.pop("elapsed_time", None)
+        byteorder = kwargs.pop("byteorder", None)
+        if start_timestamp is not None and elapsed_time is not None:
+            header = Header(start_timestamp, elapsed_time, length, byteorder)
+            header_bytes = header.encode()
+        content = header_bytes + content
 
         with open(path, "ab") as f:
             f.write(content)
@@ -186,10 +192,11 @@ class Reader:
             return f.read()
 
     @staticmethod
-    def read_image(path: Path) -> Dataset:
+    def read_image(path: Path) -> Image.Image:
         """
         Read the image content from a file.
         """
+        return Image.open(path)
 
 
 class FileIO:
@@ -331,24 +338,12 @@ class FileIO:
         """
         Get the full path for writing a file, ensuring directories exist.
         """
-        header = None
-        header_bytes = None
-        start_timestamp = kwargs.pop("timestamp", None)
-        elapsed_time = kwargs.pop("elapsed_time", None)
-        byteorder = kwargs.pop("byteorder", None)
-        length = kwargs.pop("length", None)
-        if start_timestamp is not None and elapsed_time is not None:
-            header = Header(start_timestamp, elapsed_time, length, byteorder)
-            header_bytes = header.encode()
+        length = kwargs.get("length", None)
         data_type = kwargs.pop("data_type", None)
         parent_dir = kwargs.pop("parent_dir", None)
         if parent_dir is not None:
-            if isinstance(filename, str):
-                filename = Path(parent_dir) / filename
-            elif isinstance(filename, Path):
-                filename = parent_dir / filename
-            else:
-                raise ValueError(f"filename must be a string or Path, got {type(filename)}")
+            parent_dir = Path(parent_dir)
+            filename = parent_dir / Path(filename)
 
         base: Path
 
@@ -370,8 +365,7 @@ class FileIO:
         elif full_path.suffix == ".xlsx":
             Writer.write_xlsx(full_path, content)
         elif full_path.suffix in (".bin", ".char"):
-            Writer.write_binary(full_path, header=header_bytes, content=content, \
-                            byteorder=byteorder)
+            Writer.write_binary(full_path, content=content, **kwargs)
         elif full_path.suffix == ".png" or isinstance(content, Dataset):
             Writer.image_writer(full_path, content)
         else:

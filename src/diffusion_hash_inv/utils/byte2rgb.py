@@ -5,6 +5,7 @@ Each subcube represents a partition of the RGB color space.
 
 from __future__ import annotations
 
+import argparse
 import random
 from typing import Tuple, List
 
@@ -141,18 +142,24 @@ class Byte2RGB:
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Hash Generation and Image Creation Script")
+    parser.add_argument('--mode', type=str, default="verify",
+                        help='Mode of operation (default: verify)')
+    parser.add_argument('-i', '--input', type=str, default=argparse.SUPPRESS,
+                        help='Input value for testing (default: 0x89abcdef)')
+    parser.add_argument('--hash_alg', type=str, default='md5',
+                        help='Hash algorithm to use (default: md5)')
+    _args = parser.parse_args()
     _main_cfg = MainConfig(
-        message_flag=True,
-        verbose_flag=True,
-        clean_flag=False,
-        debug_flag=False,
-        make_xlsx_flag=False,
-    )
-    _hash_cfg = HashConfig(hash_alg="md5", length=1024)
-
-
+            message_flag=True,
+            verbose_flag=True,
+            clean_flag=False,
+            debug_flag=False,
+            make_xlsx_flag=False,
+            seed_flag=False,
+        )
+    _hash_cfg = HashConfig(hash_alg=_args.hash_alg, length=1024)
     b2rgb = Byte2RGB(_main_cfg, _hash_cfg)
-
     print("----- Byte to RGB Encoding Test -----")
     TEST_HEX = "0x89abcdef"
     test_byte = Logs.str_to_bytes(TEST_HEX)
