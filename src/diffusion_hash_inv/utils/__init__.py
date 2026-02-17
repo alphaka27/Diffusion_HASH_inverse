@@ -9,7 +9,7 @@ from .formatter import JSONFormat
 from .file_io import FileIO, Reader, Writer
 from ..legacy.deprecated.json_to_xlsx import JSONToXLSXConverter
 from .byte2rgb import Byte2RGB
-from .rgb_img_maker import RGBImgMaker
+from .image_writer import RGBImgMaker
 
 __all__ = [
     "JSONFormat",

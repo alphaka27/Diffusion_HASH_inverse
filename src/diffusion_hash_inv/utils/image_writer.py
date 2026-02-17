@@ -218,6 +218,7 @@ class RGBImgMaker:
                                         rgb_message,
                                         parent_dir=filename,
                                         data_type="data")
+
             for log in parsed_logs:
                 assert isinstance(log, dict), "Parsed log must be a dictionary."
                 path = list(log.keys())
