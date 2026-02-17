@@ -5,6 +5,7 @@ Password Generator
 
 import unicodedata
 from secrets import choice
+import random
 import argparse
 import string
 from typing import Optional, ClassVar
@@ -44,7 +45,12 @@ class GenerateRandomNChar:
         """
         Generate a random string of N characters.
         """
-        _pwd = ''.join(choice(GenerateRandomNChar.alphabet) for _ in range(length))
+        if self.main_config.seed_flag:
+            _pwd = ''.join(choice(GenerateRandomNChar.alphabet) for _ in range(length))
+        else:
+            random.seed(self.main_config.seed)
+            _pwd = ''.join(random.choice(GenerateRandomNChar.alphabet) for _ in range(length))
+
         return _pwd
 
     def normalize(self, s: str, form: str = "NFKC") -> bytes:

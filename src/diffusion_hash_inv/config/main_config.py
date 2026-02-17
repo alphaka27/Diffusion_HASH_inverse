@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Optional
+import secrets
 from pathlib import Path
 
 @dataclass(frozen=True)
@@ -18,6 +19,12 @@ class MainConfig:
     clean_flag: bool
     debug_flag: bool
     make_xlsx_flag: bool
+    seed_flag: bool
+    seed: int = field(default=0, init=False)
+
+    def __post_init__(self):
+        if self.seed_flag:
+            object.__setattr__(self, "seed", secrets.randbits(32))
 
     def __getattribute__(self, name):
         try:

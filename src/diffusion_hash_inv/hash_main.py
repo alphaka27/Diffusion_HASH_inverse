@@ -121,9 +121,8 @@ class Main:
                             correct_hash=right_hash, \
                             is_message=self.main_cfg.message_flag)
 
-            if self.main_cfg.debug_flag:
-                if _i == 0:
-                    breakpoint()
+            if self.main_cfg.debug_flag and _i == 0:
+                breakpoint()
 
             self.io_controller.file_writer(filename=json_file_name, content={"metadata": metadata, \
                     "baselogs": baselogs, "steplogs": steplogs}, length=length)
@@ -223,6 +222,7 @@ if __name__ == "__main__":
         clean_flag=_args.clear,
         debug_flag=DEBUG,
         make_xlsx_flag=_args.make_xlsx,
+        seed_flag=False,  # Enable random seed generation for reproducibility
     )
     _hash_flags = HashConfig(
         hash_alg=_args.hash_alg,
