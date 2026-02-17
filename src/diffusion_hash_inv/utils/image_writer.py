@@ -8,6 +8,7 @@ import numpy as np
 import re
 
 from diffusion_hash_inv.config import MainConfig, HashConfig, ImgConfig
+from diffusion_hash_inv.config import Byte2RGBConfig
 from diffusion_hash_inv.core import RGB, RGBA
 from diffusion_hash_inv.utils import Byte2RGB
 from diffusion_hash_inv.utils import FileIO
@@ -18,11 +19,16 @@ class RGBImgMaker:
     A class to make RGB images from Logs.
     """
 
-    def __init__(self, main_cfg: MainConfig, hash_cfg: HashConfig, io_controller: FileIO):
+    def __init__(self, main_cfg: MainConfig,
+                hash_cfg: HashConfig,
+                io_controller: FileIO,
+                rgb_config: Byte2RGBConfig):
         self.main_cfg = main_cfg
         self.hash_cfg = hash_cfg
         self.io_controller = io_controller
-        self.byte2rgb = Byte2RGB(main_config=self.main_cfg, hash_config=self.hash_cfg)
+        self.byte2rgb = Byte2RGB(main_config=self.main_cfg,
+                                hash_config=self.hash_cfg,
+                                rgb_config=rgb_config)
         self.log_hierarchy: Dict[str, Any] = {}
 
 

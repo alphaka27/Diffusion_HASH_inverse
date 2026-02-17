@@ -6,7 +6,7 @@ import argparse
 import sys
 
 from diffusion_hash_inv.logger import Logs, Metadata, BaseLogs, StepLogs
-from diffusion_hash_inv.config import MainConfig, HashConfig, OutputConfig
+from diffusion_hash_inv.config import MainConfig, HashConfig, OutputConfig, Byte2RGBConfig
 from diffusion_hash_inv.generator import GenerateRandomNChar
 from diffusion_hash_inv.utils import FileIO, RGBImgMaker
 from diffusion_hash_inv.validation import validate
@@ -19,12 +19,14 @@ class Main:
 
     def __init__(self, main_config: MainConfig, \
                 hash_config: HashConfig, \
-                output_config: OutputConfig):
+                output_config: OutputConfig,
+                rgb_config: Byte2RGBConfig = Byte2RGBConfig(set_seed=False)):
         self.start_time = Logs.get_current_timestamp()
 
         self.main_cfg = main_config
         self.hash_cfg = hash_config
         self.output_cfg = output_config
+        self.rgb_cfg = rgb_config
         print("Main configuration, Hash configuration, and Output configuration loaded.")
         print("=========================")
         print("Main Configuration:", self.main_cfg)
@@ -147,7 +149,7 @@ class Main:
         print("RGB Image Maker Module Loaded.")
         _img_make_start = Logs.perftimer_start()
 
-        rgb_encoder = RGBImgMaker(self.main_cfg, self.hash_cfg, self.io_controller)
+        rgb_encoder = RGBImgMaker(self.main_cfg, self.hash_cfg, self.io_controller, self.rgb_cfg)
         rgb_encoder.main()
 
         _img_make_end = Logs.perftimer_end(_img_make_start)
@@ -164,23 +166,17 @@ class Main:
 if __name__ == "__main__":
     # Argument parsing
     parser = argparse.ArgumentParser(description="Hash Generation and Image Creation Script")
-    parser.add_argument('-l', '--length', type=int, default=argparse.SUPPRESS,
+    parser.add_argument('--hash_alg', type=str, default='md5',
+                        help='Hash algorithm to use (default: md5)')
+
+    gt = parser.add_mutually_exclusive_group()
+    gt.add_argument('-l', '--length', type=int, default=argparse.SUPPRESS,
                         help='Length of random bits to generate (default: 512)')
-    parser.add_argument('-e', '--exponentiation', type=int, default=argparse.SUPPRESS,
+    gt.add_argument('-e', '--exponentiation', type=int, default=argparse.SUPPRESS,
                         help='2 to the power of <exponentiation> (default: 9)')
 
     parser.add_argument('-i', '--iteration', type=int, default=0,
                         help='Running iterations (default: 0)')
-
-    parser.add_argument('--hash_alg', type=str, default='md5',
-                        help='Hash algorithm to use (default: md5)')
-
-    gv = parser.add_mutually_exclusive_group()
-    gv.add_argument('-v', '--verbose', action='store_true', dest='verbose',
-                    help='Enable verbose output')
-    gv.add_argument('-q', '--quiet', action='store_false', dest='verbose',
-                    help='Suppress output')
-    parser.set_defaults(verbose=True)
 
     gm = parser.add_mutually_exclusive_group()
     gm.add_argument('-m', '--message', action="store_true",
@@ -189,17 +185,18 @@ if __name__ == "__main__":
                     dest='message', help='Bit string input mode')
     parser.set_defaults(message=True)
 
-    gc = parser.add_mutually_exclusive_group()
-    gc.add_argument('-c', '--clear', action='store_true',
-                    dest='clear', help='Clear generated files')
-    gc.add_argument('-C', '--no-clear', action='store_false', dest='clear',
-                    help='Do not clear generated files (default)')
+    parser.add_argument('--random_gen', action='store_true', default=False,
+                        help='Enable random seed generation for reproducibility (default: False)')
 
-    parser.add_argument('--make-xlsx', action='store_true',
-                        dest='make_xlsx', help='Convert JSON logs to XLSX after completion')
+    parser.add_argument('--random_rgb', action='store_true', default=False,
+                        help='Enable random seed generation for RGB encoding (default: False)')
 
-    parser.set_defaults(clear=False)
-    parser.set_defaults(make_xlsx=False)
+    parser.add_argument('-q', '--quiet', action='store_false', dest='verbose',
+                    help='Suppress output (default: True)')
+    parser.set_defaults(verbose=True)
+
+    parser.add_argument('-c', '--clear', action='store_true', default=False,
+                    help='Do not clear generated files (default: False)')
 
     _args = parser.parse_args()
 
@@ -221,14 +218,15 @@ if __name__ == "__main__":
         verbose_flag=_args.verbose,
         clean_flag=_args.clear,
         debug_flag=DEBUG,
-        make_xlsx_flag=_args.make_xlsx,
-        seed_flag=False,  # Enable random seed generation for reproducibility
+        make_xlsx_flag=False,
+        seed_flag=_args.random_gen,  # Enable random seed generation for reproducibility
     )
     _hash_flags = HashConfig(
         hash_alg=_args.hash_alg,
         length=LENGTH,
     )
     _output_config = OutputConfig()
+    _rgb_config = Byte2RGBConfig(set_seed=_args.random_rgb)
 
-    main_app = Main(_main_flags, _hash_flags, _output_config)
+    main_app = Main(_main_flags, _hash_flags, _output_config, _rgb_config)
     main_app.run(length=LENGTH, iteration=_args.iteration)
