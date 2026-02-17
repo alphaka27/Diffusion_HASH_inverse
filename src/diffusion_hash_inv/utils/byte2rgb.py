@@ -5,7 +5,7 @@ Each subcube represents a partition of the RGB color space.
 
 from __future__ import annotations
 
-from secrets import randbelow
+import random
 from typing import Tuple, List
 
 from diffusion_hash_inv.core import RGB, RGBA, RGBBinning
@@ -20,9 +20,10 @@ class Byte2RGB:
 
     def __init__(self, main_config: MainConfig, \
                 hash_config: HashConfig, \
-                rgb_config: Byte2RGBConfig = Byte2RGBConfig()):
+                rgb_config: Byte2RGBConfig = Byte2RGBConfig(set_seed=False)):
         self.main_cfg = main_config
         self.hash_cfg = hash_config
+        self.rgb_config = rgb_config
         binning = RGBBinning()
         binning.config(
             bin_num=rgb_config.bin_num,
@@ -58,9 +59,11 @@ class Byte2RGB:
             _temp_r = _temp_encode["r_chunk"].as_half_open
             _temp_g = _temp_encode["g_chunk"].as_half_open
             _temp_b = _temp_encode["b_chunk"].as_half_open
-            _r = randbelow(_temp_r.end - _temp_r.start) + _temp_r.start
-            _g = randbelow(_temp_g.end - _temp_g.start) + _temp_g.start
-            _b = randbelow(_temp_b.end - _temp_b.start) + _temp_b.start
+
+            random.seed(self.rgb_config.seed)
+            _r = random.randint(_temp_r.start, _temp_r.end - 1)
+            _g = random.randint(_temp_g.start, _temp_g.end - 1)
+            _b = random.randint(_temp_b.start, _temp_b.end - 1)
             encode.append(RGB(r=_r, g=_g, b=_b))
 
         if self.main_cfg.verbose_flag:

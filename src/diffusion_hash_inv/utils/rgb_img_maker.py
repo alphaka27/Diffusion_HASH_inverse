@@ -181,6 +181,7 @@ class RGBImgMaker:
                             f"Original data: {data}\n"
                             f"Decoded data: {self.byte2rgb.rgb_decoder(ret)}\n"
                             f"Success: {success}")
+
         if isinstance(data, list):
             ret = []
             for item in data:

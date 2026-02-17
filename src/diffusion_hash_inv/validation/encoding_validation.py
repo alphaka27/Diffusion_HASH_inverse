@@ -3,6 +3,7 @@ Encoding Validation Module
 """
 
 from typing import Tuple
+import copy
 from diffusion_hash_inv.core import RGB
 from diffusion_hash_inv.logger import Logs
 from diffusion_hash_inv.utils import Byte2RGB
@@ -15,8 +16,9 @@ def encoding_validate(
     """
     Validate the encoding of byte data to RGB format.
     """
+    _rgb_data = copy.deepcopy(rgb_data)
 
-    decoded_byte = encoder.rgb_decoder(rgb_data)
+    decoded_byte = encoder.rgb_decoder(_rgb_data)
     decoded_byte = Logs.bytes_to_str(decoded_byte) if isinstance(decoded_byte, bytes) \
         else decoded_byte
     byte_data = Logs.bytes_to_str(byte_data) if isinstance(byte_data, bytes) else byte_data
