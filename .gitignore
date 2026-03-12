@@ -24,3 +24,4 @@ output/
 .env
 .APIkeys.json
 src/diffusion_hash_inverse.egg-info/*
+.python-version

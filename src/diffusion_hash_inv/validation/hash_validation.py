@@ -7,7 +7,7 @@ Hash algorithm Validation Module
 # - Fix validation algorithm fit to hashlib.digest output
 
 import hashlib
-from diffusion_hash_inv.common import Logs
+from diffusion_hash_inv.logger import Logs
 
 
 def validate(test_hash = None, message = None, hash_alg = "sha256", verbose_flag = True):
@@ -16,7 +16,7 @@ def validate(test_hash = None, message = None, hash_alg = "sha256", verbose_flag
     """
     if verbose_flag:
         print(f"Validating {hash_alg.upper()} hash...\nFor message: {message}\n")
-    right_hash = getattr(hashlib, hash_alg)()
+    right_hash = getattr(hashlib, hash_alg.lower())()
     right_hash.update(message)
     _right_value = right_hash.digest()
     is_valid = test_hash == _right_value

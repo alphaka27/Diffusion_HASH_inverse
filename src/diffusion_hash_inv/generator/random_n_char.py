@@ -3,27 +3,28 @@ Random N character Generation
 Password Generator
 """
 
-from pyclbr import Class
 import unicodedata
 from secrets import choice
+import random
 import argparse
 import string
 from typing import Optional, ClassVar
 
-try:
-    from diffusion_hash_inv.utils.file_io import FileIO
-except ImportError as e:
-    print(f"Error importing FileIO: {e}")
-from diffusion_hash_inv.common import Logs
+from diffusion_hash_inv.config import MainConfig
+from diffusion_hash_inv.utils import FileIO
+from diffusion_hash_inv.logger import Logs
 
 class GenerateRandomNChar:
     """
     Generate a random string of N characters.
     """
     alphabet: ClassVar[str]
-    def __init__(self, verbose_flag=True, start_timestamp: Optional[float] = None):
-        self.is_verbose = verbose_flag
-        self.start_time = start_timestamp
+
+    def __init__(self, main_config: MainConfig, file_io: FileIO) -> None:
+        self.main_config = main_config
+        self.file_io = file_io
+        self.is_verbose = self.main_config.verbose_flag
+        self.start_time = Logs.get_current_timestamp()
 
         type(self).alphabet = string.ascii_letters \
             + string.digits + string.punctuation + " "
@@ -44,7 +45,12 @@ class GenerateRandomNChar:
         """
         Generate a random string of N characters.
         """
-        _pwd = ''.join(choice(GenerateRandomNChar.alphabet) for _ in range(length))
+        if self.main_config.seed_flag:
+            _pwd = ''.join(choice(GenerateRandomNChar.alphabet) for _ in range(length))
+        else:
+            random.seed(self.main_config.seed)
+            _pwd = ''.join(random.choice(GenerateRandomNChar.alphabet) for _ in range(length))
+
         return _pwd
 
     def normalize(self, s: str, form: str = "NFKC") -> bytes:
@@ -64,14 +70,17 @@ class GenerateRandomNChar:
         assert byteorder is not None and byteorder in ("big", "little"), \
             "byteorder must be 'big' or 'little'"
 
+        if timer_start is None:
+            raise ValueError("timer_start must be provided")
+
         _pwd = self.generate(length // 8)
         _pwd = self.normalize(_pwd)
         elapsed_time = Logs.perftimer_end(timer_start)
         if self.is_verbose:
             self.help()
         filename = f"random_{length}_char_{self.start_time[:19]}.char"
-        file_io = FileIO(verbose_flag=self.is_verbose)
-        file_io.file_writer(filename, _pwd, length, timestamp=self.start_time, \
+
+        self.file_io.file_writer(filename, _pwd, length=length, timestamp=self.start_time, \
             elapsed_time=elapsed_time, byteorder=byteorder)
 
         return _pwd
@@ -132,6 +141,6 @@ if __name__ == "__main__":
     pw_gen = GenerateRandomNChar()
 
     for _ in range(args.iterations):
+        timer = Logs.perftimer_start()
         print(f"Iteration: {_ + 1}")
-        pw_gen.main(length=BIT_LEN, byteorder='little')
-        print()
+        pw_gen.main(length=BIT_LEN, byteorder='little', timer_start=timer)
