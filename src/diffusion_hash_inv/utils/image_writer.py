@@ -3,9 +3,10 @@ Make RGB images from Logs.
 """
 from typing import List, Tuple, Dict, Any
 from pathlib import Path
-from PIL import Image
+
 import numpy as np
-import re
+from PIL import Image
+
 
 from diffusion_hash_inv.config import MainConfig, HashConfig, ImgConfig
 from diffusion_hash_inv.config import Byte2RGBConfig
@@ -359,3 +360,8 @@ class RGBImgMaker:
         """
         logs = self.get_logs()
         self.img_writer(logs)
+
+    def forward(self) -> None:
+        """
+        Forward process of Diffusion Model
+        """
