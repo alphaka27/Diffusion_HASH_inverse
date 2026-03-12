@@ -4,10 +4,9 @@
 - nist_pwgen_utf8, random_n_char 모듈은 네임스페이스로 공개
 """
 
-from .random_n_bits import GenerateRandom
 from .random_n_char import GenerateRandomNChar
 
 __all__ = [
-    "GenerateRandom",
+    "GenerateRandomNBits",
     "GenerateRandomNChar",
 ]

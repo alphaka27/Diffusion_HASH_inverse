@@ -7,23 +7,22 @@ from dataclasses import dataclass
 from pathlib import Path
 from datetime import datetime
 from typing import List, Optional, Any
-import os
 import re
+from PIL import Image
 
 import pandas as pd
+from torch.utils.data import Dataset
 
+from diffusion_hash_inv.config import MainConfig, OutputConfig, HeaderConstants as HC
 from diffusion_hash_inv.utils import JSONFormat
-from diffusion_hash_inv.utils.project_root import add_root_to_path
-ROOT_DIR = add_root_to_path()
 
-
-
-# 고정 헤더 길이
-TS_LEN = 32 # 32 bytes UTF-8 timestamp
-BITLEN_LEN = 8 # 64 bits
-DIFFTIME_LEN = 8 # 64 bits
-PAD_LEN = 16 - BITLEN_LEN - DIFFTIME_LEN  # 8 bytes padding to make total 48 bytes
-HEADER_LEN = TS_LEN + DIFFTIME_LEN + BITLEN_LEN + PAD_LEN  # 48 bytes
+# Instantiate configuration once so property fields are resolved instead of accessing the class.
+# TODO: Change to use OutputConfig constants instead of using global constants here
+TS_LEN = HC.timestamp_length  # 32 bytes
+BITLEN_LEN = HC.bits_length # 8 bytes
+DIFFTIME_LEN = HC.difftime_length  # 8 bytes
+PAD_LEN = HC.padding_length  # 0 bytes
+HEADER_LEN = HC.header_length  # 48 bytes
 
 @dataclass
 class Header:
@@ -31,65 +30,60 @@ class Header:
     Represents the header of a binary file.
     """
     timestamp: str   # 32 Bytes
-    time_diff: int   # int
+    time_diff: int   # int64
     bit_length: int  # uint64
+    byteorder: str
 
-    def encode_timestamp(self, encoding: str) -> bytes:
+    def encode_timestamp(self) -> bytes:
         """
         Encode the current timestamp as bytes.
         """
         s = self.timestamp
-        if len(s) != TS_LEN:
-            raise ValueError(f"timestamp length != {TS_LEN}: {len(s)}")
-        return s.encode(encoding)
+        if len(s) != HC.timestamp_length:
+            raise ValueError(f"timestamp length != {HC.timestamp_length}: {len(s)}")
+        return s.encode(OutputConfig.encoding)
 
-    def decode_timestamp(self, b: bytes, encoding: str) -> datetime:
+    def decode_timestamp(self, b: bytes) -> datetime:
         """
         Decode the timestamp from bytes.
         """
-        return datetime.fromisoformat(b.decode(encoding))
+        return datetime.fromisoformat(b.decode(OutputConfig.encoding))
 
-    def encode_bit_length(self, bit_length: int, byteorder: str) -> bytes:
+    def encode_bit_length(self) -> bytes:
         """
         Encode the bit length as bytes.
         """
-        if bit_length < 0:
-            raise ValueError("bit_length must be >= 0")
-        return bit_length.to_bytes(BITLEN_LEN, byteorder, signed=False)
+        return self.bit_length.to_bytes(BITLEN_LEN, self.byteorder, signed=False)
 
-    def decode_bit_length(self, b: bytes, byteorder: str) -> int:
+    def decode_bit_length(self, b: bytes) -> int:
         """
         Decode the bit length from bytes.
         """
-        return int.from_bytes(b, byteorder, signed=False)
+        return int.from_bytes(b, self.byteorder, signed=False)
 
-    def encode_timediff(self, byteorder: str) -> bytes:
+    def encode_timediff(self) -> bytes:
         """
         Encode the time difference as bytes.
         """
-        if self.time_diff < 0:
-            raise ValueError("time_diff must be >= 0")
-        return self.time_diff.to_bytes(DIFFTIME_LEN, byteorder, signed=False)
+        return self.time_diff.to_bytes(DIFFTIME_LEN, self.byteorder, signed=False)
 
-    def decode_timediff(self, b: bytes, byteorder: str) -> int:
+    def decode_timediff(self, b: bytes) -> int:
         """
         Decode the time difference from bytes.
         """
-        return int.from_bytes(b, byteorder, signed=False)
+        return int.from_bytes(b, self.byteorder, signed=False)
 
-    def encode(self, encoding: Optional[str] = None, byteorder: Optional[str] = None) -> bytes:
+    def encode(self) -> bytes:
         """
         Encode the header to bytes.
         """
-        assert encoding is not None, "encoding must be specified"
-        assert byteorder is not None, "byteorder must be specified"
         header_bytes = bytearray()
-        header_bytes.extend(self.encode_timestamp(encoding))
-        header_bytes.extend(self.encode_timediff(byteorder))
-        header_bytes.extend(self.encode_bit_length(self.bit_length, byteorder))
-        header_bytes.extend(b'\x00' * PAD_LEN)  # Padding
-        assert len(header_bytes) == HEADER_LEN, \
-            f"Header length != {HEADER_LEN}: {len(header_bytes)}"
+        header_bytes.extend(self.encode_timestamp())
+        header_bytes.extend(self.encode_timediff())
+        header_bytes.extend(self.encode_bit_length())
+        header_bytes.extend(b'\x00' * HC.padding_length)  # Padding
+        assert len(header_bytes) == HC.header_length, \
+            f"Header length != {HC.header_length}: {len(header_bytes)}"
         return bytes(header_bytes)
 
     def decode(self, b: bytes, encoding: Optional[str] = None, \
@@ -99,17 +93,19 @@ class Header:
         """
         assert encoding is not None, "encoding must be specified"
         assert byteorder is not None, "byteorder must be specified"
-        if len(b) != HEADER_LEN:
-            raise ValueError(f"Header length != {HEADER_LEN}: {len(b)}")
-        timestamp_bytes = b[0:TS_LEN]
-        time_diff_bytes = b[TS_LEN:TS_LEN + DIFFTIME_LEN]
-        bit_length_bytes = b[TS_LEN + DIFFTIME_LEN:TS_LEN + DIFFTIME_LEN + BITLEN_LEN]
+        if len(b) != HC.header_length:
+            raise ValueError(f"Header length != {HC.header_length}: {len(b)}")
+        timestamp_bytes = b[0:HC.timestamp_length]
+        time_diff_bytes = b[HC.timestamp_length:HC.timestamp_length + HC.difftime_length]
+        bit_length_bytes = b[HC.timestamp_length + HC.difftime_length:\
+                            HC.timestamp_length + HC.difftime_length + HC.bits_length]
+        timestamp = self.decode_timestamp(timestamp_bytes)
+        time_diff = self.decode_timediff(time_diff_bytes)
+        bit_length = self.decode_bit_length(bit_length_bytes)
 
-        timestamp = self.decode_timestamp(timestamp_bytes, encoding)
-        time_diff = self.decode_timediff(time_diff_bytes, byteorder)
-        bit_length = self.decode_bit_length(bit_length_bytes, byteorder)
+        return Header(timestamp=timestamp.isoformat(), \
+                    time_diff=time_diff, bit_length=bit_length, byteorder=byteorder)
 
-        return Header(timestamp=timestamp.isoformat(), time_diff=time_diff, bit_length=bit_length)
 
 class Writer:
     """
@@ -118,31 +114,50 @@ class Writer:
     def __init__(self):
         pass
 
-    def write_json(self, path: Path, content: str):
+    @staticmethod
+    def write_json(path: Path, content: str):
         """
         Write the JSON content to a file.
         """
-        with open(path, "w", encoding="UTF-8", newline="\n") as j:
+        with open(path, "w", encoding=OutputConfig.encoding, newline="\n") as j:
             j.write(JSONFormat.dumps(indent=4, **content))
 
-    def write_xlsx(self, path: Path, df: pd.DataFrame):
+    @staticmethod
+    def write_xlsx(path: Path, df: pd.DataFrame):
         """
         Write the DataFrame to an Excel file.
         """
         df.to_excel(path, engine="openpyxl", index=True)
 
-    def write_binary(self, path: Path, header: Optional[bytes] = None, \
-                    content: Optional[bytes] = None, byteorder: Optional[str] = None):
+    @staticmethod
+    def write_binary(path: Path, content: Optional[bytes] = None, **kwargs):
         """
         Write the binary content to a file.
         """
-        assert byteorder in ('big', 'little'), "byteorder must be 'big', 'little'"
         assert content is not None and isinstance(content, bytes), "content must be bytes"
-        assert header is not None and isinstance(header, bytes), "header must be bytes"
-        content = header + content
+        length = kwargs.pop("length", None)
+        header = None
+        header_bytes = None
+        start_timestamp = kwargs.pop("timestamp", None)
+        elapsed_time = kwargs.pop("elapsed_time", None)
+        byteorder = kwargs.pop("byteorder", None)
+        if start_timestamp is not None and elapsed_time is not None:
+            header = Header(start_timestamp, elapsed_time, length, byteorder)
+            header_bytes = header.encode()
+        content = header_bytes + content
 
         with open(path, "ab") as f:
             f.write(content)
+
+    @staticmethod
+    def image_writer(path: Path, content: Image.Image):
+        """
+        Write the image content to a file.
+        """
+        par, child = path.parent, path.name
+        par.mkdir(parents=True, exist_ok=True)
+        print(f"Saving image to: {path}")
+        content.save(par / child)
 
 class Reader:
     """
@@ -151,21 +166,24 @@ class Reader:
     def __init__(self):
         pass
 
-    def read_json(self, path: Path) -> str:
+    @staticmethod
+    def read_json(path: Path) -> str:
         """
         Read the JSON content from a file.
         """
-        with open(path, "r", encoding="UTF-8") as j:
+        with open(path, "r", encoding=OutputConfig.encoding) as j:
             temp = j.read()
             return JSONFormat.loads(temp)
 
-    def read_xlsx(self, path: Path) -> pd.DataFrame:
+    @staticmethod
+    def read_xlsx(path: Path) -> pd.DataFrame:
         """
         Read the Excel content from a file.
         """
         return pd.read_excel(path, engine="openpyxl")
 
-    def read_binary(self, path: Path, byteorder: Optional[str] = None) -> bytes:
+    @staticmethod
+    def read_binary(path: Path, byteorder: Optional[str] = None) -> bytes:
         """
         Read the binary content from a file.
         """
@@ -173,69 +191,89 @@ class Reader:
         with open(path, "rb") as f:
             return f.read()
 
-class FileIO(Writer, Reader):
+    @staticmethod
+    def read_image(path: Path) -> Image.Image:
+        """
+        Read the image content from a file.
+        """
+        return Image.open(path)
+
+
+class FileIO:
     """
     File I/O Utilities
     """
-    def __init__(self, verbose_flag=True):
-        super().__init__()
-        self.data_dir = ROOT_DIR / "data"
-        self.out_dir = ROOT_DIR / "output"
-        self.is_verbose = verbose_flag
+    def __init__(self, main_config: MainConfig, output_cfg: OutputConfig) -> None:
+        self.main_config = main_config
+        self.root_dir = output_cfg.root_dir
+        self.data_dir = output_cfg.data_dir
+        self.out_dir = output_cfg.output_dir
+        self.allow_extensions = (".bin", ".char", ".json", ".xlsx", ".png")
 
-    #pylint: disable=broad-exception-caught, too-many-branches, too-many-nested-blocks
-    def file_clean(self, clear_flag = False, verbose_flag = True):
+        if self.main_config.verbose_flag:
+            print(f"Data Directory: {self.data_dir}")
+            print(f"Output Directory: {self.out_dir}")
+
+        if self.main_config.clean_flag:
+            self.file_clean()
+
+    def _dfs_remove(self, cur: Path, depth: int) -> None:
+        if cur.is_symlink():
+            print("\t"*depth + cur.name+"@")
+            cur.unlink()
+            return
+
+        if cur.is_dir():
+            print("\t"*depth + cur.name+"/")
+            children = sorted(cur.iterdir(), key=lambda x: (not x.is_dir(), x.name))
+            for child in children:
+                self._dfs_remove(child, depth + 1)
+            cur.rmdir()
+
+        else:
+            print("\t"*depth + cur.name)
+            cur.unlink()
+
+    def file_clean(self):
         """
         Clean up the generated files.
         """
-        print("Clearing generated files...")
-        if not clear_flag:
+
+        if not self.main_config.clean_flag:
             return
 
+        print("Clearing generated files...")
+
         targets = [self.data_dir, self.out_dir]
-        for root_dir in targets:
-            if not root_dir:
-                continue
-            if not os.path.isdir(root_dir):
-                if verbose_flag:
-                    print(f"[SKIP] 디렉터리가 아님: {root_dir}")
-                continue
+        root_dir: Path = self.root_dir
+        _root = root_dir.resolve()
 
-            # 하위부터 올라오며 파일/디렉터리 삭제
-            for cur, dirs, files in os.walk(root_dir, topdown=False, followlinks=False):
-                # 파일 삭제
-                for name in files:
-                    p = os.path.join(cur, name)
-                    try:
-                        os.unlink(p)  # 파일/하드링크/심볼릭링크 모두 처리
-                        if verbose_flag:
-                            print(f"Remove file: {p}")
-                    except Exception as e:
-                        print(f"[SKIP] {p}: {e}")
+        if self.main_config.verbose_flag:
+            print(f"Root Directory: {_root}")
 
-                # 디렉터리(or 디렉터리 링크) 삭제
-                for name in dirs:
-                    p = os.path.join(cur, name)
-                    try:
-                        if os.path.islink(p):
-                            os.unlink(p)      # 디렉터리 링크는 unlink
-                            if verbose_flag:
-                                print(f"Remove symlink dir: {p}")
-                        else:
-                            if verbose_flag:
-                                print(f"Remove directory: {p}")
-                            os.rmdir(p)       # 하위가 이미 지워져서 비어 있음
-                    except Exception as e:
-                        print(f"[SKIP] {p}: {e}")
-    #pylint: enable=broad-exception-caught, too-many-branches, too-many-nested-blocks
+        for target in targets:
+            _target = (_root / target).resolve()
+            _target.relative_to(_root)  # Ensure _target is within _root
+            if self.main_config.verbose_flag:
+                print(f"Removing Directory: {_target}")
 
-    def get_latest_file_by_date(self, dir_path: str, hash_alg: str, length: int) -> str:
+            if not _target.exists():
+                raise FileNotFoundError(f"Directory not found: {_target}")
+            if not _target.is_dir():
+                raise NotADirectoryError(f"Not a directory: {_target}")
+
+            self._dfs_remove(_target, 0)
+
+        self.main_config.reset_clean_flag()
+
+    def get_latest_files_by_date(self, hash_alg: str, length: int, dir_path: Path = None) \
+        -> List[Path]:
         """
         Parse the filename to extract base name without extension.
         """
         pattern = re.compile(r'(\d{4}-\d{2}-\d{2}) (\d{2}-\d{2}-\d{2})')
-        base = dir_path
-        candidates = list(base.glob(f"{hash_alg}_{length}_*.json"))
+        base = dir_path if dir_path is not None else self.out_dir / "json" / f"{length}"
+        candidates = list(base.glob(f"{hash_alg.upper()}_{length}_*.json"))
         latest_dt: Optional[datetime] = None
         latest_files: List[Path] = []
 
@@ -252,74 +290,101 @@ class FileIO(Writer, Reader):
                 latest_files.append(p)
         return latest_files
 
-    def select_data_dir(self, filetype: str, length: int) -> Path:
+    def select_dir(self, filepath: Path | str, **kwargs) -> Path:
         """
         Decide subdirectory by extension and ensure it exists.
         """
+        if isinstance(filepath, str):
+            if not any(filepath.endswith(ext) for ext in self.allow_extensions):
+                raise ValueError(f"Invalid file extension. Use {', '.join(self.allow_extensions)}")
+        length: int = kwargs.pop("length", None)
+        data_type: str = kwargs.pop("data_type", None)
 
-        if filetype.endswith(".bin") or filetype == "bin":
+        if isinstance(filepath, Path):
+            filepath = str(filepath.name)
+
+        if filepath.endswith(".bin") or filepath == "bin":
             base = self.data_dir / "binary"
 
-        elif filetype.endswith(".char") or filetype == "char":
+        elif filepath.endswith(".char") or filepath == "char":
             base = self.data_dir / "character"
 
-        elif filetype.endswith(".json") or filetype == "json":
+        elif filepath.endswith(".json") or filepath == "json":
+            assert length is not None, "length must be specified for JSON files"
             base = self.out_dir / "json" / f"{length}"
 
-        elif filetype.endswith(".xlsx") or filetype == "xlsx":
+        elif filepath.endswith(".xlsx") or filepath == "xlsx":
+            assert length is not None, "length must be specified for XLSX files"
             base = self.out_dir / "xlsx" / f"{length}"
 
-        elif filetype.endswith(".png") or filetype == "png":
-            base = self.out_dir / "images" / f"{length}"
-
+        elif filepath.endswith(".png") or filepath in ("png", "image"):
+            assert data_type is not None, "data_type must be specified for image files"
+            if data_type == "data":
+                base = self.data_dir / "images"
+            elif data_type == "output":
+                base = self.out_dir / "images"
         else:
-            raise ValueError("Invalid file extension. Use .bin, .char, .json, .xlsx, or .png")
+            raise ValueError(f"Invalid file extension. Use {', '.join(self.allow_extensions)}")
 
         base.mkdir(parents=True, exist_ok=True)  # ← 실제 타깃 디렉터리 생성
+
         return base
 
     def _sanitize_filename(self, name: str) -> str:
         # 윈도우/범용 안전: 콜론, 슬래시, 역슬래시 등 치환
         return name.replace(":", "-").replace("/", "_").replace("\\", "_")
 
-    def file_writer(self, filename: str, content: Any, length: int, **kwargs) -> None:
+    def file_writer(self, filename: Path | str, content: Any, **kwargs) -> None:
         """
         Get the full path for writing a file, ensuring directories exist.
         """
-        header = None
-        header_bytes = None
-        start_timestamp = kwargs.get("timestamp", None)
-        elapsed_time = kwargs.get("elapsed_time", None)
-        byteorder = kwargs.get("byteorder", None)
-        if start_timestamp is not None and elapsed_time is not None:
-            header = Header(start_timestamp, elapsed_time, length)
-            header_bytes = header.encode("utf-8", byteorder)
+        length = kwargs.get("length", None)
+        data_type = kwargs.pop("data_type", None)
+        parent_dir = kwargs.pop("parent_dir", None)
+        if parent_dir is not None:
+            parent_dir = Path(parent_dir)
+            filename = parent_dir / Path(filename)
 
-        base = self.select_data_dir(filename, length)
-        safe_name = self._sanitize_filename(filename)
-        full_path = base / safe_name
-        if full_path.suffix == ".json":
-            self.write_json(full_path, content)
-        elif full_path.suffix == ".xlsx":
-            self.write_xlsx(full_path, content)
-        elif full_path.suffix in (".bin", ".char"):
-            self.write_binary(full_path, header=header_bytes, content=content, \
-                            byteorder=byteorder)
+        base: Path
+
+        if isinstance(filename, str):
+            base = self.select_dir(filename, length=length, data_type=data_type)
+            safe_name = self._sanitize_filename(filename)
+            full_path = base / safe_name
+        elif isinstance(filename, Path):
+            if not filename.is_dir():
+                base = self.select_dir(filename, length=length, data_type=data_type)
+            full_path = base / filename
         else:
-            raise ValueError("Invalid file extension. Use .bin, .char, .json, or .xlsx")
+            raise ValueError(f"filename must be a string or Path, got {type(filename)}")
 
-    def file_reader(self, filename: str, length: int) -> Any:
+        print(full_path)
+
+        if full_path.suffix == ".json":
+            Writer.write_json(full_path, content)
+        elif full_path.suffix == ".xlsx":
+            Writer.write_xlsx(full_path, content)
+        elif full_path.suffix in (".bin", ".char"):
+            Writer.write_binary(full_path, content=content, **kwargs)
+        elif full_path.suffix == ".png" or isinstance(content, Dataset):
+            Writer.image_writer(full_path, content)
+        else:
+            raise ValueError(f"Invalid file extension. Use {', '.join(self.allow_extensions)}")
+
+    def file_reader(self, filename: Path | str, length: int) -> Any:
         """
         Get the full path for reading a file.
         """
-        base = self.select_data_dir(filename, length)
-        safe_name = self._sanitize_filename(filename)
-        full_path = base / safe_name
+        base = self.select_dir(filename, length = length)
+        if isinstance(filename, str):
+            safe_name = self._sanitize_filename(filename)
+            full_path = base / safe_name
+        else:
+            full_path = base / filename.name
         if full_path.suffix == ".json":
-            return self.read_json(full_path)
+            return Reader.read_json(full_path)
         if full_path.suffix == ".xlsx":
-            return self.read_xlsx(full_path)
+            return Reader.read_xlsx(full_path)
         if full_path.suffix in (".bin", ".char"):
-            return self.read_binary(full_path)
-
+            return Reader.read_binary(full_path)
         raise ValueError("Invalid file extension. Use .bin, .char, .json, or .xlsx")

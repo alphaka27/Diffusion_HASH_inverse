@@ -4,6 +4,7 @@ This script converts JSON files to XLSX format.
 from __future__ import annotations
 from pathlib import Path
 from typing import List, Sequence, Mapping, Optional
+import argparse
 
 import pandas as pd
 
@@ -20,16 +21,11 @@ class JSONToXLSXConverter:
         self.length = kwargs.pop("length", 256)
 
         self.file_io = FileIO(verbose_flag=self.is_verbose)
-        default_json_dir = self.file_io.select_data_dir(filetype="json", length=self.length)
-        default_xlsx_dir = self.file_io.select_data_dir(filetype="xlsx", length=self.length)
-        # If caller passes None (default argparse value), fall back to project defaults
-        json_path_arg = kwargs.pop("json_path", None)
-        xlsx_path_arg = kwargs.pop("xlsx_path", None)
 
-        self.json_path: Path = Path(json_path_arg) if json_path_arg else default_json_dir
-        self.xlsx_path: Path = Path(xlsx_path_arg) if xlsx_path_arg else default_xlsx_dir
-        self.xlsx_name: Optional[str] = None
+        self.json_path_arg = kwargs.pop("json_path", None)
+        self.xlsx_path_arg = kwargs.pop("xlsx_path", None)
 
+        self.hash_alg = kwargs.pop("hash_alg", None)
 
     def walk(self, path: List[str], node: object, records: List[dict]) -> List[dict]:
         """
@@ -40,6 +36,8 @@ class JSONToXLSXConverter:
             for key, value in node.items():
                 if key == "String" and isinstance(value, str):
                     value = "'" + value
+                if key == "Overflow" and isinstance(value, bool):
+                    pass
                 self.walk(path + [key], value, records)
         elif isinstance(node, Sequence) and not isinstance(node, (str, bytes, bytearray)):
             for i, item in enumerate(node):
@@ -81,7 +79,7 @@ class JSONToXLSXConverter:
         """
         Converts a single JSON content dictionary to an XLSX DataFrame.
         """
-        content = self.file_io.read_json(self.json_path / json_file)
+        content = self.file_io.file_reader(json_file, length=self.length)
 
         metadata = content.get("Metadata", None)
         assert metadata is not None, "Metadata is missing in the JSON data."
@@ -93,7 +91,7 @@ class JSONToXLSXConverter:
         assert steplogs is not None, "Logs are missing in the JSON data."
 
         program_started_at = metadata["Program started at"][:19].replace(":", "-").replace(" ", "_")
-        self.xlsx_name = \
+        xlsx_name = \
             f"{metadata['Hash function']}_{metadata['Input bits']}_{program_started_at}.xlsx"
 
         records = []
@@ -114,7 +112,7 @@ class JSONToXLSXConverter:
         }, index=index)
 
         df_top = self._index_to_column(df)
-        return df_top
+        return df_top, xlsx_name
 
     def update_dataframe(self, df: pd.DataFrame | None, data: object) -> pd.DataFrame:
         """
@@ -133,33 +131,43 @@ class JSONToXLSXConverter:
         """
         Converts the given data dictionary to XLSX format and saves it.
         """
-        assert hash_alg is not None, "Hash algorithm must be specified."
-        json_list = self.file_io.get_latest_file_by_date(self.json_path, hash_alg, self.length)
+
+        assert hash_alg is not None or self.hash_alg is not None, \
+            "Hash algorithm must be specified."
+        _hash_alg = hash_alg if hash_alg is not None else self.hash_alg
+
+        json_path: Path = Path(self.json_path_arg) if self.json_path_arg \
+            else self.file_io.select_dir(filepath="json", length=self.length)
+        xlsx_path: Path = Path(self.xlsx_path_arg) if self.xlsx_path_arg \
+            else self.file_io.select_dir(filepath="xlsx", length=self.length)
+
+        json_list = self.file_io.get_latest_files_by_date(json_path, _hash_alg, self.length)
 
         json_list.sort()
         print(f"Found {len(json_list)} JSON files.")
 
         df = None
         for json_file in json_list:
-            data = self._convert_single_file(json_file=json_file)
+            data, xlsx_name = self._convert_single_file(json_path / json_file)
             df = self.update_dataframe(df, data)
             print(f"Processed {json_file} into DataFrame.")
             if self.is_verbose:
                 print(data)
                 print(f"Updated DataFrame:\n{df}")
 
-        assert df is not None and self.xlsx_name is not None, "DataFrame or XLSX name is not set."
-        self.file_io.file_writer(self.xlsx_name, df, length=self.length)
+        assert df is not None and xlsx_name is not None, "DataFrame or XLSX name is not set."
+        self.file_io.file_writer(xlsx_path / xlsx_name, df, length=self.length)
 
 if __name__ == "__main__":
-    import argparse
-
     parser = argparse.ArgumentParser(description="Convert JSON to XLSX")
+
     parser.add_argument("--json_path", type=str, help="Path to the input JSON file")
     parser.add_argument("--xlsx_path", type=str, help="Path to the output XLSX file")
     parser.add_argument("-v", "--is_verbose", action="store_true", help="Enable verbose output")
     parser.add_argument("--length", type=int, default=256, help="Length of the output text")
     parser.add_argument("--standalone", action="store_true", help="Run as standalone script")
+    parser.add_argument("--hash_alg", type=str, required=True, \
+                        help="Hash algorithm to filter JSON files")
 
     args = parser.parse_args()
 
@@ -169,6 +177,7 @@ if __name__ == "__main__":
         standalone=args.standalone,
         length=args.length,
         is_verbose=args.is_verbose,
+        hash_alg=args.hash_alg,
     )
 
     converter.convert_to_xlsx()

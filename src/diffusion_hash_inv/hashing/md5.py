@@ -2,29 +2,27 @@
 MD5 implementation aligned with the diffusion_hash_inv codebase.
 """
 
-from typing import Optional, ClassVar, Dict, List, Generator, Sequence, cast
+from typing import Optional, Dict, Generator, Sequence, Any, List
 import struct
-import math
 import copy
+from contextlib import contextmanager
 
-try:
-    from diffusion_hash_inv.common import BaseCalc
-except ImportError as e:
-    print(f"Error importing BaseCalc: {e}")
-    raise e
-
-try:
-    from diffusion_hash_inv.common import StepLogs, Logs
-except ImportError as e:
-    print(f"Error importing StepLogs: {e}")
-    raise e
+from diffusion_hash_inv.core import BaseCalc
+from diffusion_hash_inv.logger import (
+    StepLogs,
+    Logs,
+    MD5RoundTrace,
+    MD5Step4Trace,
+    MD5Logger,
+)
+from diffusion_hash_inv.config import MainConfig, HashConfig
 
 class MD5Calc(BaseCalc):
     """
     MD5 Calculation Class
     """
-    def __init__(self):
-        super().__init__(word_size=32, block_size=512, byteorder='little')
+    def __init__(self, hash_config: Optional[HashConfig] = None):
+        super().__init__(hash_config)
 
     def f_func(self, x: int, y: int, z: int) -> int:
         """
@@ -70,44 +68,32 @@ class MD5Calc(BaseCalc):
 
         return self.modular_xor(y, self.modular_or(x, self.modular_not(z)))
 
-class MD5(MD5Calc):
+class MD5Logic(MD5Calc):
     """
-    MD5 Hashing Class
+    MD5 Logic Class
     """
-    S: ClassVar[list[int]] = [7,12,17,22]*4 + [5,9,14,20]*4 + [4,11,16,23]*4 + [6,10,15,21]*4
-    K: ClassVar[list[int]]
-    INIT_HASH: ClassVar[Dict[str, int]] = \
-        {
-            'A': 0x67452301,
-            'B': 0xefcdab89,
-            'C': 0x98badcfe,
-            'D': 0x10325476,
-        }
-    Hierarchy: ClassVar[tuple[str, ...]] = ("Step", "Round", "Loop")
+    def __init__(self, hash_config: HashConfig):
+        super().__init__(hash_config)
+        self.hash_config = hash_config
 
-    def __init__(self, is_verbose: bool = True):
-        super().__init__()
-        if not hasattr(type(self), "K"):
-            type(self).K = [
-                int((1 << type(self).word_size) * abs(math.sin(i + 1))) & type(self).mask
-                for i in range(64)
-            ]
-        self.is_verbose = is_verbose
+        self.init_hash: Dict[str, bytes] = None
+        self.k = copy.deepcopy(self.hash_config.constants.k)
+        self.s = copy.deepcopy(self.hash_config.constants.s)
+        self.initialize()
+        assert self.init_hash is not None, "Initial hash must be set."
 
-        self.step_logs: StepLogs = StepLogs(wordsize=self.word_size, byteorder=self.byteorder, \
-                                            hierarchy=MD5.Hierarchy)
-
-        self.init_hash: Dict[str, bytes] = copy.deepcopy(MD5.INIT_HASH)
-        self.reset()
-
-    def reset(self):
+    def initialize(self):
         """
-        Reset the MD5 instance for a new computation.
+        Reset the MD5 logic instance for a new computation.
         """
-        Logs.clear(step_logs = self.step_logs)
-        self.init_hash = copy.deepcopy(MD5.INIT_HASH)
+        self.init_hash = copy.deepcopy(self.hash_config.init_hash)
 
-    @Logs.steplogs_update(step_cat=1)
+    @staticmethod
+    def _state(a: int, b: int, c: int, d: int) -> Dict[str, int]:
+        """Build MD5 register snapshot."""
+        return {"A": a, "B": b, "C": c, "D": d}
+
+    @MD5Logger.step(step_index=1)
     def step1(self, data: bytes) -> bytes:
         """
         Step 1 of MD5 processing.  
@@ -123,7 +109,8 @@ class MD5(MD5Calc):
 
         return padded
 
-    @Logs.steplogs_update(step_cat=2)
+
+    @MD5Logger.step(step_index=2)
     def step2(self, data: bytes, original_bit_len: int) -> Sequence[Sequence[bytes]]:
         """
         Step 2 of MD5 processing.
@@ -136,21 +123,24 @@ class MD5(MD5Calc):
         Returns:
             pre_processed_blocks (List[int]): List of 16-word blocks.
         """
+        bs_byte = self.hash_config.bs_bits // 8
+        ws_byte = self.hash_config.ws_bits // 8
         _pre_processed: bytes = data + struct.pack('<Q', original_bit_len)
-        assert len(_pre_processed) % (self.bs_byte) == 0, \
+        assert len(_pre_processed) % (bs_byte) == 0, \
             f"Pre-processed data length must be a multiple of {self.block_size} bits."
 
         # List of 16-words blocks [[16-words], [16-words], ...]
         pre_processed_blocks: Sequence[Sequence[bytes]]= []
-        for i in range(0, len(_pre_processed), self.bs_byte):
+        for i in range(0, len(_pre_processed), bs_byte):
             block = []
-            for j in range(0, self.bs_byte, self.ws_byte):
-                word = _pre_processed[i + j:i + j + (self.ws_byte)]
+            for j in range(0, bs_byte, ws_byte):
+                word = _pre_processed[i + j:i + j + (ws_byte)]
                 block.append(word)
             pre_processed_blocks.append(block)
         return pre_processed_blocks
 
-    @Logs.steplogs_update(step_cat=3)
+
+    @MD5Logger.step(step_index=3)
     def step3(self) -> Dict[str, int]:
         """
         Step 3 of MD5 processing.
@@ -168,163 +158,169 @@ class MD5(MD5Calc):
         prev_hash = {'A': a, 'B': b, 'C': c, 'D': d}
         return prev_hash
 
-    @Logs.steplogs_update(step_cat=4, is_loop=True)
-    def _step4_loop(self, message_block: Sequence[int], **previous_hash: Dict[str, int]) \
-        -> Generator[Dict[str, int], None, Dict[str, int]]:
-        """
-        inner loop of step 4 for MD5 processing.
-        Parameters:
-            message_block (Sequence[int]): 16-words block.
-            previous_hash (Dict[str, int]): Previous hash values.
-        Returns:
-            loop_result (Dict[str, int]): Updated A, B, C, D values.
-        """
-        a: Optional[int] = previous_hash.pop('A', None)
-        b: Optional[int] = previous_hash.pop('B', None)
-        c: Optional[int] = previous_hash.pop('C', None)
-        d: Optional[int] = previous_hash.pop('D', None)
-
-        assert a is not None and b is not None and c is not None and d is not None, \
-                "Previous hash must contain A, B, C, and D."
-
-        assert isinstance(a, int) and isinstance(b, int) \
-            and isinstance(c, int) and isinstance(d, int), "a, b, c, d must be integers."
-
-        for i in range(64):
-            if 0 <= i <= 15:
-                f = self.f_func(b, c, d)
-                g = i
-            elif 16 <= i <= 31:
-                f = self.g_func(b, c, d)
-                g = (5 * i + 1) % 16
-            elif 32 <= i <= 47:
-                f = self.h_func(b, c, d)
-                g = (3 * i + 5) % 16
-            else:
-                f = self.i_func(b, c, d)
-                g = (7 * i) % 16
-
-            f = self.modular_add(f, a)
-            f = self.modular_add(f, MD5.K[i])
-            f = self.modular_add(f, self.word_to_int(message_block[g]))
-            a = d
-            d = c
-            c = b
-            b = self.modular_add(b, self.rotl(f, MD5.S[i]))
-            state = {'A': a, 'B': b, 'C': c, 'D': d}
-            yield state
-        return state
-
-    @Logs.steplogs_update(step_cat=4, is_loop=True)
-    def _step4_block_loop(self, message_block: Sequence[Sequence[int]], \
-                          **previous_hash: Dict[str, int])\
-                            ->Generator[Dict[str, int], None, Dict[str, int]]:
+    @contextmanager
+    def _step4_outer(self, a: int, b: int, c: int, d: int) \
+                        -> Generator[Dict[str, Any], None, None]:
         """
         Wrapper for the inner loop of step 4 for MD5 processing.
         Parameters:
-            message_block (Sequence[int]): 16-words block.
-            previous_hash (Dict[str, int]): Previous hash values.
+            init_hash (Dict[str, int]): Initial hash values.
         Returns:
 
         """
 
-        a = previous_hash['A']
-        b = previous_hash['B']
-        c = previous_hash['C']
-        d = previous_hash['D']
+        prev_a, prev_b, prev_c, prev_d = a, b, c, d
 
-        assert a is not None and b is not None and c is not None and d is not None, \
-                "Previous hash must contain A, B, C, and D."
+        loop_params = {'A': prev_a, 'B': prev_b, 'C': prev_c, 'D': prev_d,
+                    "res_list": []}
 
-        assert isinstance(a, int) and isinstance(b, int) \
-            and isinstance(c, int) and isinstance(d, int), "a, b, c, d must be integers."
+        try:
+            yield loop_params
 
-        for block_n, block in enumerate(message_block):
-            m = block
-            prev_a, prev_b, prev_c, prev_d = a, b, c, d
-            res_dict: Dict[str, int] = cast(Dict[str, int], \
-                            self._step4_loop(m, A=a, B=b, C=c, D=d, Round_Index=block_n))
-            print(res_dict)
-            print(type(res_dict))
-            assert isinstance(res_dict, dict), \
-                "Result from _step4_loop must be a dictionary."
+        finally:
+            # res_list = loop_params["res_list"]
+            _a = loop_params["A"]
+            _b = loop_params["B"]
+            _c = loop_params["C"]
+            _d = loop_params["D"]
 
-            # pylint: disable=unsubscriptable-object
-            a = res_dict['A']
-            b = res_dict['B']
-            c = res_dict['C']
-            d = res_dict['D']
-            # pylint: enable=unsubscriptable-object
+            _a = self.modular_add(_a, prev_a)
+            _b = self.modular_add(_b, prev_b)
+            _c = self.modular_add(_c, prev_c)
+            _d = self.modular_add(_d, prev_d)
 
-            a = self.modular_add(a, prev_a)
-            b = self.modular_add(b, prev_b)
-            c = self.modular_add(c, prev_c)
-            d = self.modular_add(d, prev_d)
+            loop_params["A"] = _a
+            loop_params["B"] = _b
+            loop_params["C"] = _c
+            loop_params["D"] = _d
 
-            yield {
-                'Update_A': a,
-                'Update_B': b,
-                'Update_C': c,
-                'Update_D': d
-            }
-        return {
-            'Update_A': a,
-            'Update_B': b,
-            'Update_C': c,
-            'Update_D': d
-        }
 
-    def step4(self, data: Sequence[Sequence[int]], previous_hash: Dict[str, int]) \
-        -> Dict[str, int]:
+    @MD5Logger.step(step_index=4)
+    def step4(self, data: Sequence[Sequence[bytes]], init_hash: Dict[str, int]) \
+        -> MD5Step4Trace:
         """
         Step 4 of MD5 processing.  
         Process Message in 16-Word Blocks
         """
-        generated_hash = self._step4_block_loop(data, **previous_hash)
-        return generated_hash
+        updated_hash: Dict[str, int] = dict(init_hash)
+        rounds: List[MD5RoundTrace] = []
 
-    @Logs.steplogs_update(step_cat=5)
+        for _ in data:
+            prev_hash = dict(updated_hash)
+            a = prev_hash["A"]
+            b = prev_hash["B"]
+            c = prev_hash["C"]
+            d = prev_hash["D"]
+            loop_start = self._state(a, b, c, d)
+            loop_states: List[Dict[str, int]] = []
+
+            for i in range(64):
+                if 0 <= i <= 15:
+                    f = self.f_func(b, c, d)
+                    g = i
+                elif 16 <= i <= 31:
+                    f = self.g_func(b, c, d)
+                    g = (5 * i + 1) % 16
+                elif 32 <= i <= 47:
+                    f = self.h_func(b, c, d)
+                    g = (3 * i + 5) % 16
+                else:
+                    f = self.i_func(b, c, d)
+                    g = (7 * i) % 16
+
+                f = self.modular_add(f, a)
+                f = self.modular_add(f, self.k[i])
+                f = self.modular_add(f, self.word_to_int(_[g]))
+
+                a, b, c, d = (
+                    d,
+                    self.modular_add(b, self.rotl(f, self.s[i])),
+                    b,
+                    c,
+                )
+                loop_states.append(self._state(a, b, c, d))
+
+            a = self.modular_add(a, prev_hash["A"])
+            b = self.modular_add(b, prev_hash["B"])
+            c = self.modular_add(c, prev_hash["C"])
+            d = self.modular_add(d, prev_hash["D"])
+
+            updated_hash["A"] = a
+            updated_hash["B"] = b
+            updated_hash["C"] = c
+            updated_hash["D"] = d
+
+            rounds.append(
+                MD5RoundTrace(
+                    loop_start=loop_start,
+                    loop_states=loop_states,
+                    loop_end=self._state(a, b, c, d),
+                )
+            )
+
+        return MD5Step4Trace(updated_hash=updated_hash, rounds=rounds)
+
+
+    @MD5Logger.step(step_index=5, update_overflow=True)
     def step5(self, data: Dict[str, int]) -> bytes:
         """
         Step 5 of MD5 processing.  
         Output
         """
-        return struct.pack('<4I', \
-                        data['Update_A'], data['Update_B'], data['Update_C'], data['Update_D'])
+        digest_bytes: bytes = struct.pack('<4I', \
+                        data['A'], data['B'], data['C'], data['D'])
+        return digest_bytes
+
+
+class MD5(MD5Logic):
+    """
+    MD5 Hashing Class
+    """
+    def __init__(self, main_config: MainConfig, hash_config: HashConfig, steplogs: StepLogs):
+
+        hash_cfg = hash_config if hash_config is not None \
+            else HashConfig(hash_alg="md5", length=256)
+
+        super().__init__(hash_cfg)
+
+        self.is_verbose = main_config.verbose_flag if main_config is not None else True
+        self.logs: StepLogs = steplogs
+        self.reset()
+
+    def reset(self):
+        """
+        Reset the MD5 instance for a new computation.
+        """
+        super().initialize()
 
     def digest(self, data: bytes) -> bytes:
         """
         Return the binary MD5 digest of the data.  
         """
+        self.clear_overflow()
         org_data_len = len(data) * 8
-        padded_data = self.step1(data)
-        # Logs.stdout_logs("After Step 1 (Padding bits):", padded_data, self.is_verbose)
+        if self.is_verbose:
+            print(f"Original data length (bits): {org_data_len}")
+            print(f"Original data (bytes): {data}")
 
-        processed_data: Sequence[Sequence[bytes]] = self.step2(padded_data, org_data_len)
-        # Logs.stdout_logs("After Step 2 (Pre-processing):", \
-        #         f"{len(processed_data)} blocks of 16 words", self.is_verbose)
-        # Logs.stdout_logs(processed_data, self.is_verbose)
+        padded_data = super().step1(data)
 
-        prev_hash: Dict[str, int] = self.step3()
+        processed_data: Sequence[Sequence[bytes]] = super().step2(padded_data, org_data_len)
 
-        # Logs.stdout_logs("After Step 3 (Initialize MD Buffer):", prev_hash, self.is_verbose)
-        generated_hash: Dict[str, int] = self.step4(processed_data, prev_hash)
-        # Logs.stdout_logs("After Step 4 (Process Message in 16-Word Blocks
-        #     ):", generated_hash, self.is_verbose)
-        digest_bytes: bytes = self.step5(generated_hash)
-        # Logs.stdout_logs("After Step 5 (Output):", digest_bytes, self.is_verbose)
+        init_hash: Dict[str, int] = super().step3()
+
+        generated_hash: Dict[str, int] = super().step4(processed_data, init_hash=init_hash)
+
+        digest_bytes: bytes = super().step5(generated_hash)
+
         return digest_bytes
 
     def hexdigest(self, data: bytes) -> str:
         """
         Return the hexadecimal MD5 digest of the data.  
         """
-
-    def get_step_logs(self) -> StepLogs:
-        """
-        Get the step logs.  
-        """
-        return self.step_logs
+        digest_bytes: bytes = self.digest(data)
+        return Logs.bytes_to_str(digest_bytes)
 
 if __name__ == "__main__":
     # 테스트 벡터
@@ -339,10 +335,19 @@ if __name__ == "__main__":
         b"12345678901234567890123456789012345678901234567890123456789012345678901234567890":
             "57edf4a22be3c955ac49da2e2107b67a",
     }
-    hash_alg = MD5(is_verbose=False)
-    abc = hash_alg.digest(b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789")
-    print(Logs.bytes_to_str(abc))
-    print(abc)
+    _main_config = MainConfig(
+        message_flag=False,
+        verbose_flag=True,
+        clean_flag=False,
+        debug_flag=False,
+        make_xlsx_flag=False
+    )
+    _hash_config = HashConfig(hash_alg="md5", \
+                    length=len(b"abcdefghijklmnopqrstuvwxyz")*8)
+
+    hash_alg = MD5(_main_config, _hash_config, StepLogs())
+    _REX_HEX = hash_alg.hexdigest(b"abcdefghijklmnopqrstuvwxyz")
+    print(_REX_HEX)
     # for msg, expected in test_vectors.items():
     #     result = md5_hexdigest(msg)
     #     print(f"MD5('{msg.decode('utf-8', errors='ignore')}') = {result}  ", end='')

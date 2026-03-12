@@ -13,7 +13,7 @@ try:
 except ImportError as e:
     print(f"Error importing FileIO: {e}")
 
-class GenerateRandom:
+class GenerateRandomNBits:
     """
     Generate a random number of specified bit length.
     """
@@ -50,7 +50,7 @@ class GenerateRandom:
             print(msg, end="")
         else:
             print(msg+":")
-        print(GenerateRandom.bytes_to_hex_block(x))
+        print(GenerateRandomNBits.bytes_to_hex_block(x))
         print()
 
     @staticmethod
