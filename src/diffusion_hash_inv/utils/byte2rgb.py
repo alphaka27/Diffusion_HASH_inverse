@@ -21,7 +21,7 @@ class Byte2RGB:
 
     def __init__(self, main_config: MainConfig, \
                 hash_config: HashConfig, \
-                rgb_config: Byte2RGBConfig = Byte2RGBConfig(set_seed=False)):
+                rgb_config: Byte2RGBConfig = Byte2RGBConfig(seed_flag=False, input_seed=42)):
         self.main_cfg = main_config
         self.hash_cfg = hash_config
         self.rgb_config = rgb_config

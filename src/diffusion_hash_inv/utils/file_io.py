@@ -3,10 +3,12 @@ File I/O Utilities
 """
 
 from __future__ import annotations
+
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from datetime import datetime
-from typing import List, Optional, Any
+from typing import List, Optional, Any, ClassVar
 import re
 from PIL import Image
 
@@ -14,7 +16,7 @@ import pandas as pd
 from torch.utils.data import Dataset
 
 from diffusion_hash_inv.config import MainConfig, OutputConfig, HeaderConstants as HC
-from diffusion_hash_inv.utils import JSONFormat
+from diffusion_hash_inv.utils.formatter import JSONFormat
 
 # Instantiate configuration once so property fields are resolved instead of accessing the class.
 # TODO: Change to use OutputConfig constants instead of using global constants here
@@ -115,6 +117,27 @@ class Writer:
         pass
 
     @staticmethod
+    def write_binary(path: Path, content: Optional[bytes] = None, **kwargs):
+        """
+        Write the binary content to a file.
+        """
+        assert content is not None and isinstance(content, bytes), "content must be bytes"
+        length = kwargs.pop("length", None)
+        header = None
+        header_bytes = None
+        start_timestamp = kwargs.pop("timestamp", None)
+        elapsed_time = kwargs.pop("elapsed_time", None)
+        byteorder = kwargs.pop("byteorder", None)
+        if start_timestamp is not None and elapsed_time is not None:
+            header = Header(start_timestamp, elapsed_time, length, byteorder)
+            header_bytes = header.encode()
+        assert header_bytes is not None, "header_bytes must be generated"
+        content = header_bytes + content
+
+        with open(path, "ab") as f:
+            f.write(content)
+
+    @staticmethod
     def write_json(path: Path, content: str):
         """
         Write the JSON content to a file.
@@ -130,33 +153,14 @@ class Writer:
         df.to_excel(path, engine="openpyxl", index=True)
 
     @staticmethod
-    def write_binary(path: Path, content: Optional[bytes] = None, **kwargs):
-        """
-        Write the binary content to a file.
-        """
-        assert content is not None and isinstance(content, bytes), "content must be bytes"
-        length = kwargs.pop("length", None)
-        header = None
-        header_bytes = None
-        start_timestamp = kwargs.pop("timestamp", None)
-        elapsed_time = kwargs.pop("elapsed_time", None)
-        byteorder = kwargs.pop("byteorder", None)
-        if start_timestamp is not None and elapsed_time is not None:
-            header = Header(start_timestamp, elapsed_time, length, byteorder)
-            header_bytes = header.encode()
-        content = header_bytes + content
-
-        with open(path, "ab") as f:
-            f.write(content)
-
-    @staticmethod
-    def image_writer(path: Path, content: Image.Image):
+    def image_writer(path: Path, content: Image.Image, **kwargs):
         """
         Write the image content to a file.
         """
         par, child = path.parent, path.name
         par.mkdir(parents=True, exist_ok=True)
-        print(f"Saving image to: {path}")
+        if kwargs.get("verbose", False):
+            print(f"Saving image to: {path}")
         content.save(par / child)
 
 class Reader:
@@ -165,6 +169,15 @@ class Reader:
     """
     def __init__(self):
         pass
+
+    @staticmethod
+    def read_binary(path: Path, byteorder: Optional[str] = None) -> bytes:
+        """
+        Read the binary content from a file.
+        """
+        assert byteorder in ('big', 'little'), "byteorder must be 'big', 'little'"
+        with open(path, "rb") as f:
+            return f.read()
 
     @staticmethod
     def read_json(path: Path) -> str:
@@ -183,15 +196,6 @@ class Reader:
         return pd.read_excel(path, engine="openpyxl")
 
     @staticmethod
-    def read_binary(path: Path, byteorder: Optional[str] = None) -> bytes:
-        """
-        Read the binary content from a file.
-        """
-        assert byteorder in ('big', 'little'), "byteorder must be 'big', 'little'"
-        with open(path, "rb") as f:
-            return f.read()
-
-    @staticmethod
     def read_image(path: Path) -> Image.Image:
         """
         Read the image content from a file.
@@ -203,12 +207,16 @@ class FileIO:
     """
     File I/O Utilities
     """
+
+    allow_extensions: ClassVar[tuple[str, ...]] = (".bin", ".char", ".json", ".xlsx", ".png")
+
     def __init__(self, main_config: MainConfig, output_cfg: OutputConfig) -> None:
         self.main_config = main_config
         self.root_dir = output_cfg.root_dir
         self.data_dir = output_cfg.data_dir
         self.out_dir = output_cfg.output_dir
-        self.allow_extensions = (".bin", ".char", ".json", ".xlsx", ".png")
+        os.makedirs(self.data_dir, exist_ok=True)
+        os.makedirs(self.out_dir, exist_ok=True)
 
         if self.main_config.verbose_flag:
             print(f"Data Directory: {self.data_dir}")
@@ -224,14 +232,16 @@ class FileIO:
             return
 
         if cur.is_dir():
-            print("\t"*depth + cur.name+"/")
+            if self.main_config.verbose_flag:
+                print("\t"*depth + cur.name+"/")
             children = sorted(cur.iterdir(), key=lambda x: (not x.is_dir(), x.name))
             for child in children:
                 self._dfs_remove(child, depth + 1)
             cur.rmdir()
 
         else:
-            print("\t"*depth + cur.name)
+            if self.main_config.verbose_flag:
+                print("\t"*depth + cur.name)
             cur.unlink()
 
     def file_clean(self):
@@ -242,7 +252,7 @@ class FileIO:
         if not self.main_config.clean_flag:
             return
 
-        print("Clearing generated files...")
+        print("Clearing generated files...\n")
 
         targets = [self.data_dir, self.out_dir]
         root_dir: Path = self.root_dir
@@ -358,7 +368,7 @@ class FileIO:
         else:
             raise ValueError(f"filename must be a string or Path, got {type(filename)}")
 
-        print(full_path)
+        # print(full_path)
 
         if full_path.suffix == ".json":
             Writer.write_json(full_path, content)
@@ -371,16 +381,19 @@ class FileIO:
         else:
             raise ValueError(f"Invalid file extension. Use {', '.join(self.allow_extensions)}")
 
-    def file_reader(self, filename: Path | str, length: int) -> Any:
+    def file_reader(self, filename: Path | str, **kwargs) -> Any:
         """
         Get the full path for reading a file.
         """
-        base = self.select_dir(filename, length = length)
+        length = kwargs.get("length", None)
+
         if isinstance(filename, str):
+            base = self.select_dir(filename, length = length)
             safe_name = self._sanitize_filename(filename)
             full_path = base / safe_name
         else:
-            full_path = base / filename.name
+            full_path = filename
+
         if full_path.suffix == ".json":
             return Reader.read_json(full_path)
         if full_path.suffix == ".xlsx":
