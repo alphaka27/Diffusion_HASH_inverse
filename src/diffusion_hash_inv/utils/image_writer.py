@@ -4,6 +4,8 @@ Make RGB images from Logs.
 from typing import List, Tuple, Dict, Any
 from pathlib import Path
 
+from tqdm import tqdm
+
 import numpy as np
 from PIL import Image
 
@@ -11,9 +13,9 @@ from PIL import Image
 from diffusion_hash_inv.config import MainConfig, HashConfig, ImgConfig
 from diffusion_hash_inv.config import Byte2RGBConfig
 from diffusion_hash_inv.core import RGB, RGBA
-from diffusion_hash_inv.utils import Byte2RGB
-from diffusion_hash_inv.utils import FileIO
-from diffusion_hash_inv.validation import encoding_validate
+from diffusion_hash_inv.validation.encoding_validation import encoding_validate
+from diffusion_hash_inv.utils.byte2rgb import Byte2RGB
+from diffusion_hash_inv.utils.file_io import FileIO
 
 class RGBImgMaker:
     """
@@ -157,7 +159,8 @@ class RGBImgMaker:
         for log_file in latest_logs:
             if self.main_cfg.verbose_flag:
                 print(f"Loading Logs from file: {log_file}")
-            log = self.io_controller.file_reader(log_file, length=self.hash_cfg.length)
+
+            log = self.io_controller.file_reader(log_file)
             _hierarchy = log.get("Hierarchy", None)
             assert _hierarchy is not None, "No Hierarchy found in Logs."
             if hierarchy is None:
@@ -207,48 +210,45 @@ class RGBImgMaker:
 
         raise ValueError("Unsupported data type for encoding.")
 
-
-    def img_writer(self, logs: List[Dict]) -> None:
+    def img_writer(self, log_dict: List[Dict]) -> None:
         """
         Write RGB image data to file.
         """
-        for log_dict in logs:
-            filename, message, step_logs = self.log_parser(log_dict)
+        filename, message, step_logs = self.log_parser(log_dict)
 
-            parsed_logs = self.steplogs_parser(step_logs)
+        parsed_logs = self.steplogs_parser(step_logs)
 
-            encoded_message = self.data_encoder(message)
-            print(type(encoded_message), len(encoded_message))
-            rgb_message = self.image_formatter(encoded_message)
+        encoded_message = self.data_encoder(message)
+        rgb_message = self.image_formatter(encoded_message)
 
-            self.io_controller.file_writer("message.png",
-                                        rgb_message,
-                                        parent_dir=filename,
-                                        data_type="data")
+        self.io_controller.file_writer("message.png",
+                                    rgb_message,
+                                    parent_dir=filename,
+                                    data_type="data")
 
-            for log in parsed_logs:
-                assert isinstance(log, dict), "Parsed log must be a dictionary."
-                path = list(log.keys())
-                assert len(path) == 1, \
-                    f"Parsed log dictionary must have exactly one key. {len(path)} keys found."
-                path = path[0]
-                data = log[path]
-                _file_name = path.split("/")[-1]
-                assert isinstance(data, (str, int, float, list, tuple, bytes)), \
-                    "Parsed log data must be of type str, int, float, list, tuple, or bytes."
-                encoded_log = None
-                encoded_log = self.data_encoder(data)
+        for log in parsed_logs:
+            assert isinstance(log, dict), "Parsed log must be a dictionary."
+            path = list(log.keys())
+            assert len(path) == 1, \
+                f"Parsed log dictionary must have exactly one key. {len(path)} keys found."
+            path = path[0]
+            data = log[path]
+            _file_name = path.split("/")[-1]
+            assert isinstance(data, (str, int, float, list, tuple, bytes)), \
+                "Parsed log data must be of type str, int, float, list, tuple, or bytes."
+            encoded_log = None
+            encoded_log = self.data_encoder(data)
+            if self.main_cfg.verbose_flag:
                 print(encoded_log)
-                if path == "3rd Step" and self.main_cfg.debug_flag:
-                    breakpoint()
-                path = "/".join(path.split("/")[:-1])
-                path = Path(path)
-                rgb_log = self.image_formatter(encoded_log)
-                self.io_controller.file_writer(f"{_file_name}.png",
-                                            rgb_log,
-                                            parent_dir=Path(filename, path),
-                                            data_type="data")
-
+            if path == "3rd Step" and self.main_cfg.debug_flag:
+                breakpoint()
+            path = "/".join(path.split("/")[:-1])
+            path = Path(path)
+            rgb_log = self.image_formatter(encoded_log)
+            self.io_controller.file_writer(f"{_file_name}.png",
+                                        rgb_log,
+                                        parent_dir=Path(filename, path),
+                                        data_type="data")
 
     def _dfs_searcher(self, data_dict: Dict[str, Any], key_path: Path = None) \
         -> List[Dict[str, Any]]:
@@ -359,9 +359,6 @@ class RGBImgMaker:
         Main method to convert bytes data to a list of RGB tuples.
         """
         logs = self.get_logs()
-        self.img_writer(logs)
-
-    def forward(self) -> None:
-        """
-        Forward process of Diffusion Model
-        """
+        log_process = tqdm(logs, desc="Processing Logs", unit="log")
+        for log_dict in log_process:
+            self.img_writer(log_dict)

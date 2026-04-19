@@ -18,18 +18,17 @@ def test_md5_step4_log_format_for_512bit_input() -> None:
     msg = b"A" * 64  # 512-bit input -> 2 blocks after MD5 padding
     hash_cfg = HashConfig(hash_alg="md5", length=512)
     main_cfg = MainConfig(
-        message_flag=True,
         verbose_flag=False,
         clean_flag=False,
         debug_flag=False,
-        make_xlsx_flag=False,
+        make_image_flag=False,
     )
     steplogs = StepLogs(
         wordsize=hash_cfg.ws_bits,
         byteorder=hash_cfg.byteorder,
         hierarchy=hash_cfg.hierarchy,
     )
-    md5 = MD5(main_cfg, hash_cfg, steplogs)
+    md5 = MD5(hash_cfg, steplogs, is_verbose=main_cfg.verbose_flag)
 
     digest_bytes = md5.digest(msg)
     logs, step_meta = steplogs.getter()

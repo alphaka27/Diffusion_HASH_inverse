@@ -22,24 +22,7 @@ class GenerateRandomNBits:
         self.is_verbose = verbose_flag
         self.start_time = start_timestamp
 
-    @staticmethod
-    def bytes_to_hex_block(b: bytes, *, word_bytes: int = 2, line_bytes: int = 16,
-                    pad_last: bool = True) -> str:
-        """
-        Convert bytes to a formatted hexadecimal string.
-        """
-        out_lines = []
-        for i in range(0, len(b), line_bytes):
-            line = b[i:i+line_bytes]
-            groups = []
-            for j in range(0, len(line), word_bytes):
-                chunk = line[j:j+word_bytes]
-                hs = chunk.hex()
-                if pad_last and len(chunk) < word_bytes:
-                    hs = hs.zfill(word_bytes * 2)  # 마지막 덜 찬 그룹 0패딩
-                groups.append(hs)
-            out_lines.append(' '.join(groups))
-        return '\n'.join(out_lines)
+
 
     @staticmethod
     def print_hex(msg, x):
