@@ -322,17 +322,6 @@ class StepLogs:
         }
         return self.logs, self.step_metadata
 
-@dataclass
-class RuntimeContext:
-    """
-    Runtime context for logging
-    Contains metadata, base logs, step logs
-    """
-    metadata: Metadata
-    baselogs: BaseLogs
-    steplogs: StepLogs
-    algo: Any = field(default_factory=object)
-
 class TimeHelper:
     """
     Helper class for time-related functions
@@ -502,6 +491,40 @@ class LogHelper:
         ret = f"{hash_alg}_{length}_{start_time[:19]}_{str(iteration).zfill(width)}.json"
 
         return ret
+
+    @staticmethod
+    def get_logs(io_controller,
+                hash_cfg,
+                main_cfg,
+                hierarchy: Optional[List[str]] = None) -> List[Dict]:
+        """
+        Get Logs data from file.
+        """
+        latest_logs = \
+            io_controller.get_latest_files_by_date(hash_cfg.hash_alg, \
+                                                        hash_cfg.length)
+        latest_logs.sort()
+        logs: List[Dict] = []
+
+        assert len(latest_logs) > 0, "No Logs files found."
+        if main_cfg.verbose_flag:
+            print(f"Found {len(latest_logs)} Logs files.")
+
+        for log_file in latest_logs:
+            if main_cfg.verbose_flag:
+                print(f"Loading Logs from file: {log_file}")
+
+            log = io_controller.file_reader(log_file)
+            _hierarchy = log.get("Hierarchy", None)
+            assert _hierarchy is not None, "No Hierarchy found in Logs."
+            if isinstance(hierarchy, list) and len(hierarchy) == 0:
+                hierarchy.clear()
+                hierarchy.extend(_hierarchy)
+            logs.append({log_file.stem: log})
+
+        hierarchy.extend(["Block"])  # Add "Block" to the end of hierarchy for later use
+
+        return logs
 
 class Logs(LogHelper, TimeHelper):
     """

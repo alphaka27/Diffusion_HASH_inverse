@@ -197,8 +197,18 @@ class OutputConfig:
         Jupyter/Script 어디서 실행해도 프로젝트 루트를 찾아줌.
         marker_files 중 하나라도 있으면 거기를 루트로 간주.
         """
-        current = Path.cwd().resolve()  # notebook에서는 cwd 기준
-        for parent in [current, *current.parents]:
-            if any((parent / marker).exists() for marker in marker_files):
-                return parent
+        candidates = []
+        try:
+            candidates.append(Path.cwd().resolve())  # notebook에서는 cwd 기준
+        except FileNotFoundError:
+            # A long-lived Jupyter kernel can keep a cwd that was deleted or moved.
+            # Fall back to this module's location so OutputConfig() can still boot.
+            pass
+
+        candidates.append(Path(__file__).resolve().parent)
+
+        for current in candidates:
+            for parent in [current, *current.parents]:
+                if any((parent / marker).exists() for marker in marker_files):
+                    return parent
         raise FileNotFoundError("프로젝트 루트를 찾을 수 없습니다.")

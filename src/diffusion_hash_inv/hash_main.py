@@ -9,8 +9,44 @@ from diffusion_hash_inv.config import MessageConfig
 from diffusion_hash_inv.config import HashConfig
 from diffusion_hash_inv.config import OutputConfig
 from diffusion_hash_inv.config import Byte2RGBConfig
+from diffusion_hash_inv.main import RuntimeConfig
 from diffusion_hash_inv.main import MainEP
-from diffusion_hash_inv.main import RuntimeState, RuntimeConfig
+
+
+def main():
+    """
+    Main function to run the hash generation and validation process
+    """
+    length = 16
+    _iteration = 2**16
+    main_cfg = MainConfig(
+        verbose_flag=False,
+        clean_flag=True,
+        debug_flag=False,
+        make_image_flag=False,
+    )
+    hash_cfg = HashConfig(
+        hash_alg="md5",
+        length=length,
+    )
+    message_cfg = MessageConfig(
+        message_flag=False,
+        length=length,
+        random_flag=False,
+        seed_flag=True,
+    )
+    output_cfg = OutputConfig()
+    byte2rgb_cfg = Byte2RGBConfig()
+    _runtime_cfg = RuntimeConfig(
+        main=main_cfg,
+        message=message_cfg,
+        hash=hash_cfg,
+        output=output_cfg,
+        rgb=byte2rgb_cfg,
+    )
+
+    _main = MainEP(runtime_config=_runtime_cfg)
+    _main.run(iteration=_iteration, mode="sequential")
 
 if __name__ == "__main__":
     # Argument parsing
@@ -73,5 +109,6 @@ if __name__ == "__main__":
     runtime_config = RuntimeConfig(main=main_config, message=msg_config, hash=hash_config,
                                 output=output_config, rgb=byte2rgb_config)
     # Run main process
-    main_ep = MainEP(runtime_config)
-    main_ep.run(_args.iteration)
+    # main_ep = MainEP(runtime_config)
+    # main_ep.run(_args.iteration)
+    main()

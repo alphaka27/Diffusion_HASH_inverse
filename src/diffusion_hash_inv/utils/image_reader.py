@@ -14,7 +14,7 @@ import numpy as np
 
 from diffusion_hash_inv.core import RGB, RGBA
 from diffusion_hash_inv.config import ImgConfig
-from diffusion_hash_inv.utils import FileIO
+from diffusion_hash_inv.utils.file_io import FileIO
 
 
 class ImageReader:

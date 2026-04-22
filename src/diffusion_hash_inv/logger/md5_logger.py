@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Callable, Dict, List, TypeVar, Any, cast
 from functools import wraps
 
-from diffusion_hash_inv.logger import StepLogs
+from diffusion_hash_inv.logger.logger import StepLogs
 
 @dataclass
 class MD5RoundTrace:

@@ -97,7 +97,7 @@ class RuntimeConfig:
         """
         return cls(
             main=MainConfig(
-                verbose_flag=True,
+                verbose_flag=False,
                 clean_flag=False,
                 debug_flag=False,
                 make_image_flag=True
