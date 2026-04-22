@@ -276,14 +276,18 @@ class MD5(MD5Logic):
     """
     MD5 Hashing Class
     """
-    def __init__(self, main_config: MainConfig, hash_config: HashConfig, steplogs: StepLogs):
+    def __init__(self,
+                hash_config: HashConfig,
+                steplogs: StepLogs = None,
+                is_verbose: bool = True):
 
         hash_cfg = hash_config if hash_config is not None \
             else HashConfig(hash_alg="md5", length=256)
 
         super().__init__(hash_cfg)
 
-        self.is_verbose = main_config.verbose_flag if main_config is not None else True
+        self.is_verbose = is_verbose
+        assert steplogs is not None, "StepLogs instance must be provided."
         self.logs: StepLogs = steplogs
         self.reset()
 
@@ -292,6 +296,7 @@ class MD5(MD5Logic):
         Reset the MD5 instance for a new computation.
         """
         super().initialize()
+        self.logs.clear()
 
     def digest(self, data: bytes) -> bytes:
         """
@@ -340,7 +345,8 @@ if __name__ == "__main__":
         verbose_flag=True,
         clean_flag=False,
         debug_flag=False,
-        make_xlsx_flag=False
+        make_xlsx_flag=False,
+        seed_flag=False
     )
     _hash_config = HashConfig(hash_alg="md5", \
                     length=len(b"abcdefghijklmnopqrstuvwxyz")*8)

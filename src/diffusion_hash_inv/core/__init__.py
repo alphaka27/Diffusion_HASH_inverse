@@ -1,7 +1,6 @@
 """
 Common classes and utilities for diffusion_hash_inv.
     - BaseCalc: Base class for hash calculations.
-    - Logger classes for logging and metadata management.
     - RGB and RGBBinning classes for color representation.
     - FreezeClassVar: Utility to freeze class variables.
 """
