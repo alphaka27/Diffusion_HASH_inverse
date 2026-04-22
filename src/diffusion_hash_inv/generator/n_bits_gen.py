@@ -1,15 +1,17 @@
 """
 Generate n bits data.
 """
+from __future__ import annotations
 
 from secrets import randbits
 import math
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 from diffusion_hash_inv.config import MessageConfig, HashConfig
-from diffusion_hash_inv.main import RuntimeConfig
 from diffusion_hash_inv.logger import Logs
-from diffusion_hash_inv.utils import FileIO
+from diffusion_hash_inv.utils.file_io import FileIO
+if TYPE_CHECKING:
+    from diffusion_hash_inv.main.context import RuntimeConfig
 
 class NBitsGenerator:
     """
@@ -24,7 +26,7 @@ class NBitsGenerator:
 
         self.io_controller = io_controller
 
-        self.gen_start_time = program_start_time
+        self.program_start = program_start_time
 
     @staticmethod
     def bytes_to_hex_block(b: bytes, *, word_bytes: int = 2, line_bytes: int = 16,
@@ -127,12 +129,13 @@ class NBitsGenerator:
         Main function to generate n bits data.
         """
         msg = None
+        main_start_time = Logs.get_current_timestamp()
         perf_timer_start = Logs.perftimer_start()
         msg = self.generate(value)
         perf_timer_end = Logs.perftimer_end(perf_timer_start)
 
         assert msg is not None, "Message generation failed."
-        filename = f"_{self.msg_cfg.length}_bits_{self.gen_start_time[:19]}.bin"
+        filename = f"_{self.msg_cfg.length}_bits_{self.program_start[:19]}.bin"
         if self.msg_cfg.random_flag:
             filename = "random" + filename
         else:
@@ -140,7 +143,7 @@ class NBitsGenerator:
         self.io_controller.file_writer(filename,
                                     msg,
                                     length=self.msg_cfg.length,
-                                    timestamp=self.gen_start_time,
+                                    timestamp=main_start_time,
                                     elapsed_time=perf_timer_end,
                                     byteorder=self.hash_cfg.constants.byteorder)
         return msg

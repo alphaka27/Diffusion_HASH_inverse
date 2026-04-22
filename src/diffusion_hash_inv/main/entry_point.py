@@ -10,7 +10,7 @@ from typing import Optional, Any
 from diffusion_hash_inv.logger import Logs, Metadata, BaseLogs, StepLogs
 from diffusion_hash_inv.config \
     import (MainConfig, MessageConfig, HashConfig, OutputConfig, Byte2RGBConfig)
-from diffusion_hash_inv.generator import GenerateRandomNChar, NBitsGenerator
+from diffusion_hash_inv.generator import NBitsGenerator
 from diffusion_hash_inv.main.context import RuntimeState, RuntimeConfig
 from diffusion_hash_inv.utils import FileIO, RGBImgMaker
 from diffusion_hash_inv.validation import validate
@@ -22,7 +22,7 @@ class MainEP:
     Entry point for hash generation and validation
     """
 
-    def __init__(self, runtime_config: RuntimeConfig):
+    def __init__(self, runtime_config: RuntimeConfig, file_controller: Optional[FileIO] = None):
         self.program_start_time = Logs.get_current_timestamp()
 
         self.runtime_cfg: RuntimeConfig = runtime_config
@@ -37,7 +37,8 @@ class MainEP:
         print(f"Output Directory: {self.output_cfg.output_dir}")
 
 
-        self.io_controller = FileIO(self.main_cfg, self.output_cfg)
+        self.io_controller = file_controller \
+            if file_controller is not None else FileIO(self.main_cfg, self.output_cfg)
 
     def message_generator(self,
                         msg_config: MessageConfig,
@@ -175,6 +176,10 @@ class MainEP:
         runtime_state = self._loop_preprocess()
         assert iteration >= 0, "Iteration count must be non-negative integer."
 
+        mode = kwargs.get("mode", "default")
+        if mode == "sequential":
+            print("Running in sequential mode.")
+
         pbar = tqdm(range(iteration), desc="Hash Generation Progress", unit="iteration")
         pbar.set_postfix(
             {"Hash Algorithm": self.runtime_cfg.hash.hash_alg_upper,
@@ -182,12 +187,14 @@ class MainEP:
             )
 
         for _i in pbar:
+            kwargs.update({"message": _i})
+                # For sequential mode, generate messages based on iteration index
             json_file_name = \
                 Logs.json_file_namer(
                     self.runtime_cfg.hash.hash_alg_upper,
                     self.runtime_cfg.message.length,
                     self.program_start_time,
-                    _i + 1, iteration)
+                    _i, iteration)
 
             runtime_state = self._loop_main(runtime_state, **kwargs)
 

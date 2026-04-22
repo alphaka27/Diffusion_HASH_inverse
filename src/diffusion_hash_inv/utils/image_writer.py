@@ -1,7 +1,8 @@
 """
 Make RGB images from Logs.
 """
-from typing import List, Tuple, Dict, Any
+from __future__ import annotations
+from typing import List, Tuple, Dict, Any, Optional
 from pathlib import Path
 
 from tqdm import tqdm
@@ -13,6 +14,7 @@ from PIL import Image
 from diffusion_hash_inv.config import MainConfig, HashConfig, ImgConfig
 from diffusion_hash_inv.config import Byte2RGBConfig
 from diffusion_hash_inv.core import RGB, RGBA
+from diffusion_hash_inv.logger import Logs
 from diffusion_hash_inv.validation.encoding_validation import encoding_validate
 from diffusion_hash_inv.utils.byte2rgb import Byte2RGB
 from diffusion_hash_inv.utils.file_io import FileIO
@@ -32,7 +34,7 @@ class RGBImgMaker:
         self.byte2rgb = Byte2RGB(main_config=self.main_cfg,
                                 hash_config=self.hash_cfg,
                                 rgb_config=rgb_config)
-        self.log_hierarchy: Dict[str, Any] = {}
+        self.log_hierarchy: Optional[Dict[str, Any]] = None
 
 
     def _image_concater(self, images: List[Image.Image], direction: str) -> Image.Image:
@@ -139,40 +141,6 @@ class RGBImgMaker:
                 )
 
         raise ValueError("rgb_data must be a tuple of RGB or RGBA tuples.")
-
-
-    def get_logs(self) -> List[Dict]:
-        """
-        Get Logs data from file.
-        """
-        latest_logs = \
-            self.io_controller.get_latest_files_by_date(self.hash_cfg.hash_alg, \
-                                                        self.hash_cfg.length)
-        latest_logs.sort()
-        logs: List[Dict] = []
-        hierarchy: List[str] = None
-
-        assert len(latest_logs) > 0, "No Logs files found."
-        if self.main_cfg.verbose_flag:
-            print(f"Found {len(latest_logs)} Logs files.")
-
-        for log_file in latest_logs:
-            if self.main_cfg.verbose_flag:
-                print(f"Loading Logs from file: {log_file}")
-
-            log = self.io_controller.file_reader(log_file)
-            _hierarchy = log.get("Hierarchy", None)
-            assert _hierarchy is not None, "No Hierarchy found in Logs."
-            if hierarchy is None:
-                hierarchy = _hierarchy
-            else:
-                assert hierarchy == _hierarchy, "Hierarchy mismatch in Logs."
-            logs.append({log_file.stem: log})
-
-        self.log_hierarchy = hierarchy + ["Block"]
-
-        return logs
-
 
     def data_encoder(self, data: str | bytes) \
         -> Tuple[RGB] | Tuple[RGBA]:
@@ -358,7 +326,7 @@ class RGBImgMaker:
         """
         Main method to convert bytes data to a list of RGB tuples.
         """
-        logs = self.get_logs()
+        logs = Logs.get_logs(self.io_controller, self.hash_cfg, self.main_cfg, self.log_hierarchy)
         log_process = tqdm(logs, desc="Processing Logs", unit="log")
         for log_dict in log_process:
             self.img_writer(log_dict)
