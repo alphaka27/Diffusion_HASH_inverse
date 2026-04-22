@@ -1,46 +1,57 @@
 """
-diffusion_hash_inverse: 해시/랜덤 비트 유틸 패키지
-핵심 객체를 패키지 루트에서 바로 가져올 수 있도록 re-export 합니다.
+Package exports for diffusion_hash_inv.
+
+Keep imports light at package import time so tooling such as coverage can
+import submodules without triggering heavyweight optional dependencies.
 """
 
-from importlib.metadata import version, PackageNotFoundError
+from importlib import import_module
+from importlib.metadata import PackageNotFoundError, version
+from typing import TYPE_CHECKING, Any
 
+from diffusion_hash_inv.config import Byte2RGBConfig, HashConfig, MainConfig
 from diffusion_hash_inv.core import BaseCalc, RGB, RGBBinning
-from diffusion_hash_inv.logger import Logs, Metadata, BaseLogs, StepLogs
-from diffusion_hash_inv.config import HashConfig, Byte2RGBConfig, MainConfig
-from diffusion_hash_inv.utils import Byte2RGB
+from diffusion_hash_inv.logger import BaseLogs, Logs, Metadata, StepLogs
 
-
-
-from diffusion_hash_inv.utils import JSONFormat
-from diffusion_hash_inv.utils import FileIO
-
-
-from diffusion_hash_inv.hashing import MD5
-# from diffusion_hash_inv.hashing import SHA256
+if TYPE_CHECKING:
+    from diffusion_hash_inv.hashing import MD5  # noqa: F401
+    from diffusion_hash_inv.utils.byte2rgb import Byte2RGB  # noqa: F401
+    from diffusion_hash_inv.utils.file_io import FileIO  # noqa: F401
+    from diffusion_hash_inv.utils.formatter import JSONFormat  # noqa: F401
 
 __all__ = [
     "BaseCalc",
-    "Byte2RGBConfig",
-    "MainConfig",
-    "HashConfig",
     "Byte2RGB",
-    "RGB",
-    "RGBBinning",
+    "Byte2RGBConfig",
+    "FileIO",
+    "HashConfig",
+    "JSONFormat",
     "Logs",
+    "MD5",
+    "MainConfig",
     "Metadata",
     "BaseLogs",
+    "RGB",
+    "RGBBinning",
     "StepLogs",
-    "JSONFormat",
-    "FileIO",
-    "MD5",
-    # "SHA256"
 ]
 
-# dev 패키지 버전
-try:
-    __version__ = version("diffusion-hash-inv")
+_LAZY_EXPORTS = {
+    "Byte2RGB": ("diffusion_hash_inv.utils.byte2rgb", "Byte2RGB"),
+    "FileIO": ("diffusion_hash_inv.utils.file_io", "FileIO"),
+    "JSONFormat": ("diffusion_hash_inv.utils.formatter", "JSONFormat"),
+    "MD5": ("diffusion_hash_inv.hashing", "MD5"),
+}
 
+
+def __getattr__(name: str) -> Any:
+    if name in _LAZY_EXPORTS:
+        module_name, attr_name = _LAZY_EXPORTS[name]
+        return getattr(import_module(module_name), attr_name)
+    raise AttributeError(f"module 'diffusion_hash_inv' has no attribute '{name}'")
+
+
+try:
+    __version__ = version("diffusion-hash-inverse")
 except PackageNotFoundError:
-    # 개발환경(로컬)에서 pyproject 설치 전인 경우 대비
     __version__ = "0.0.0.dev"

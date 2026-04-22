@@ -1,9 +1,10 @@
 import json
 import re
+import hashlib
 
 from diffusion_hash_inv.config import HashConfig, MainConfig
-from diffusion_hash_inv.core import BaseLogs, Metadata, StepLogs
 from diffusion_hash_inv.hashing.md5 import MD5
+from diffusion_hash_inv.logger import BaseLogs, Metadata, StepLogs
 from diffusion_hash_inv.utils.formatter import JSONFormat
 
 
@@ -23,6 +24,7 @@ def test_md5_step4_log_format_for_512bit_input() -> None:
         clean_flag=False,
         debug_flag=False,
         make_xlsx_flag=False,
+        seed_flag=False,
     )
     steplogs = StepLogs(
         wordsize=hash_cfg.ws_bits,
@@ -33,6 +35,8 @@ def test_md5_step4_log_format_for_512bit_input() -> None:
 
     digest_bytes = md5.digest(msg)
     logs, step_meta = steplogs.getter()
+
+    assert digest_bytes.hex() == hashlib.md5(msg).hexdigest()
 
     assert "4th Step" in logs
     step4 = logs["4th Step"]

@@ -16,7 +16,7 @@ readme = "README.md"
 diffhash = "diffusion_hash_inv.cli:main"
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "ruff>=0.5"]
+dev = ["pytest>=8.0", "pytest-cov>=5.0", "ruff>=0.5"]
 
 [tool.setuptools]
 package-dir = {"" = "src"}
@@ -27,6 +27,27 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+addopts = "-ra"
+
+[tool.coverage.run]
+branch = true
+source = [
+  "diffusion_hash_inv.config.hash_config",
+  "diffusion_hash_inv.config.main_config",
+  "diffusion_hash_inv.core.base_calc",
+  "diffusion_hash_inv.hashing.md5",
+  "diffusion_hash_inv.logger.logger",
+  "diffusion_hash_inv.utils.formatter",
+]
+
+[tool.coverage.report]
+fail_under = 90
+show_missing = true
+skip_covered = false
+exclude_lines = [
+  "if __name__ == .__main__.:",
+  "pragma: no cover",
+]
 
 [tool.ruff]
 # 사용하는 파이썬에 맞추세요 (예: 3.12 사용 중이면 py312 권장)
