@@ -1,12 +1,15 @@
 """
 Encoding Validation Module
 """
+from __future__ import annotations
 
-from typing import Tuple
+from typing import TYPE_CHECKING, Tuple
 import copy
 from diffusion_hash_inv.core import RGB
 from diffusion_hash_inv.logger import Logs
-from diffusion_hash_inv.utils import Byte2RGB
+
+if TYPE_CHECKING:
+    from diffusion_hash_inv.utils.byte2rgb import Byte2RGB
 
 def encoding_validate(
     byte_data: bytes | str,

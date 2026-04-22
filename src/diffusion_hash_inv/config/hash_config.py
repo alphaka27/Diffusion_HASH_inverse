@@ -97,14 +97,22 @@ class HashConfig:
         else:
             raise ValueError(f"Unsupported hash algorithm: {self.hash_alg}")
 
-        print("HashConfig initialized with algorithm:", self.hash_alg)
-        print("Length (bits):", self.length)
-
         if self.length <= 0 or self.length % 8 != 0:
             raise ValueError("length must be a positive multiple of 8")
 
         if self.constants is None:
             raise ValueError("Hash algorithm constants are not set.")
+
+    def __repr__(self):
+        return (
+            "HashConfig\n"
+            f"  hash_alg: {self.hash_alg},\n"
+            f"  length: {self.length},\n"
+            f"  byteorder: {self.byteorder},\n"
+            f"  word_size: {self.ws_bits},\n"
+            f"  block_size: {self.bs_bits},\n"
+            f"  mask: 0x{self.mask:X},\n"
+            f"  hierarchy: {self.hierarchy}\n")
 
     @property
     def byteorder(self) -> str:
@@ -191,6 +199,15 @@ class HashConfig:
             raise ValueError("hierarchy is not set in hash algorithm constants.")
 
         return self.constants.hierarchy
+
+    @property
+    def hash_alg_upper(self) -> str:
+        """
+        Get the hash algorithm name in uppercase.
+        """
+        if self.hash_alg is None:
+            raise ValueError("hash_alg is not set.")
+        return self.hash_alg.upper()
 
     def __getattribute__(self, name):
         try:
