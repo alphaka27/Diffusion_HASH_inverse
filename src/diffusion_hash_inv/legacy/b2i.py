@@ -33,7 +33,7 @@ class ByteToImageConverter:
 
         self.hash_alg = kwargs.pop("hash_alg", None)
 
-        transform = transform = transforms.Compose([
+        transform = transforms.Compose([
             partial(F.rotate, angle=-90),
             F.hflip,
             transforms.ToTensor(),
