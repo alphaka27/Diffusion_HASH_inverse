@@ -81,8 +81,7 @@ class MainEP:
         Create RGB image from hash outputs
         """
         rgb_encoder = RGBImgMaker(
-                                self.main_cfg,
-                                self.runtime_cfg.hash,
+                                self.runtime_cfg,
                                 self.io_controller,
                                 self.rgb_cfg)
         rgb_encoder.main()
@@ -176,10 +175,6 @@ class MainEP:
         runtime_state = self._loop_preprocess()
         assert iteration >= 0, "Iteration count must be non-negative integer."
 
-        mode = kwargs.get("mode", "default")
-        if mode == "sequential":
-            print("Running in sequential mode.")
-
         pbar = tqdm(range(iteration), desc="Hash Generation Progress", unit="iteration")
         pbar.set_postfix(
             {"Hash Algorithm": self.runtime_cfg.hash.hash_alg_upper,
@@ -208,11 +203,19 @@ class MainEP:
                 length=self.runtime_cfg.message.length)
 
     def run(self,
-            iteration: int = 0,
+            iteration: Optional[int] = None,
             **kwargs):
         """
         Run the main process
         """
+        if iteration is None:
+            mode = kwargs.get("mode", "default")
+            if mode == "sequential":
+                iteration = 2 ** self.runtime_cfg.message.length
+                print(f"Running in sequential mode.\nIteration count set to: {iteration}")
+            else:
+                raise ValueError("Iteration count must be specified for non-sequential modes.\n"
+                                "Use --iteration or -i flag to specify the number of iterations.\n")
         if iteration < 0:
             raise ValueError("Iteration count must be a positive integer.\n"
                             "Use --iteration or -i flag to specify the number of iterations.\n"
