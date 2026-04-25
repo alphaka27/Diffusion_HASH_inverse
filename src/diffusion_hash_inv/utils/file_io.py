@@ -309,6 +309,8 @@ class FileIO:
                 raise ValueError(f"Invalid file extension. Use {', '.join(self.allow_extensions)}")
         length: int = kwargs.pop("length", None)
         data_type: str = kwargs.pop("data_type", None)
+        path_infix = kwargs.pop("path_infix", None)
+        _path_infix = None if path_infix is None else Path(path_infix[:19])
 
         if isinstance(filepath, Path):
             filepath = str(filepath.name)
@@ -321,7 +323,12 @@ class FileIO:
 
         elif filepath.endswith(".json") or filepath == "json":
             assert length is not None, "length must be specified for JSON files"
-            base = self.out_dir / "json" / f"{length}"
+            base = self.out_dir / "json"
+            if _path_infix is not None:
+                base = base / _path_infix
+            else:
+                base = base / f"{length}"
+
 
         elif filepath.endswith(".xlsx") or filepath == "xlsx":
             assert length is not None, "length must be specified for XLSX files"
@@ -348,8 +355,6 @@ class FileIO:
         """
         Get the full path for writing a file, ensuring directories exist.
         """
-        length = kwargs.get("length", None)
-        data_type = kwargs.pop("data_type", None)
         parent_dir = kwargs.pop("parent_dir", None)
         if parent_dir is not None:
             parent_dir = Path(parent_dir)
@@ -358,12 +363,12 @@ class FileIO:
         base: Path
 
         if isinstance(filename, str):
-            base = self.select_dir(filename, length=length, data_type=data_type)
+            base = self.select_dir(filename, **kwargs)
             safe_name = self._sanitize_filename(filename)
             full_path = base / safe_name
         elif isinstance(filename, Path):
             if not filename.is_dir():
-                base = self.select_dir(filename, length=length, data_type=data_type)
+                base = self.select_dir(filename, **kwargs)
             full_path = base / filename
         else:
             raise ValueError(f"filename must be a string or Path, got {type(filename)}")
