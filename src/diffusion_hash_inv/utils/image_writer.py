@@ -209,8 +209,7 @@ class RGBImgMaker:
             encoded_log = self.data_encoder(data)
             if self.main_cfg.verbose_flag:
                 print(encoded_log)
-            if path == "3rd Step" and self.main_cfg.debug_flag:
-                breakpoint()
+
             path = "/".join(path.split("/")[:-1])
             path = Path(path)
             rgb_log = self.image_formatter(encoded_log)
