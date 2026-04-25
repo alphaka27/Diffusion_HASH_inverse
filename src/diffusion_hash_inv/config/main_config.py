@@ -157,6 +157,7 @@ class OutputConfig:
     def __post_init__(self):
         configured_root = object.__getattribute__(self, "root_dir")
         resolved_root = configured_root if configured_root is not None else self.get_project_root()
+        resolved_root = Path(resolved_root).resolve()
         object.__setattr__(self, "root_dir", resolved_root)
         object.__setattr__(self, "data_dir", resolved_root / "data")
         object.__setattr__(self, "output_dir", resolved_root / "output")
