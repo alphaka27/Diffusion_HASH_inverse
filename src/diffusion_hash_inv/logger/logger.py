@@ -3,13 +3,12 @@ Logging utilities for Diffusion Hash Inversion
 """
 
 from __future__ import annotations
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Callable, TypeVar, cast
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from datetime import datetime
 from collections.abc import Hashable, MutableMapping
 from dataclasses import dataclass, field
 import time
-from functools import wraps
 
 @dataclass
 class Metadata:

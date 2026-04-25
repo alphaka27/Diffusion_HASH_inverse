@@ -10,31 +10,32 @@ from tqdm import tqdm
 import numpy as np
 from PIL import Image
 
-
-from diffusion_hash_inv.config import MainConfig, HashConfig, ImgConfig
+from diffusion_hash_inv.config import ImgConfig
 from diffusion_hash_inv.config import Byte2RGBConfig
 from diffusion_hash_inv.core import RGB, RGBA
 from diffusion_hash_inv.logger import Logs
 from diffusion_hash_inv.validation.encoding_validation import encoding_validate
 from diffusion_hash_inv.utils.byte2rgb import Byte2RGB
 from diffusion_hash_inv.utils.file_io import FileIO
+from diffusion_hash_inv.main.context import RuntimeConfig
 
 class RGBImgMaker:
     """
     A class to make RGB images from Logs.
     """
 
-    def __init__(self, main_cfg: MainConfig,
-                hash_cfg: HashConfig,
+    def __init__(self, runtime_cfg: RuntimeConfig,
                 io_controller: FileIO,
                 rgb_config: Byte2RGBConfig):
-        self.main_cfg = main_cfg
-        self.hash_cfg = hash_cfg
+        self.runtime_cfg = runtime_cfg
+        self.main_cfg = runtime_cfg.main
+        self.hash_cfg = runtime_cfg.hash
         self.io_controller = io_controller
         self.byte2rgb = Byte2RGB(main_config=self.main_cfg,
                                 hash_config=self.hash_cfg,
                                 rgb_config=rgb_config)
-        self.log_hierarchy: Optional[Dict[str, Any]] = None
+        self.log_hierarchy: Optional[List[str]] = []
+        print("RGB Image Maker Initialized.")
 
 
     def _image_concater(self, images: List[Image.Image], direction: str) -> Image.Image:
@@ -297,26 +298,36 @@ class RGBImgMaker:
 
     def log_parser(self, log_dict: Dict[str, Any]) -> Tuple[str, str, Dict[str, Any]]:
         """
-        Parse Logs data to extract RGB color information.
+        Parse the log dictionary to extract the file name, message, and step logs.
+        'Message' field contains the main message of the log.
+        'Logs' field contains logs for each step.
+
+        Arguments:
+            log_dict: A dictionary containing the log information.
+        Returns:
+            A tuple containing the file name, message, and step logs.  
+            **file_name**: The name of the file to save the image.  
+            **message**: The main message of the log.  
+            **step_logs**: A dictionary containing logs for each step.  
         """
         if self.main_cfg.verbose_flag:
             print(f"Parsing log dictionary: {log_dict.keys()}")
             print(f"Log dictionary content: {log_dict}")
 
         if isinstance(log_dict, dict):
-            file_name = list(log_dict.keys())
+            file_name: List[str] = list(log_dict.keys())
         else:
             raise ValueError("log_dict must be a dictionary.")
 
         if len(file_name) == 1:
-            file_name = file_name[0]
+            file_name: str = file_name[0]
         else:
             raise ValueError("Multiple keys found in log_dict.")
-        full_log = log_dict[file_name]
+        full_log: Dict[str, Any] = log_dict[file_name]
 
-        message = full_log.get("Message", None)
+        message: str = full_log.get("Message", None)
         assert message is not None, "No message found in log."
-        step_logs = full_log.get("Logs", None)
+        step_logs: Dict[str, Any] = full_log.get("Logs", None)
         assert step_logs is not None, "No step_logs found in log."
 
         return file_name, message, step_logs
@@ -327,6 +338,11 @@ class RGBImgMaker:
         Main method to convert bytes data to a list of RGB tuples.
         """
         logs = Logs.get_logs(self.io_controller, self.hash_cfg, self.main_cfg, self.log_hierarchy)
-        log_process = tqdm(logs, desc="Processing Logs", unit="log")
+        assert self.log_hierarchy is not None, \
+            "Log hierarchy must be defined before processing logs."
+        print(f"Processing {len(logs)} logs with hierarchy: {self.log_hierarchy}")
+        log_process = tqdm(logs, desc="Processing Logs", unit="log", position=0)
+        processing_info = tqdm(total=0, desc="Processing Info", bar_format="{desc}", position=1)
         for log_dict in log_process:
             self.img_writer(log_dict)
+            processing_info.set_description_str(f"Processed log: {log_dict.keys()}")
