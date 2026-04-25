@@ -193,9 +193,6 @@ class MainEP:
 
             runtime_state = self._loop_main(runtime_state, **kwargs)
 
-            if self.main_cfg.debug_flag and _i == 0:
-                breakpoint()
-
             self.io_controller.file_writer(
                 filename=json_file_name,
                 content={"metadata": runtime_state.metadata,
