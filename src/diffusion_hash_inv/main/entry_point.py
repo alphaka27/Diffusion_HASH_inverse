@@ -200,7 +200,8 @@ class MainEP:
                 filename=json_file_name,
                 content={"metadata": runtime_state.metadata,
                     "baselogs": runtime_state.baselogs, "steplogs": runtime_state.steplogs},
-                length=self.runtime_cfg.message.length)
+                length=self.runtime_cfg.message.length,
+                path_infix=f"{self.program_start_time}/{_i}")
 
     def run(self,
             iteration: Optional[int] = None,
