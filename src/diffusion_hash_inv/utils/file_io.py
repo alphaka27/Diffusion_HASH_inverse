@@ -350,7 +350,8 @@ class FileIO:
         elif filepath.endswith(".json") or filepath == "json":
             base = self.out_dir / "json"
             if path_infix is not None:
-                _path_infix = Path(path_infix[:19])
+                _path_infix = self._sanitize_filename(path_infix)
+                _path_infix = Path(_path_infix[:19])
                 base = base / _path_infix
             else:
                 assert length is not None, "length must be specified for JSON files"
