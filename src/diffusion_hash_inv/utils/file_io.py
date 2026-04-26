@@ -276,41 +276,67 @@ class FileIO:
 
         self.main_config.reset_clean_flag()
 
-    def get_latest_files_by_date(self, hash_alg: str, length: int, dir_path: Path = None) \
-        -> List[Path]:
+    @staticmethod
+    def _parse_json_timestamp(path: Path) -> Optional[datetime]:
         """
-        Parse the filename to extract base name without extension.
+        Parse the run timestamp from the current JSON output path.
         """
+        try:
+            return datetime.strptime(path.parent.name, "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            pass
+
         pattern = re.compile(r'(\d{4}-\d{2}-\d{2}) (\d{2}-\d{2}-\d{2})')
-        base = dir_path if dir_path is not None else self.out_dir / "json" / f"{length}"
-        candidates = list(base.glob(f"{hash_alg.upper()}_{length}_*.json"))
+        match = pattern.search(path.name)
+        if match is None:
+            return None
+
+        date_str, time_str = match.groups()
+        try:
+            return datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H-%M-%S")
+        except ValueError:
+            return None
+
+    def get_latest_files_by_date(
+        self,
+        hash_alg: str,
+        length: int,
+        dir_path: Optional[Path] = None,
+    ) -> List[Path]:
+        """
+        Return JSON log files from the latest run for the hash algorithm and length.
+
+        Current JSON output is grouped by program start time:
+            output/json/YYYY-MM-DD HH:MM:SS/<HASH>_<LENGTH>_..._<INDEX>.json
+
+        Older output grouped by length is still supported by falling back to the
+        timestamp embedded in the filename.
+        """
+        base = Path(dir_path) if dir_path is not None else self.out_dir / "json"
+        candidates = list(base.rglob(f"{hash_alg.upper()}_{length}_*.json"))
         latest_dt: Optional[datetime] = None
         latest_files: List[Path] = []
 
         for p in candidates:
-            m = pattern.search(p.name)
-            if not m:
+            if not p.is_file():
                 continue
-            date_str, time_str = m.groups()
-            dt = datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H-%M-%S")
+            dt = self._parse_json_timestamp(p)
+            if dt is None:
+                continue
             if latest_dt is None or dt > latest_dt:
                 latest_dt = dt
                 latest_files = [p]
             elif dt == latest_dt:
                 latest_files.append(p)
-        return latest_files
+        return sorted(latest_files)
 
     def select_dir(self, filepath: Path | str, **kwargs) -> Path:
         """
         Decide subdirectory by extension and ensure it exists.
         """
-        if isinstance(filepath, str):
-            if not any(filepath.endswith(ext) for ext in self.allow_extensions):
-                raise ValueError(f"Invalid file extension. Use {', '.join(self.allow_extensions)}")
         length: int = kwargs.pop("length", None)
         data_type: str = kwargs.pop("data_type", None)
         path_infix = kwargs.pop("path_infix", None)
-        _path_infix = None if path_infix is None else Path(path_infix[:19])
 
         if isinstance(filepath, Path):
             filepath = str(filepath.name)
@@ -322,13 +348,13 @@ class FileIO:
             base = self.data_dir / "character"
 
         elif filepath.endswith(".json") or filepath == "json":
-            assert length is not None, "length must be specified for JSON files"
             base = self.out_dir / "json"
-            if _path_infix is not None:
+            if path_infix is not None:
+                _path_infix = Path(path_infix[:19])
                 base = base / _path_infix
             else:
+                assert length is not None, "length must be specified for JSON files"
                 base = base / f"{length}"
-
 
         elif filepath.endswith(".xlsx") or filepath == "xlsx":
             assert length is not None, "length must be specified for XLSX files"
