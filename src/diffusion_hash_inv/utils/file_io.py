@@ -209,6 +209,11 @@ class FileIO:
     """
 
     allow_extensions: ClassVar[tuple[str, ...]] = (".bin", ".char", ".json", ".xlsx", ".png")
+    _reserved_windows_names: ClassVar[set[str]] = {
+        "CON", "PRN", "AUX", "NUL",
+        *(f"COM{i}" for i in range(1, 10)),
+        *(f"LPT{i}" for i in range(1, 10)),
+    }
 
     def __init__(self, main_config: MainConfig, output_cfg: OutputConfig) -> None:
         self.main_config = main_config
@@ -281,10 +286,11 @@ class FileIO:
         """
         Parse the run timestamp from the current JSON output path.
         """
-        try:
-            return datetime.strptime(path.parent.name, "%Y-%m-%d %H:%M:%S")
-        except ValueError:
-            pass
+        for fmt in ("%Y-%m-%d %H-%M-%S", "%Y-%m-%d %H:%M:%S"):
+            try:
+                return datetime.strptime(path.parent.name, fmt)
+            except ValueError:
+                pass
 
         pattern = re.compile(r'(\d{4}-\d{2}-\d{2}) (\d{2}-\d{2}-\d{2})')
         match = pattern.search(path.name)
@@ -307,7 +313,7 @@ class FileIO:
         Return JSON log files from the latest run for the hash algorithm and length.
 
         Current JSON output is grouped by program start time:
-            output/json/YYYY-MM-DD HH:MM:SS/<HASH>_<LENGTH>_..._<INDEX>.json
+            output/json/YYYY-MM-DD HH-MM-SS/<HASH>_<LENGTH>_..._<INDEX>.json
 
         Older output grouped by length is still supported by falling back to the
         timestamp embedded in the filename.
@@ -350,8 +356,8 @@ class FileIO:
         elif filepath.endswith(".json") or filepath == "json":
             base = self.out_dir / "json"
             if path_infix is not None:
-                _path_infix = self._sanitize_filename(path_infix)
-                _path_infix = Path(_path_infix[:19])
+                _path_infix = self._sanitize_filename(str(path_infix)[:19])
+                _path_infix = Path(_path_infix)
                 base = base / _path_infix
             else:
                 assert length is not None, "length must be specified for JSON files"
@@ -374,9 +380,24 @@ class FileIO:
 
         return base
 
-    def _sanitize_filename(self, name: str) -> str:
-        # 윈도우/범용 안전: 콜론, 슬래시, 역슬래시 등 치환
-        return name.replace(":", "-").replace("/", "_").replace("\\", "_")
+    @classmethod
+    def _sanitize_filename(cls, name: str) -> str:
+        # Windows-safe file/path component. Colons appear in timestamps, so keep them readable.
+        sanitized = str(name).replace(":", "-").replace("/", "_").replace("\\", "_")
+        sanitized = re.sub(r'[<>|?*\x00-\x1f]', "_", sanitized)
+        sanitized = sanitized.rstrip(" .")
+        if sanitized == "":
+            return "_"
+
+        stem = sanitized.split(".", maxsplit=1)[0].upper()
+        if stem in cls._reserved_windows_names:
+            sanitized = f"_{sanitized}"
+        return sanitized
+
+    def _sanitize_relative_path(self, path: Path) -> Path:
+        if path.is_absolute():
+            return path
+        return Path(*(self._sanitize_filename(part) for part in path.parts))
 
     def file_writer(self, filename: Path | str, content: Any, **kwargs) -> None:
         """
@@ -396,7 +417,7 @@ class FileIO:
         elif isinstance(filename, Path):
             if not filename.is_dir():
                 base = self.select_dir(filename, **kwargs)
-            full_path = base / filename
+            full_path = base / self._sanitize_relative_path(filename)
         else:
             raise ValueError(f"filename must be a string or Path, got {type(filename)}")
 
