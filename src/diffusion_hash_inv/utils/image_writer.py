@@ -150,7 +150,10 @@ class RGBImgMaker:
         """
         if isinstance(data, (str, bytes)):
             ret = self.byte2rgb.rgb_encoder(data)
-            success = encoding_validate(data, ret, self.byte2rgb)
+            if self.main_cfg.debug_flag:
+                success = encoding_validate(data, ret, self.byte2rgb)
+            else:
+                success = True  # Skip validation in non-debug mode for performance
 
             if success:
                 return ret
@@ -167,7 +170,10 @@ class RGBImgMaker:
                 if not isinstance(item, (str, bytes)):
                     raise ValueError("All items in data list must be of type str or bytes.")
                 encoded_item = self.byte2rgb.rgb_encoder(item)
-                success = encoding_validate(item, encoded_item, self.byte2rgb)
+                if self.main_cfg.debug_flag:
+                    success = encoding_validate(item, encoded_item, self.byte2rgb)
+                else:
+                    success = True  # Skip validation in non-debug mode for performance
                 if not success:
                     raise RuntimeError(f"Encoding validation failed for item: {item}\n"
                                     f"Encoded RGB: {encoded_item}\n"
@@ -331,17 +337,38 @@ class RGBImgMaker:
 
         return file_name, message, step_logs
 
-
     def main(self) -> None:
         """
         Main method to convert bytes data to a list of RGB tuples.
         """
-        logs = Logs.get_logs(self.io_controller, self.hash_cfg, self.main_cfg, self.log_hierarchy)
-        assert self.log_hierarchy is not None, \
-            "Log hierarchy must be defined before processing logs."
-        print(f"Processing {len(logs)} logs with hierarchy: {self.log_hierarchy}")
-        log_process = tqdm(logs, desc="Processing Logs", unit="log", position=0)
+        logs = self.io_controller.\
+            get_latest_files_by_date(self.hash_cfg.hash_alg, self.hash_cfg.length)
+        print(f"Found {len(logs)} logs to process.")
+
+
+        log_process = tqdm(
+            Logs.iter_logs_with_hierarchy(self.io_controller, self.log_hierarchy, logs),
+            total=len(logs), desc="Processing Logs", unit="log", position=0)
+
         processing_info = tqdm(total=0, desc="Processing Info", bar_format="{desc}", position=1)
+
         for log_dict in log_process:
             self.img_writer(log_dict)
-            processing_info.set_description_str(f"Processed log: {log_dict.keys()}")
+            _key = list(log_dict.keys())
+            if len(_key) == 1:
+                _key = _key[0]
+            else:
+                raise ValueError("Multiple keys found in log_dict.")
+            processing_info.set_description_str(f"Processed log: {_key}")
+
+class EMNISTImgMaker:
+    """
+    A class to make Images from EMNIST dataset.
+    """
+    def __init__(self, runtime_cfg: RuntimeConfig,
+                io_controller: FileIO):
+        self.runtime_cfg = runtime_cfg
+        self.main_cfg = runtime_cfg.main
+        self.hash_cfg = runtime_cfg.hash
+        self.io_controller = io_controller
+        print("EMNIST Image Maker Initialized.")

@@ -3,12 +3,13 @@ Logging utilities for Diffusion Hash Inversion
 """
 
 from __future__ import annotations
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
 
 from datetime import datetime
 from collections.abc import Hashable, MutableMapping
 from dataclasses import dataclass, field
 import time
+from pathlib import Path
 
 @dataclass
 class Metadata:
@@ -492,38 +493,61 @@ class LogHelper:
         return ret
 
     @staticmethod
-    def get_logs(io_controller,
+    def iter_logs(io_controller,
                 hash_cfg,
-                main_cfg,
-                hierarchy: Optional[List[str]] = None) -> List[Dict]:
+                main_cfg) -> Iterator[Dict]:
         """
-        Get Logs data from file.
+        Stream Logs data from files one at a time.
         """
         latest_logs = \
             io_controller.get_latest_files_by_date(hash_cfg.hash_alg, \
                                                         hash_cfg.length)
         latest_logs.sort()
-        logs: List[Dict] = []
 
         assert len(latest_logs) > 0, "No Logs files found."
-        if main_cfg.verbose_flag:
-            print(f"Found {len(latest_logs)} Logs files.")
 
         for log_file in latest_logs:
             if main_cfg.verbose_flag:
                 print(f"Loading Logs from file: {log_file}")
 
             log = io_controller.file_reader(log_file)
+
+            yield {log_file.stem: log}
+
+    @staticmethod
+    def get_logs(io_controller,
+                hash_cfg,
+                main_cfg) -> List[Dict]:
+        """
+        Get Logs data from file.
+        """
+        return list(LogHelper.iter_logs(io_controller, hash_cfg, main_cfg))
+
+    @staticmethod
+    def iter_logs_with_hierarchy(io_controller,
+                            hierarchy: Optional[List[str]] = None,
+                            logs_path: Optional[List[Path]] = None) -> Iterator[Dict]:
+        """
+        Get Logs data from file with hierarchy information.
+        """
+        assert logs_path is not None, "logs_path must be specified"
+        assert len(logs_path) > 0, "logs_path must not be empty"
+        assert hierarchy is not None, "hierarchy must be specified"
+
+        logs_path.sort()
+
+        for log_file in logs_path:
+            log = io_controller.file_reader(log_file)
             _hierarchy = log.get("Hierarchy", None)
             assert _hierarchy is not None, "No Hierarchy found in Logs."
-            if isinstance(hierarchy, list) and len(hierarchy) == 0:
-                hierarchy.clear()
-                hierarchy.extend(_hierarchy)
-            logs.append({log_file.stem: log})
+            if isinstance(hierarchy, list):
+                if len(hierarchy) == 0:
+                    hierarchy.extend(_hierarchy)
+                if "Block" not in hierarchy:
+                    hierarchy.append("Block")
+            yield {log_file.stem: log}
 
-        hierarchy.extend(["Block"])  # Add "Block" to the end of hierarchy for later use
 
-        return logs
 
 class Logs(LogHelper, TimeHelper):
     """
