@@ -9,6 +9,8 @@ from tqdm import tqdm
 
 import numpy as np
 from PIL import Image
+from torchvision import transforms, datasets
+from torch.utils.data import ConcatDataset, DataLoader
 
 from diffusion_hash_inv.config import ImgConfig
 from diffusion_hash_inv.config import Byte2RGBConfig
@@ -366,9 +368,38 @@ class EMNISTImgMaker:
     A class to make Images from EMNIST dataset.
     """
     def __init__(self, runtime_cfg: RuntimeConfig,
-                io_controller: FileIO):
+                io_controller: FileIO,
+                target_classes: Optional[List[str]] = None):
         self.runtime_cfg = runtime_cfg
         self.main_cfg = runtime_cfg.main
         self.hash_cfg = runtime_cfg.hash
         self.io_controller = io_controller
+
         print("EMNIST Image Maker Initialized.")
+
+    def load_emnist_data(self, file_path: Optional[Path] = None) -> ConcatDataset:
+        """
+        Load EMNIST data from the given file path.
+        """
+        transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize((0.5,), (0.5,))
+        ])
+        if file_path is None:
+            file_path = Path(self.runtime_cfg.output.root_dir, "EMNIST_data")
+        train_dataset = datasets.EMNIST(root=file_path, split='byclass', download=True
+                                        , transform=transform, train=True)
+        test_dataset = datasets.EMNIST(root=file_path, split='byclass', download=True
+                                        , transform=transform, train=False)
+        full_dataset = ConcatDataset([train_dataset, test_dataset])
+
+        return full_dataset
+
+    def emnist_dataloader(self, dataset: ConcatDataset, batch_size: int = 64) -> DataLoader:
+        """
+        Create a dataloader for the EMNIST dataset.
+        """
+        dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=4)
+        return dataloader
+    
+
