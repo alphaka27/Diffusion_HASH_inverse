@@ -2,7 +2,7 @@
 Make RGB images from Logs.
 """
 from __future__ import annotations
-from typing import List, Tuple, Dict, Any, Optional
+from typing import List, Tuple, Dict, Optional
 from pathlib import Path
 
 from tqdm import tqdm
@@ -191,9 +191,9 @@ class RGBImgMaker:
         """
         Write RGB image data to file.
         """
-        filename, message, step_logs = self.log_parser(log_dict)
+        filename, message, step_logs = Logs.log_parser(log_dict)
 
-        parsed_logs = self.steplogs_parser(step_logs)
+        parsed_logs = Logs.steplogs_parser(step_logs, self.log_hierarchy)
 
         encoded_message = self.data_encoder(message)
         rgb_message = self.image_formatter(encoded_message)
@@ -226,118 +226,6 @@ class RGBImgMaker:
                                         parent_dir=Path(filename, path),
                                         data_type="data")
 
-    def _dfs_searcher(self, data_dict: Dict[str, Any], key_path: Path = None) \
-        -> List[Dict[str, Any]]:
-        """
-        Depth-first search to traverse the log hierarchy.
-        """
-        ret = None
-        assert isinstance(data_dict, dict), "Data must be a dictionary."
-        for key, value in data_dict.items():
-            current_path = key_path / key if key_path is not None else Path(key)
-            if isinstance(value, (str, int, float, list, tuple, bytes)):
-                if ret is None:
-                    ret = [{str(current_path): value},]
-                else:
-                    ret += [{str(current_path): value},]
-            elif isinstance(value, dict):
-                has_match = any(h in k for k in value for h in self.log_hierarchy)
-
-                if not has_match:
-                    _temp = [v for v in value.values() \
-                            if isinstance(v, (str, int, float, list, tuple, bytes))]
-                    _ret = [{str(current_path): _temp},] if len(_temp) > 0 else None
-                else:
-                    _ret = self._dfs_searcher(value, current_path)
-
-                if _ret is not None:
-                    ret = _ret if ret is None else ret + _ret
-
-            else:
-                raise ValueError(
-                    f"Unsupported data type in log hierarchy: {type(value)} at path: {current_path}"
-                    )
-        return ret if ret is not None else []
-
-
-    def steplogs_parser(self, step_logs: Dict[str, Any]) -> Tuple[Dict[str, Any]]:
-        """
-        Parse step logs to extract log information.
-        'Logs' field contains logs for each step.
-        'Logs' must be a dictionary with step names as keys.
-
-        Returns:
-            A tuple containing the parsed log information.  
-            **key**: path to the log in the hierarchy  
-            **value**: log value
-        """
-        ret = None
-
-        assert isinstance(step_logs, dict), "Step logs must be a dictionary."
-        for step_name, log in step_logs.items():
-            ret_dict = {}
-            if self.main_cfg.verbose_flag:
-                print(f"Parsing step log: {step_name}")
-
-            if isinstance(log, (str, int, float, list, tuple, bytes)):
-                ret_dict[step_name] = log
-                if ret is None:
-                    ret = [ret_dict,]
-                else:
-                    ret += [ret_dict,]
-
-            if isinstance(log, dict):
-                has_match = any(h in k for k in log for h in self.log_hierarchy)
-
-                if not has_match:
-                    _temp = [v for v in log.values() \
-                            if isinstance(v, (str, int, float, list, tuple, bytes))]
-                    _ret = [{step_name: _temp},] if len(_temp) > 0 else None
-                else:
-                    _ret = self._dfs_searcher(log, Path(step_name))
-
-                if _ret is not None:
-                    ret = _ret if ret is None else ret + _ret
-
-        assert ret is not None, "Failed to parse step logs."
-        return tuple(ret)
-
-
-    def log_parser(self, log_dict: Dict[str, Any]) -> Tuple[str, str, Dict[str, Any]]:
-        """
-        Parse the log dictionary to extract the file name, message, and step logs.
-        'Message' field contains the main message of the log.
-        'Logs' field contains logs for each step.
-
-        Arguments:
-            log_dict: A dictionary containing the log information.
-        Returns:
-            A tuple containing the file name, message, and step logs.  
-            **file_name**: The name of the file to save the image.  
-            **message**: The main message of the log.  
-            **step_logs**: A dictionary containing logs for each step.  
-        """
-        if self.main_cfg.verbose_flag:
-            print(f"Parsing log dictionary: {log_dict.keys()}")
-            print(f"Log dictionary content: {log_dict}")
-
-        if isinstance(log_dict, dict):
-            file_name: List[str] = list(log_dict.keys())
-        else:
-            raise ValueError("log_dict must be a dictionary.")
-
-        if len(file_name) == 1:
-            file_name: str = file_name[0]
-        else:
-            raise ValueError("Multiple keys found in log_dict.")
-        full_log: Dict[str, Any] = log_dict[file_name]
-
-        message: str = full_log.get("Message", None)
-        assert message is not None, "No message found in log."
-        step_logs: Dict[str, Any] = full_log.get("Logs", None)
-        assert step_logs is not None, "No step_logs found in log."
-
-        return file_name, message, step_logs
 
     def main(self) -> None:
         """
@@ -363,6 +251,7 @@ class RGBImgMaker:
                 raise ValueError("Multiple keys found in log_dict.")
             processing_info.set_description_str(f"Processed log: {_key}")
 
+
 class EMNISTImgMaker:
     """
     A class to make Images from EMNIST dataset.
@@ -374,6 +263,7 @@ class EMNISTImgMaker:
         self.main_cfg = runtime_cfg.main
         self.hash_cfg = runtime_cfg.hash
         self.io_controller = io_controller
+        self.target_classes = target_classes
 
         print("EMNIST Image Maker Initialized.")
 
@@ -401,5 +291,31 @@ class EMNISTImgMaker:
         """
         dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=4)
         return dataloader
-    
 
+
+class HDF5Maker:
+    """
+    A class to make HDF5 files from Logs.
+    """
+    def __init__(self, runtime_cfg: RuntimeConfig,
+                io_controller: FileIO):
+        self.runtime_cfg = runtime_cfg
+        self.main_cfg = runtime_cfg.main
+        self.hash_cfg = runtime_cfg.hash
+        self.io_controller = io_controller
+
+        print("HDF5 Maker Initialized.")
+
+
+class ImageMaker(RGBImgMaker, EMNISTImgMaker, HDF5Maker):
+    """
+    A class to make images from Logs.
+    """
+    def __init__(self, runtime_cfg: RuntimeConfig,
+                io_controller: FileIO,
+                rgb_config: Byte2RGBConfig):
+        RGBImgMaker.__init__(self, runtime_cfg, io_controller, rgb_config)
+        EMNISTImgMaker.__init__(self, runtime_cfg, io_controller)
+        HDF5Maker.__init__(self, runtime_cfg, io_controller)
+
+        print("Image Maker Initialized.")
