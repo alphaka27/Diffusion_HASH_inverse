@@ -392,6 +392,7 @@ class RGBBinning:
             bins (Chunk1D): Center aligned RGB bins.
         """
         total_padding = self.full_range.length - self.tot_bins_width
+        assert total_padding >= 0, "Total bin width exceeds the full range, cannot align."
         padding_per_side = total_padding // 2
 
         aligned_start = self.fr_min + padding_per_side
@@ -430,6 +431,7 @@ class RGBBinning:
 
         bins_1d = self.binning1d()
         bins_3d: List[RGBBin] = []
+        assert len(bins_1d) == self.bin_num, f"Expected {self.bin_num} bins, got {len(bins_1d)}."
         for r_bin in bins_1d:
             for g_bin in bins_1d:
                 for b_bin in bins_1d:
