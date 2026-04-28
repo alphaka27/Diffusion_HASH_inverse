@@ -9,6 +9,8 @@ Log parser
 - json logs parser
 - step logs parser
 
+Return parsed logs & 4th step logs in generator (Moved from image_writer.py to logger.py)
+
 ## Image Writer
 Move logs parser to Logger  
 Byte to EMNIST dataset Image encoder  
