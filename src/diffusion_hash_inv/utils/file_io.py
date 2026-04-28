@@ -35,6 +35,7 @@ class Header:
     time_diff: int   # int64
     bit_length: int  # uint64
     byteorder: str
+    encoding: str
 
     def encode_timestamp(self) -> bytes:
         """
@@ -43,13 +44,13 @@ class Header:
         s = self.timestamp
         if len(s) != HC.timestamp_length:
             raise ValueError(f"timestamp length != {HC.timestamp_length}: {len(s)}")
-        return s.encode(OutputConfig.encoding)
+        return s.encode(self.encoding)
 
     def decode_timestamp(self, b: bytes) -> datetime:
         """
         Decode the timestamp from bytes.
         """
-        return datetime.fromisoformat(b.decode(OutputConfig.encoding))
+        return datetime.fromisoformat(b.decode(self.encoding))
 
     def encode_bit_length(self) -> bytes:
         """
@@ -105,8 +106,11 @@ class Header:
         time_diff = self.decode_timediff(time_diff_bytes)
         bit_length = self.decode_bit_length(bit_length_bytes)
 
-        return Header(timestamp=timestamp.isoformat(), \
-                    time_diff=time_diff, bit_length=bit_length, byteorder=byteorder)
+        return Header(timestamp=timestamp.isoformat(),
+                    time_diff=time_diff, 
+                    bit_length=bit_length,
+                    byteorder=byteorder,
+                    encoding=encoding)
 
 
 class Writer:
@@ -117,7 +121,7 @@ class Writer:
         pass
 
     @staticmethod
-    def write_binary(path: Path, content: Optional[bytes] = None, **kwargs):
+    def write_binary(path: Path, content: Optional[bytes] = None, encoding: Optional[str] = None, **kwargs):
         """
         Write the binary content to a file.
         """
@@ -129,7 +133,7 @@ class Writer:
         elapsed_time = kwargs.pop("elapsed_time", None)
         byteorder = kwargs.pop("byteorder", None)
         if start_timestamp is not None and elapsed_time is not None:
-            header = Header(start_timestamp, elapsed_time, length, byteorder)
+            header = Header(start_timestamp, elapsed_time, length, byteorder, encoding)
             header_bytes = header.encode()
         assert header_bytes is not None, "header_bytes must be generated"
         content = header_bytes + content
@@ -138,12 +142,13 @@ class Writer:
             f.write(content)
 
     @staticmethod
-    def write_json(path: Path, content: str):
+    def write_json(path: Path, content: str, encoding: Optional[str] = None):
         """
         Write the JSON content to a file.
         """
-        with open(path, "w", encoding=OutputConfig.encoding, newline="\n") as j:
-            j.write(JSONFormat.dumps(indent=4, **content))
+        serilazed_content = JSONFormat.dumps(indent=4, **content)
+        with open(path, "w", encoding=encoding, newline="\n") as j:
+            j.write(serilazed_content)
 
     @staticmethod
     def write_xlsx(path: Path, df: pd.DataFrame):
@@ -220,6 +225,7 @@ class FileIO:
         self.root_dir = output_cfg.root_dir
         self.data_dir = output_cfg.data_dir
         self.out_dir = output_cfg.output_dir
+        self.encoding = output_cfg.encoding
         os.makedirs(self.data_dir, exist_ok=True)
         os.makedirs(self.out_dir, exist_ok=True)
 
@@ -421,14 +427,12 @@ class FileIO:
         else:
             raise ValueError(f"filename must be a string or Path, got {type(filename)}")
 
-        # print(full_path)
-
         if full_path.suffix == ".json":
-            Writer.write_json(full_path, content)
+            Writer.write_json(full_path, content, encoding=self.encoding)
         elif full_path.suffix == ".xlsx":
             Writer.write_xlsx(full_path, content)
         elif full_path.suffix in (".bin", ".char"):
-            Writer.write_binary(full_path, content=content, **kwargs)
+            Writer.write_binary(full_path, content=content, encoding=self.encoding, **kwargs)
         elif full_path.suffix == ".png" or isinstance(content, Dataset):
             Writer.image_writer(full_path, content)
         else:

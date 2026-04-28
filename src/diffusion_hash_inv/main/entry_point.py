@@ -136,6 +136,7 @@ class MainEP:
         hash_cfg: HashConfig = self.runtime_cfg.hash
 
         updated_state = state.copy()
+        assert updated_state.algo is not None, "Hash algorithm instance is not initialized."
         updated_state.algo.reset()
 
         Logs.clear(baselogs=updated_state.baselogs, steplogs=updated_state.steplogs)

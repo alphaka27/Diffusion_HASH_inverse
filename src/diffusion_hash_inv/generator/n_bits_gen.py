@@ -99,12 +99,17 @@ class NBitsGenerator:
         temp_bytes = None
         n_bits = self.msg_cfg.length
         n_bytes = math.ceil(n_bits / 8)
+        max_val = (1 << n_bits) - 1
 
         if self.msg_cfg.random_flag:
             temp_bytes = randbits(n_bits)
         else:
             if value is None:
                 raise ValueError("Value must be provided when random_flag is False.")
+            if value > max_val:
+                raise ValueError(f"Value {value} exceeds the maximum for {n_bits} bits: {max_val}.")
+            if value < 0:
+                raise ValueError(f"Value {value} must be non-negative.")
             temp_bytes = value
         assert temp_bytes is not None, "Value must be provided when random_flag is False."
 
