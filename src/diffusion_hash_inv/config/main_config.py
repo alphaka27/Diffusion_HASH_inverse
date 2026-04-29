@@ -152,6 +152,7 @@ class OutputConfig:
     root_dir: Optional[Path] = None
     data_dir: Path = field(init=False, default=None)
     output_dir: Path = field(init=False, default=None)
+    emnist_dir: Path = field(init=False, default=None)
     encoding: str = "utf-8"
 
     def __post_init__(self):
@@ -161,6 +162,7 @@ class OutputConfig:
         object.__setattr__(self, "root_dir", resolved_root)
         object.__setattr__(self, "data_dir", resolved_root / "data")
         object.__setattr__(self, "output_dir", resolved_root / "output")
+        object.__setattr__(self, "emnist_dir", resolved_root / "EMNIST")
 
     def __getattribute__(self, name):
         try:
@@ -178,6 +180,7 @@ class OutputConfig:
             f"  Root Directory: {self.root_dir},\n"
             f"  Data Directory: {self.data_dir},\n"
             f"  Output Directory: {self.output_dir},\n"
+            f"  EMNIST Directory: {self.emnist_dir},\n"
             f"  Encoding: '{self.encoding}'\n")
 
     @staticmethod

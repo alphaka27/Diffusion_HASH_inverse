@@ -25,3 +25,9 @@ Refactoring the code
 - Cleaning the comments
 Refining Structure
 Refining Logs Structure
+
+## Beta Schedule
+Beta scheduling with the cumulative sum of log bytes from intermediate computations on the x-axis  
+
+## Diffusion Model
+Conditional U-Net  

@@ -59,7 +59,7 @@ class ImgConfig:
     """
 
     img_size: Tuple[int, int] = (28, 28) # Width, Height
-    center_size: Tuple[int, int] = (14, 14) # Width, Height
+    center_size: Tuple[int, int] = (28, 28) # Width, Height
 
     def __repr__(self):
         return (
