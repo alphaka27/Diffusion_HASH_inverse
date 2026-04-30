@@ -92,8 +92,8 @@ class RGBImgMaker:
             "All items in rgb_data must be of type RGB or RGBA. " \
             f"Got types: {[type(pixel) for pixel in rgb_data]}" \
             f" with values: {rgb_data}"
-        assert image_size[0] > center_size[0] + center_x and \
-            image_size[1] > center_size[1] + center_y, \
+        assert image_size[0] >= center_size[0] + center_x and \
+            image_size[1] >= center_size[1] + center_y, \
             "Image size must be large enough to accommodate center size with offset."
 
         frames: List[Image.Image] = []
