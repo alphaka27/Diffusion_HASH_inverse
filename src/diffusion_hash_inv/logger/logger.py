@@ -544,10 +544,13 @@ class LogHelper:
                 if len(hierarchy) == 0:
                     hierarchy.extend(_hierarchy)
                 if "Block" not in hierarchy:
+                    hierarchy.append("Block")
+                if "Block" not in _hierarchy:
                     _hierarchy.append("Block")
                 if len(hierarchy) >=0 and not all(h in _hierarchy for h in hierarchy):
                     raise ValueError(f"Hierarchy mismatch: expected {_hierarchy}, "
                                     f"found {hierarchy}")
+
             yield {log_file.stem: log}
 
     @staticmethod
