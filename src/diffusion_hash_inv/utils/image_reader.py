@@ -91,3 +91,8 @@ class ImageReader:
             rgb_values.append(row_values)
 
         return rgb_values
+
+    def to_tensor(self):
+        """
+        Make PIL image to tensor
+        """

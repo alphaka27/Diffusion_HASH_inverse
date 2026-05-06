@@ -37,4 +37,7 @@ class Byte2EMNIST:
             split='byclass', train=False, download=True, transform=transform)
         self.emnist_dataset = ConcatDataset([emnist_train, emnist_test])
 
-    def load_emnist(self, )
+    def load_emnist(self):
+        """
+        Load the EMNIST dataset.
+        """

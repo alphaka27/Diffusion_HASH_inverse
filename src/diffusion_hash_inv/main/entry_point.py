@@ -4,7 +4,7 @@ This module initializes the necessary components.
 This module starts the hash inversion process based on the provided configurations.
 """
 import sys
-from tqdm import tqdm
+from tqdm.auto import tqdm
 from typing import Optional, Any
 
 from diffusion_hash_inv.logger import Logs, Metadata, BaseLogs, StepLogs

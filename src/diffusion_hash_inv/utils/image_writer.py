@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import List, Tuple, Dict, Optional
 from pathlib import Path
 
-from tqdm import tqdm
+from tqdm.auto import tqdm
 
 import numpy as np
 from PIL import Image
@@ -170,7 +170,8 @@ class RGBImgMaker:
             ret = []
             for item in data:
                 if not isinstance(item, (str, bytes)):
-                    raise ValueError("All items in data list must be of type str or bytes.")
+                    raise ValueError("All items in data list must be of type str or bytes."
+                                    f" Got item of type {type(item)} with value: {item}")
                 encoded_item = self.byte2rgb.rgb_encoder(item)
                 if self.main_cfg.debug_flag:
                     success = encoding_validate(item, encoded_item, self.byte2rgb)
@@ -238,9 +239,7 @@ class RGBImgMaker:
 
         log_process = tqdm(
             Logs.iter_logs_with_hierarchy(self.io_controller, self.log_hierarchy, logs),
-            total=len(logs), desc="Processing Logs", unit="log", position=0)
-
-        processing_info = tqdm(total=0, desc="Processing Info", bar_format="{desc}", position=1)
+            total=len(logs), desc="Processing Logs", unit="log", position=0, miniters=100)
 
         for log_dict in log_process:
             self.img_writer(log_dict)
@@ -249,7 +248,6 @@ class RGBImgMaker:
                 _key = _key[0]
             else:
                 raise ValueError("Multiple keys found in log_dict.")
-            processing_info.set_description_str(f"Processed log: {_key}")
 
 
 class EMNISTImgMaker:
