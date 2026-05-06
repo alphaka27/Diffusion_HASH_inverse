@@ -239,7 +239,7 @@ class RGBImgMaker:
 
         log_process = tqdm(
             Logs.iter_logs_with_hierarchy(self.io_controller, self.log_hierarchy, logs),
-            total=len(logs), desc="Processing Logs", unit="log", position=0, miniters=100)
+            total=len(logs), desc="Processing Logs", unit="log", position=0, miniters=1000)
 
         for log_dict in log_process:
             self.img_writer(log_dict)
