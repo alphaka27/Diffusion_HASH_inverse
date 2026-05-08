@@ -540,12 +540,15 @@ class LogHelper:
             log = io_controller.file_reader(log_file)
             _hierarchy = log.get("Hierarchy", None)
             assert _hierarchy is not None, "No Hierarchy found in Logs."
+            _hierarchy = list(_hierarchy)
+            if "Block" not in _hierarchy:
+                _hierarchy.append("Block")
             if isinstance(hierarchy, list):
                 if len(hierarchy) == 0:
                     hierarchy.extend(_hierarchy)
                 if "Block" not in hierarchy:
-                    _hierarchy.append("Block")
-                if len(hierarchy) >=0 and not all(h in _hierarchy for h in hierarchy):
+                    hierarchy.append("Block")
+                if not all(h in _hierarchy for h in hierarchy):
                     raise ValueError(f"Hierarchy mismatch: expected {_hierarchy}, "
                                     f"found {hierarchy}")
             yield {log_file.stem: log}
