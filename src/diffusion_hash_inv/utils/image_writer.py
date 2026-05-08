@@ -191,6 +191,15 @@ class RGBImgMaker:
         """
         Write RGB image data to file.
         """
+        if isinstance(self.log_hierarchy, list):
+            if len(self.log_hierarchy) == 0:
+                full_log = next(iter(log_dict.values()))
+                hierarchy = full_log.get("Hierarchy", None) if isinstance(full_log, dict) else None
+                if hierarchy is not None:
+                    self.log_hierarchy.extend(list(hierarchy))
+            if "Block" not in self.log_hierarchy:
+                self.log_hierarchy.append("Block")
+
         filename, message, step_logs = Logs.log_parser(log_dict)
 
         parsed_logs = Logs.steplogs_parser(step_logs, self.log_hierarchy)
