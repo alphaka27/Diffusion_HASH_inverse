@@ -3,8 +3,9 @@ Entry point for the diffusion hash inversion process.
 This module initializes the necessary components.
 This module starts the hash inversion process based on the provided configurations.
 """
-import sys
 from typing import Optional, Any
+
+from tqdm import tqdm
 
 from diffusion_hash_inv.logger import Logs, Metadata, BaseLogs, StepLogs
 from diffusion_hash_inv.config \
@@ -12,7 +13,6 @@ from diffusion_hash_inv.config \
 from diffusion_hash_inv.generator import NBitsGenerator
 from diffusion_hash_inv.main.context import RuntimeState, RuntimeConfig
 from diffusion_hash_inv.utils import FileIO, RGBImgMaker
-from diffusion_hash_inv.utils.progress import progress
 from diffusion_hash_inv.validation import validate
 from diffusion_hash_inv import hashing
 
@@ -176,7 +176,7 @@ class MainEP:
         runtime_state = self._loop_preprocess()
         assert iteration >= 0, "Iteration count must be non-negative integer."
 
-        with progress(
+        with tqdm(
             range(iteration),
             desc="Hash Generation Progress",
             unit="iteration",
@@ -204,8 +204,6 @@ class MainEP:
                         "baselogs": runtime_state.baselogs, "steplogs": runtime_state.steplogs},
                     length=self.runtime_cfg.message.length,
                     path_infix=f"{self.program_start_time}/{_i}")
-        sys.stdout.flush()
-
     def run(self,
             iteration: Optional[int] = None,
             **kwargs):

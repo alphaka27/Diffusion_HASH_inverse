@@ -2,12 +2,12 @@
 Make RGB images from Logs.
 """
 from __future__ import annotations
-import sys
 from typing import Any, List, Tuple, Dict, Optional
 from pathlib import Path
 
 import numpy as np
 from PIL import Image
+from tqdm import tqdm
 from torchvision import transforms, datasets
 from torch.utils.data import ConcatDataset, DataLoader
 
@@ -18,7 +18,6 @@ from diffusion_hash_inv.logger import Logs
 from diffusion_hash_inv.validation.encoding_validation import encoding_validate
 from diffusion_hash_inv.utils.byte2rgb import Byte2RGB
 from diffusion_hash_inv.utils.file_io import FileIO
-from diffusion_hash_inv.utils.progress import progress
 from diffusion_hash_inv.main.context import RuntimeConfig
 
 class RGBImgMaker:
@@ -286,8 +285,8 @@ class RGBImgMaker:
         print(f"Expected {expected_image_total} images to write "
             f"({images_per_log} images per log).")
 
-        log_process = progress((), total=len(logs), desc="Processing Logs", unit="log")
-        image_process = progress(
+        log_process = tqdm((), total=len(logs), desc="Processing Logs", unit="log")
+        image_process = tqdm(
             (),
             total=expected_image_total,
             desc="Writing Images",
@@ -296,29 +295,26 @@ class RGBImgMaker:
         )
         images_written = 0
 
-        try:
-            with log_process, image_process:
-                for log_dict in Logs.iter_logs_with_hierarchy(
-                    self.io_controller,
-                    self.log_hierarchy,
-                    logs,
-                ):
-                    filename, message, parsed_logs = self._parse_image_logs(log_dict)
-                    image_count = self._image_count(parsed_logs)
-                    if image_count != images_per_log:
-                        image_process.total += image_count - images_per_log
+        with log_process, image_process:
+            for log_dict in Logs.iter_logs_with_hierarchy(
+                self.io_controller,
+                self.log_hierarchy,
+                logs,
+            ):
+                filename, message, parsed_logs = self._parse_image_logs(log_dict)
+                image_count = self._image_count(parsed_logs)
+                if image_count != images_per_log:
+                    image_process.total += image_count - images_per_log
 
-                    images_written += self._write_parsed_images(
-                        filename,
-                        message,
-                        parsed_logs,
-                        image_process,
-                    )
-                    log_process.update(1)
-                    log_process.set_postfix({"images": images_written})
-            print(f"Image writing completed: {images_written} images.", flush=True)
-        finally:
-            sys.stdout.flush()
+                images_written += self._write_parsed_images(
+                    filename,
+                    message,
+                    parsed_logs,
+                    image_process,
+                )
+                log_process.update(1)
+                log_process.set_postfix({"images": images_written})
+        print(f"Image writing completed: {images_written} images.")
 
 class EMNISTImgMaker:
     """
