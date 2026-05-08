@@ -225,10 +225,13 @@ class RGBImgMaker:
         encoded_message = self.data_encoder(message)
         rgb_message = self.image_formatter(encoded_message)
 
-        self.io_controller.file_writer("message.png",
-                                    rgb_message,
-                                    parent_dir=filename,
-                                    data_type="data")
+        try:
+            self.io_controller.file_writer("message.png",
+                                        rgb_message,
+                                        parent_dir=filename,
+                                        data_type="data")
+        finally:
+            rgb_message.close()
         images_written += 1
         self._advance_progress(image_process)
 
@@ -250,10 +253,13 @@ class RGBImgMaker:
             path = "/".join(path.split("/")[:-1])
             path = Path(path)
             rgb_log = self.image_formatter(encoded_log)
-            self.io_controller.file_writer(f"{_file_name}.png",
-                                        rgb_log,
-                                        parent_dir=Path(filename, path),
-                                        data_type="data")
+            try:
+                self.io_controller.file_writer(f"{_file_name}.png",
+                                            rgb_log,
+                                            parent_dir=Path(filename, path),
+                                            data_type="data")
+            finally:
+                rgb_log.close()
             images_written += 1
             self._advance_progress(image_process)
 
