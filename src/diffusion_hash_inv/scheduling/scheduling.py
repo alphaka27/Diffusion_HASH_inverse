@@ -22,17 +22,31 @@ class BetaScheduler:
         self.beta_min = beta_min
         self.beta_max = beta_max
 
-        @staticmethod
-        def get_step4(io_contoller, runtime_cfg):
-            """
-            Get Step 4 from Hash logs
-            """
-            logs = Logs.get_logs(io_contoller, runtime_cfg.hash, runtime_cfg.main)
-            _step4_logs = []
-            for _log in logs:
-                _tmp = list(_log.values())
-                assert len(_tmp) == 1, "Each log entry should contain exactly one key-value pair."
-                log_dict = list(_log.values())[0]
-                if "Logs" in log_dict and "4th Step" in log_dict["Logs"]:
-                    _step4_logs.append(log_dict["Logs"]["4th Step"])
-            return _step4_logs
+    @staticmethod
+    def get_step4(io_contoller, runtime_cfg):
+        """
+        Get Step 4 from Hash logs
+        """
+        logs = Logs.get_logs(io_contoller, runtime_cfg.hash, runtime_cfg.main)
+        _step4_logs = []
+        for _log in logs:
+            _tmp = list(_log.values())
+            assert len(_tmp) == 1, "Each log entry should contain exactly one key-value pair."
+            log_dict = list(_log.values())[0]
+            if "Logs" in log_dict and "4th Step" in log_dict["Logs"]:
+                _step4_logs.append(log_dict["Logs"]["4th Step"])
+        return _step4_logs
+
+    @staticmethod
+    def rescale_betas(mean_sn_values, beta_min, beta_max):
+        """
+        Rescale the mean SN values to the original beta range using min-max normalization.
+        """
+        sn_min = np.min(mean_sn_values)
+        sn_max = np.max(mean_sn_values)
+        if sn_max - sn_min == 0:
+            return np.full_like(mean_sn_values, (beta_min + beta_max) / 2)
+        rescaled_betas = \
+            (mean_sn_values - sn_min) * (beta_max - beta_min) / (sn_max - sn_min) \
+            + beta_min
+        return rescaled_betas
