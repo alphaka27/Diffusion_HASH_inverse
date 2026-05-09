@@ -540,6 +540,9 @@ class LogHelper:
             log = io_controller.file_reader(log_file)
             _hierarchy = log.get("Hierarchy", None)
             assert _hierarchy is not None, "No Hierarchy found in Logs."
+            _hierarchy = list(_hierarchy)
+            if "Block" not in _hierarchy:
+                _hierarchy.append("Block")
             if isinstance(hierarchy, list):
                 if len(hierarchy) == 0:
                     hierarchy.extend(_hierarchy)
