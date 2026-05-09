@@ -2,13 +2,12 @@
 Make RGB images from Logs.
 """
 from __future__ import annotations
-from typing import List, Tuple, Dict, Optional
+from typing import Any, List, Tuple, Dict, Optional
 from pathlib import Path
-
-from tqdm import tqdm
 
 import numpy as np
 from PIL import Image
+from tqdm import tqdm
 from torchvision import transforms, datasets
 from torch.utils.data import ConcatDataset, DataLoader
 
@@ -170,7 +169,8 @@ class RGBImgMaker:
             ret = []
             for item in data:
                 if not isinstance(item, (str, bytes)):
-                    raise ValueError("All items in data list must be of type str or bytes.")
+                    raise ValueError("All items in data list must be of type str or bytes."
+                                    f" Got item of type {type(item)} with value: {item}")
                 encoded_item = self.byte2rgb.rgb_encoder(item)
                 if self.main_cfg.debug_flag:
                     success = encoding_validate(item, encoded_item, self.byte2rgb)
@@ -187,9 +187,12 @@ class RGBImgMaker:
 
         raise ValueError("Unsupported data type for encoding.")
 
-    def img_writer(self, log_dict: List[Dict]) -> None:
+    def _parse_image_logs(
+        self,
+        log_dict: Dict[str, Any],
+    ) -> Tuple[str, str, Tuple[Dict[str, Any], ...]]:
         """
-        Write RGB image data to file.
+        Parse one log file into the pieces used for image generation.
         """
         if isinstance(self.log_hierarchy, list):
             if len(self.log_hierarchy) == 0:
@@ -201,16 +204,45 @@ class RGBImgMaker:
                 self.log_hierarchy.append("Block")
 
         filename, message, step_logs = Logs.log_parser(log_dict)
-
         parsed_logs = Logs.steplogs_parser(step_logs, self.log_hierarchy)
+
+        return filename, message, parsed_logs
+
+    @staticmethod
+    def _image_count(parsed_logs: Tuple[Dict[str, Any], ...]) -> int:
+        """Return the number of PNG files written for one parsed log."""
+        return 1 + len(parsed_logs)  # message image + one image per parsed step log
+
+    @staticmethod
+    def _advance_progress(progress_bar: Optional[Any]) -> None:
+        """Advance an optional progress bar after one image is written."""
+        if progress_bar is not None:
+            progress_bar.update(1)
+
+    def _write_parsed_images(
+        self,
+        filename: str,
+        message: str,
+        parsed_logs: Tuple[Dict[str, Any], ...],
+        image_process: Optional[Any] = None,
+    ) -> int:
+        """
+        Write already-parsed log data as RGB images.
+        """
+        images_written = 0
 
         encoded_message = self.data_encoder(message)
         rgb_message = self.image_formatter(encoded_message)
 
-        self.io_controller.file_writer("message.png",
-                                    rgb_message,
-                                    parent_dir=filename,
-                                    data_type="data")
+        try:
+            self.io_controller.file_writer("message.png",
+                                        rgb_message,
+                                        parent_dir=filename,
+                                        data_type="data")
+        finally:
+            rgb_message.close()
+        images_written += 1
+        self._advance_progress(image_process)
 
         for log in parsed_logs:
             assert isinstance(log, dict), "Parsed log must be a dictionary."
@@ -230,11 +262,25 @@ class RGBImgMaker:
             path = "/".join(path.split("/")[:-1])
             path = Path(path)
             rgb_log = self.image_formatter(encoded_log)
-            self.io_controller.file_writer(f"{_file_name}.png",
-                                        rgb_log,
-                                        parent_dir=Path(filename, path),
-                                        data_type="data")
+            try:
+                self.io_controller.file_writer(f"{_file_name}.png",
+                                            rgb_log,
+                                            parent_dir=Path(filename, path),
+                                            data_type="data")
+            finally:
+                rgb_log.close()
+            images_written += 1
+            self._advance_progress(image_process)
 
+        return images_written
+
+    def img_writer(self, log_dict: Dict[str, Any],
+                image_process: Optional[Any] = None) -> int:
+        """
+        Write RGB image data to file.
+        """
+        filename, message, parsed_logs = self._parse_image_logs(log_dict)
+        return self._write_parsed_images(filename, message, parsed_logs, image_process)
 
     def main(self) -> None:
         """
@@ -243,23 +289,47 @@ class RGBImgMaker:
         logs = self.io_controller.\
             get_latest_files_by_date(self.hash_cfg.hash_alg, self.hash_cfg.length)
         print(f"Found {len(logs)} logs to process.")
+        assert len(logs) > 0, "No Logs files found."
 
+        first_log = next(
+            Logs.iter_logs_with_hierarchy(self.io_controller, self.log_hierarchy, [logs[0]])
+        )
+        _, _, first_parsed_logs = self._parse_image_logs(first_log)
+        images_per_log = self._image_count(first_parsed_logs)
+        expected_image_total = images_per_log * len(logs)
+        print(f"Expected {expected_image_total} images to write "
+            f"({images_per_log} images per log).")
 
-        log_process = tqdm(
-            Logs.iter_logs_with_hierarchy(self.io_controller, self.log_hierarchy, logs),
-            total=len(logs), desc="Processing Logs", unit="log", position=0)
+        log_process = tqdm((), total=len(logs), desc="Processing Logs", unit="log")
+        image_process = tqdm(
+            (),
+            total=expected_image_total,
+            desc="Writing Images",
+            unit="image",
+            mininterval=5.0,
+        )
+        images_written = 0
 
-        processing_info = tqdm(total=0, desc="Processing Info", bar_format="{desc}", position=1)
+        with log_process, image_process:
+            for log_dict in Logs.iter_logs_with_hierarchy(
+                self.io_controller,
+                self.log_hierarchy,
+                logs,
+            ):
+                filename, message, parsed_logs = self._parse_image_logs(log_dict)
+                image_count = self._image_count(parsed_logs)
+                if image_count != images_per_log:
+                    image_process.total += image_count - images_per_log
 
-        for log_dict in log_process:
-            self.img_writer(log_dict)
-            _key = list(log_dict.keys())
-            if len(_key) == 1:
-                _key = _key[0]
-            else:
-                raise ValueError("Multiple keys found in log_dict.")
-            processing_info.set_description_str(f"Processed log: {_key}")
-
+                images_written += self._write_parsed_images(
+                    filename,
+                    message,
+                    parsed_logs,
+                    image_process,
+                )
+                log_process.update(1)
+                log_process.set_postfix({"images": images_written})
+        print(f"Image writing completed: {images_written} images.")
 
 class EMNISTImgMaker:
     """
