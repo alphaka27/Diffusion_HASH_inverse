@@ -2,39 +2,41 @@
 Make RGB images from Logs.
 """
 from __future__ import annotations
-from typing import List, Tuple, Dict, Any, Optional
+from typing import Any, List, Tuple, Dict, Optional
 from pathlib import Path
-
-from tqdm import tqdm
 
 import numpy as np
 from PIL import Image
+from tqdm import tqdm
+from torchvision import transforms, datasets
+from torch.utils.data import ConcatDataset, DataLoader
 
-
-from diffusion_hash_inv.config import MainConfig, HashConfig, ImgConfig
+from diffusion_hash_inv.config import ImgConfig
 from diffusion_hash_inv.config import Byte2RGBConfig
 from diffusion_hash_inv.core import RGB, RGBA
 from diffusion_hash_inv.logger import Logs
 from diffusion_hash_inv.validation.encoding_validation import encoding_validate
 from diffusion_hash_inv.utils.byte2rgb import Byte2RGB
 from diffusion_hash_inv.utils.file_io import FileIO
+from diffusion_hash_inv.main.context import RuntimeConfig
 
 class RGBImgMaker:
     """
     A class to make RGB images from Logs.
     """
 
-    def __init__(self, main_cfg: MainConfig,
-                hash_cfg: HashConfig,
+    def __init__(self, runtime_cfg: RuntimeConfig,
                 io_controller: FileIO,
                 rgb_config: Byte2RGBConfig):
-        self.main_cfg = main_cfg
-        self.hash_cfg = hash_cfg
+        self.runtime_cfg = runtime_cfg
+        self.main_cfg = runtime_cfg.main
+        self.hash_cfg = runtime_cfg.hash
         self.io_controller = io_controller
         self.byte2rgb = Byte2RGB(main_config=self.main_cfg,
                                 hash_config=self.hash_cfg,
                                 rgb_config=rgb_config)
-        self.log_hierarchy: Optional[Dict[str, Any]] = None
+        self.log_hierarchy: Optional[List[str]] = []
+        print("RGB Image Maker Initialized.")
 
 
     def _image_concater(self, images: List[Image.Image], direction: str) -> Image.Image:
@@ -89,8 +91,8 @@ class RGBImgMaker:
             "All items in rgb_data must be of type RGB or RGBA. " \
             f"Got types: {[type(pixel) for pixel in rgb_data]}" \
             f" with values: {rgb_data}"
-        assert image_size[0] > center_size[0] + center_x and \
-            image_size[1] > center_size[1] + center_y, \
+        assert image_size[0] >= center_size[0] + center_x and \
+            image_size[1] >= center_size[1] + center_y, \
             "Image size must be large enough to accommodate center size with offset."
 
         frames: List[Image.Image] = []
@@ -149,7 +151,10 @@ class RGBImgMaker:
         """
         if isinstance(data, (str, bytes)):
             ret = self.byte2rgb.rgb_encoder(data)
-            success = encoding_validate(data, ret, self.byte2rgb)
+            if self.main_cfg.debug_flag:
+                success = encoding_validate(data, ret, self.byte2rgb)
+            else:
+                success = True  # Skip validation in non-debug mode for performance
 
             if success:
                 return ret
@@ -164,9 +169,13 @@ class RGBImgMaker:
             ret = []
             for item in data:
                 if not isinstance(item, (str, bytes)):
-                    raise ValueError("All items in data list must be of type str or bytes.")
+                    raise ValueError("All items in data list must be of type str or bytes."
+                                    f" Got item of type {type(item)} with value: {item}")
                 encoded_item = self.byte2rgb.rgb_encoder(item)
-                success = encoding_validate(item, encoded_item, self.byte2rgb)
+                if self.main_cfg.debug_flag:
+                    success = encoding_validate(item, encoded_item, self.byte2rgb)
+                else:
+                    success = True  # Skip validation in non-debug mode for performance
                 if not success:
                     raise RuntimeError(f"Encoding validation failed for item: {item}\n"
                                     f"Encoded RGB: {encoded_item}\n"
@@ -178,21 +187,53 @@ class RGBImgMaker:
 
         raise ValueError("Unsupported data type for encoding.")
 
-    def img_writer(self, log_dict: List[Dict]) -> None:
+    def _parse_image_logs(
+        self,
+        log_dict: Dict[str, Any],
+    ) -> Tuple[str, str, Tuple[Dict[str, Any], ...]]:
         """
-        Write RGB image data to file.
+        Parse one log file into the pieces used for image generation.
         """
-        filename, message, step_logs = self.log_parser(log_dict)
+        filename, message, step_logs = Logs.log_parser(log_dict)
+        parsed_logs = Logs.steplogs_parser(step_logs, self.log_hierarchy)
 
-        parsed_logs = self.steplogs_parser(step_logs)
+        return filename, message, parsed_logs
+
+    @staticmethod
+    def _image_count(parsed_logs: Tuple[Dict[str, Any], ...]) -> int:
+        """Return the number of PNG files written for one parsed log."""
+        return 1 + len(parsed_logs)  # message image + one image per parsed step log
+
+    @staticmethod
+    def _advance_progress(progress_bar: Optional[Any]) -> None:
+        """Advance an optional progress bar after one image is written."""
+        if progress_bar is not None:
+            progress_bar.update(1)
+
+    def _write_parsed_images(
+        self,
+        filename: str,
+        message: str,
+        parsed_logs: Tuple[Dict[str, Any], ...],
+        image_process: Optional[Any] = None,
+    ) -> int:
+        """
+        Write already-parsed log data as RGB images.
+        """
+        images_written = 0
 
         encoded_message = self.data_encoder(message)
         rgb_message = self.image_formatter(encoded_message)
 
-        self.io_controller.file_writer("message.png",
-                                    rgb_message,
-                                    parent_dir=filename,
-                                    data_type="data")
+        try:
+            self.io_controller.file_writer("message.png",
+                                        rgb_message,
+                                        parent_dir=filename,
+                                        data_type="data")
+        finally:
+            rgb_message.close()
+        images_written += 1
+        self._advance_progress(image_process)
 
         for log in parsed_logs:
             assert isinstance(log, dict), "Parsed log must be a dictionary."
@@ -208,125 +249,143 @@ class RGBImgMaker:
             encoded_log = self.data_encoder(data)
             if self.main_cfg.verbose_flag:
                 print(encoded_log)
-            if path == "3rd Step" and self.main_cfg.debug_flag:
-                breakpoint()
+
             path = "/".join(path.split("/")[:-1])
             path = Path(path)
             rgb_log = self.image_formatter(encoded_log)
-            self.io_controller.file_writer(f"{_file_name}.png",
-                                        rgb_log,
-                                        parent_dir=Path(filename, path),
-                                        data_type="data")
+            try:
+                self.io_controller.file_writer(f"{_file_name}.png",
+                                            rgb_log,
+                                            parent_dir=Path(filename, path),
+                                            data_type="data")
+            finally:
+                rgb_log.close()
+            images_written += 1
+            self._advance_progress(image_process)
 
-    def _dfs_searcher(self, data_dict: Dict[str, Any], key_path: Path = None) \
-        -> List[Dict[str, Any]]:
+        return images_written
+
+    def img_writer(self, log_dict: Dict[str, Any],
+                image_process: Optional[Any] = None) -> int:
         """
-        Depth-first search to traverse the log hierarchy.
+        Write RGB image data to file.
         """
-        ret = None
-        assert isinstance(data_dict, dict), "Data must be a dictionary."
-        for key, value in data_dict.items():
-            current_path = key_path / key if key_path is not None else Path(key)
-            if isinstance(value, (str, int, float, list, tuple, bytes)):
-                if ret is None:
-                    ret = [{str(current_path): value},]
-                else:
-                    ret += [{str(current_path): value},]
-            elif isinstance(value, dict):
-                has_match = any(h in k for k in value for h in self.log_hierarchy)
-
-                if not has_match:
-                    _temp = [v for v in value.values() \
-                            if isinstance(v, (str, int, float, list, tuple, bytes))]
-                    _ret = [{str(current_path): _temp},] if len(_temp) > 0 else None
-                else:
-                    _ret = self._dfs_searcher(value, current_path)
-
-                if _ret is not None:
-                    ret = _ret if ret is None else ret + _ret
-
-            else:
-                raise ValueError(
-                    f"Unsupported data type in log hierarchy: {type(value)} at path: {current_path}"
-                    )
-        return ret if ret is not None else []
-
-
-    def steplogs_parser(self, step_logs: Dict[str, Any]) -> Tuple[Dict[str, Any]]:
-        """
-        Parse step logs to extract log information.
-        'Logs' field contains logs for each step.
-        'Logs' must be a dictionary with step names as keys.
-
-        Returns:
-            A tuple containing the parsed log information.  
-            **key**: path to the log in the hierarchy  
-            **value**: log value
-        """
-        ret = None
-
-        assert isinstance(step_logs, dict), "Step logs must be a dictionary."
-        for step_name, log in step_logs.items():
-            ret_dict = {}
-            if self.main_cfg.verbose_flag:
-                print(f"Parsing step log: {step_name}")
-
-            if isinstance(log, (str, int, float, list, tuple, bytes)):
-                ret_dict[step_name] = log
-                if ret is None:
-                    ret = [ret_dict,]
-                else:
-                    ret += [ret_dict,]
-
-            if isinstance(log, dict):
-                has_match = any(h in k for k in log for h in self.log_hierarchy)
-
-                if not has_match:
-                    _temp = [v for v in log.values() \
-                            if isinstance(v, (str, int, float, list, tuple, bytes))]
-                    _ret = [{step_name: _temp},] if len(_temp) > 0 else None
-                else:
-                    _ret = self._dfs_searcher(log, Path(step_name))
-
-                if _ret is not None:
-                    ret = _ret if ret is None else ret + _ret
-
-        assert ret is not None, "Failed to parse step logs."
-        return tuple(ret)
-
-
-    def log_parser(self, log_dict: Dict[str, Any]) -> Tuple[str, str, Dict[str, Any]]:
-        """
-        Parse Logs data to extract RGB color information.
-        """
-        if self.main_cfg.verbose_flag:
-            print(f"Parsing log dictionary: {log_dict.keys()}")
-            print(f"Log dictionary content: {log_dict}")
-
-        if isinstance(log_dict, dict):
-            file_name = list(log_dict.keys())
-        else:
-            raise ValueError("log_dict must be a dictionary.")
-
-        if len(file_name) == 1:
-            file_name = file_name[0]
-        else:
-            raise ValueError("Multiple keys found in log_dict.")
-        full_log = log_dict[file_name]
-
-        message = full_log.get("Message", None)
-        assert message is not None, "No message found in log."
-        step_logs = full_log.get("Logs", None)
-        assert step_logs is not None, "No step_logs found in log."
-
-        return file_name, message, step_logs
-
+        filename, message, parsed_logs = self._parse_image_logs(log_dict)
+        return self._write_parsed_images(filename, message, parsed_logs, image_process)
 
     def main(self) -> None:
         """
         Main method to convert bytes data to a list of RGB tuples.
         """
-        logs = Logs.get_logs(self.io_controller, self.hash_cfg, self.main_cfg, self.log_hierarchy)
-        log_process = tqdm(logs, desc="Processing Logs", unit="log")
-        for log_dict in log_process:
-            self.img_writer(log_dict)
+        logs = self.io_controller.\
+            get_latest_files_by_date(self.hash_cfg.hash_alg, self.hash_cfg.length)
+        print(f"Found {len(logs)} logs to process.")
+        assert len(logs) > 0, "No Logs files found."
+
+        first_log = next(
+            Logs.iter_logs_with_hierarchy(self.io_controller, self.log_hierarchy, [logs[0]])
+        )
+        _, _, first_parsed_logs = self._parse_image_logs(first_log)
+        images_per_log = self._image_count(first_parsed_logs)
+        expected_image_total = images_per_log * len(logs)
+        print(f"Expected {expected_image_total} images to write "
+            f"({images_per_log} images per log).")
+
+        log_process = tqdm((), total=len(logs), desc="Processing Logs", unit="log")
+        image_process = tqdm(
+            (),
+            total=expected_image_total,
+            desc="Writing Images",
+            unit="image",
+            mininterval=5.0,
+        )
+        images_written = 0
+
+        with log_process, image_process:
+            for log_dict in Logs.iter_logs_with_hierarchy(
+                self.io_controller,
+                self.log_hierarchy,
+                logs,
+            ):
+                filename, message, parsed_logs = self._parse_image_logs(log_dict)
+                image_count = self._image_count(parsed_logs)
+                if image_count != images_per_log:
+                    image_process.total += image_count - images_per_log
+
+                images_written += self._write_parsed_images(
+                    filename,
+                    message,
+                    parsed_logs,
+                    image_process,
+                )
+                log_process.update(1)
+                log_process.set_postfix({"images": images_written})
+        print(f"Image writing completed: {images_written} images.")
+
+class EMNISTImgMaker:
+    """
+    A class to make Images from EMNIST dataset.
+    """
+    def __init__(self, runtime_cfg: RuntimeConfig,
+                io_controller: FileIO,
+                target_classes: Optional[List[str]] = None):
+        self.runtime_cfg = runtime_cfg
+        self.main_cfg = runtime_cfg.main
+        self.hash_cfg = runtime_cfg.hash
+        self.io_controller = io_controller
+        self.target_classes = target_classes
+
+        print("EMNIST Image Maker Initialized.")
+
+    def load_emnist_data(self, file_path: Optional[Path] = None) -> ConcatDataset:
+        """
+        Load EMNIST data from the given file path.
+        """
+        transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize((0.5,), (0.5,))
+        ])
+        if file_path is None:
+            file_path = Path(self.runtime_cfg.output.root_dir, "EMNIST_data")
+        train_dataset = datasets.EMNIST(root=file_path, split='byclass', download=True
+                                        , transform=transform, train=True)
+        test_dataset = datasets.EMNIST(root=file_path, split='byclass', download=True
+                                        , transform=transform, train=False)
+        full_dataset = ConcatDataset([train_dataset, test_dataset])
+
+        return full_dataset
+
+    def emnist_dataloader(self, dataset: ConcatDataset, batch_size: int = 64) -> DataLoader:
+        """
+        Create a dataloader for the EMNIST dataset.
+        """
+        dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=4)
+        return dataloader
+
+
+class HDF5Maker:
+    """
+    A class to make HDF5 files from Logs.
+    """
+    def __init__(self, runtime_cfg: RuntimeConfig,
+                io_controller: FileIO):
+        self.runtime_cfg = runtime_cfg
+        self.main_cfg = runtime_cfg.main
+        self.hash_cfg = runtime_cfg.hash
+        self.io_controller = io_controller
+
+        print("HDF5 Maker Initialized.")
+
+
+class ImageMaker(RGBImgMaker, EMNISTImgMaker, HDF5Maker):
+    """
+    A class to make images from Logs.
+    """
+    def __init__(self, runtime_cfg: RuntimeConfig,
+                io_controller: FileIO,
+                rgb_config: Byte2RGBConfig):
+        RGBImgMaker.__init__(self, runtime_cfg, io_controller, rgb_config)
+        EMNISTImgMaker.__init__(self, runtime_cfg, io_controller)
+        HDF5Maker.__init__(self, runtime_cfg, io_controller)
+
+        print("Image Maker Initialized.")

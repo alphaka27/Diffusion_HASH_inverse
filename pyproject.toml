@@ -17,6 +17,7 @@ diffhash = "diffusion_hash_inv.cli:main"
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "ruff>=0.5"]
+mlx = ["mlx>=0.31", "pillow>=11"]
 
 [tool.setuptools]
 package-dir = {"" = "src"}

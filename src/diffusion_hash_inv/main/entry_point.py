@@ -3,9 +3,9 @@ Entry point for the diffusion hash inversion process.
 This module initializes the necessary components.
 This module starts the hash inversion process based on the provided configurations.
 """
-import sys
-from tqdm import tqdm
 from typing import Optional, Any
+
+from tqdm import tqdm
 
 from diffusion_hash_inv.logger import Logs, Metadata, BaseLogs, StepLogs
 from diffusion_hash_inv.config \
@@ -81,8 +81,7 @@ class MainEP:
         Create RGB image from hash outputs
         """
         rgb_encoder = RGBImgMaker(
-                                self.main_cfg,
-                                self.runtime_cfg.hash,
+                                self.runtime_cfg,
                                 self.io_controller,
                                 self.rgb_cfg)
         rgb_encoder.main()
@@ -137,6 +136,7 @@ class MainEP:
         hash_cfg: HashConfig = self.runtime_cfg.hash
 
         updated_state = state.copy()
+        assert updated_state.algo is not None, "Hash algorithm instance is not initialized."
         updated_state.algo.reset()
 
         Logs.clear(baselogs=updated_state.baselogs, steplogs=updated_state.steplogs)
@@ -176,43 +176,48 @@ class MainEP:
         runtime_state = self._loop_preprocess()
         assert iteration >= 0, "Iteration count must be non-negative integer."
 
-        mode = kwargs.get("mode", "default")
-        if mode == "sequential":
-            print("Running in sequential mode.")
+        with tqdm(
+            range(iteration),
+            desc="Hash Generation Progress",
+            unit="iteration",
+        ) as pbar:
+            pbar.set_postfix(
+                {"Hash Algorithm": self.runtime_cfg.hash.hash_alg_upper,
+                "Message Length": self.runtime_cfg.message.length}
+                )
 
-        pbar = tqdm(range(iteration), desc="Hash Generation Progress", unit="iteration")
-        pbar.set_postfix(
-            {"Hash Algorithm": self.runtime_cfg.hash.hash_alg_upper,
-            "Message Length": self.runtime_cfg.message.length}
-            )
+            for _i in pbar:
+                kwargs.update({"message": _i})
+                    # For sequential mode, generate messages based on iteration index
+                json_file_name = \
+                    Logs.json_file_namer(
+                        self.runtime_cfg.hash.hash_alg_upper,
+                        self.runtime_cfg.message.length,
+                        self.program_start_time,
+                        _i, iteration)
 
-        for _i in pbar:
-            kwargs.update({"message": _i})
-                # For sequential mode, generate messages based on iteration index
-            json_file_name = \
-                Logs.json_file_namer(
-                    self.runtime_cfg.hash.hash_alg_upper,
-                    self.runtime_cfg.message.length,
-                    self.program_start_time,
-                    _i, iteration)
+                runtime_state = self._loop_main(runtime_state, **kwargs)
 
-            runtime_state = self._loop_main(runtime_state, **kwargs)
-
-            if self.main_cfg.debug_flag and _i == 0:
-                breakpoint()
-
-            self.io_controller.file_writer(
-                filename=json_file_name,
-                content={"metadata": runtime_state.metadata,
-                    "baselogs": runtime_state.baselogs, "steplogs": runtime_state.steplogs},
-                length=self.runtime_cfg.message.length)
-
+                self.io_controller.file_writer(
+                    filename=json_file_name,
+                    content={"metadata": runtime_state.metadata,
+                        "baselogs": runtime_state.baselogs, "steplogs": runtime_state.steplogs},
+                    length=self.runtime_cfg.message.length,
+                    path_infix=f"{self.program_start_time}/{_i}")
     def run(self,
-            iteration: int = 0,
+            iteration: Optional[int] = None,
             **kwargs):
         """
         Run the main process
         """
+        if iteration is None:
+            mode = kwargs.get("mode", "default")
+            if mode == "sequential":
+                iteration = 2 ** self.runtime_cfg.message.length
+                print(f"Running in sequential mode.\nIteration count set to: {iteration}")
+            else:
+                raise ValueError("Iteration count must be specified for non-sequential modes.\n"
+                                "Use --iteration or -i flag to specify the number of iterations.\n")
         if iteration < 0:
             raise ValueError("Iteration count must be a positive integer.\n"
                             "Use --iteration or -i flag to specify the number of iterations.\n"

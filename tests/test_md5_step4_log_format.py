@@ -2,7 +2,7 @@ import json
 import re
 
 from diffusion_hash_inv.config import HashConfig, MainConfig
-from diffusion_hash_inv.core import BaseLogs, Metadata, StepLogs
+from diffusion_hash_inv.logger import BaseLogs, Metadata, StepLogs
 from diffusion_hash_inv.hashing.md5 import MD5
 from diffusion_hash_inv.utils.formatter import JSONFormat
 
