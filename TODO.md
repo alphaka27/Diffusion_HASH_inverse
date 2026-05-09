@@ -1,17 +1,20 @@
 # TODO
 
-## json_to_xlsx
-Make clean XLSX file
-- Get hierarchy from json
-- Make DataFrame using hierarchy
-
-# File IO
-Remove length parameter from select_dir function
 
 ## Log
 Logging overflow event  
 - Logging per rounds
 - Logging the number of overflow events numbers is occured  
+Log parser  
+- json logs parser
+- step logs parser
+
+Return parsed logs & 4th step logs in generator (Moved from image_writer.py to logger.py)
+
+## Image Writer
+Move logs parser to Logger  
+Byte to EMNIST dataset Image encoder  
+Logging Encoding sequence  
 
 Add category for dataclass  
 Clean up stdout logs
@@ -22,3 +25,9 @@ Refactoring the code
 - Cleaning the comments
 Refining Structure
 Refining Logs Structure
+
+## Beta Schedule
+Beta scheduling with the cumulative sum of log bytes from intermediate computations on the x-axis  
+
+## Diffusion Model
+Conditional U-Net  

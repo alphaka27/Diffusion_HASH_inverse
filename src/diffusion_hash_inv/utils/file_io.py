@@ -35,6 +35,7 @@ class Header:
     time_diff: int   # int64
     bit_length: int  # uint64
     byteorder: str
+    encoding: str
 
     def encode_timestamp(self) -> bytes:
         """
@@ -43,13 +44,13 @@ class Header:
         s = self.timestamp
         if len(s) != HC.timestamp_length:
             raise ValueError(f"timestamp length != {HC.timestamp_length}: {len(s)}")
-        return s.encode(OutputConfig.encoding)
+        return s.encode(self.encoding)
 
     def decode_timestamp(self, b: bytes) -> datetime:
         """
         Decode the timestamp from bytes.
         """
-        return datetime.fromisoformat(b.decode(OutputConfig.encoding))
+        return datetime.fromisoformat(b.decode(self.encoding))
 
     def encode_bit_length(self) -> bytes:
         """
@@ -105,8 +106,11 @@ class Header:
         time_diff = self.decode_timediff(time_diff_bytes)
         bit_length = self.decode_bit_length(bit_length_bytes)
 
-        return Header(timestamp=timestamp.isoformat(), \
-                    time_diff=time_diff, bit_length=bit_length, byteorder=byteorder)
+        return Header(timestamp=timestamp.isoformat(),
+                    time_diff=time_diff, 
+                    bit_length=bit_length,
+                    byteorder=byteorder,
+                    encoding=encoding)
 
 
 class Writer:
@@ -117,7 +121,7 @@ class Writer:
         pass
 
     @staticmethod
-    def write_binary(path: Path, content: Optional[bytes] = None, **kwargs):
+    def write_binary(path: Path, content: Optional[bytes] = None, encoding: Optional[str] = None, **kwargs):
         """
         Write the binary content to a file.
         """
@@ -129,7 +133,7 @@ class Writer:
         elapsed_time = kwargs.pop("elapsed_time", None)
         byteorder = kwargs.pop("byteorder", None)
         if start_timestamp is not None and elapsed_time is not None:
-            header = Header(start_timestamp, elapsed_time, length, byteorder)
+            header = Header(start_timestamp, elapsed_time, length, byteorder, encoding)
             header_bytes = header.encode()
         assert header_bytes is not None, "header_bytes must be generated"
         content = header_bytes + content
@@ -138,12 +142,13 @@ class Writer:
             f.write(content)
 
     @staticmethod
-    def write_json(path: Path, content: str):
+    def write_json(path: Path, content: str, encoding: Optional[str] = None):
         """
         Write the JSON content to a file.
         """
-        with open(path, "w", encoding=OutputConfig.encoding, newline="\n") as j:
-            j.write(JSONFormat.dumps(indent=4, **content))
+        serilazed_content = JSONFormat.dumps(indent=4, **content)
+        with open(path, "w", encoding=encoding, newline="\n") as j:
+            j.write(serilazed_content)
 
     @staticmethod
     def write_xlsx(path: Path, df: pd.DataFrame):
@@ -209,12 +214,18 @@ class FileIO:
     """
 
     allow_extensions: ClassVar[tuple[str, ...]] = (".bin", ".char", ".json", ".xlsx", ".png")
+    _reserved_windows_names: ClassVar[set[str]] = {
+        "CON", "PRN", "AUX", "NUL",
+        *(f"COM{i}" for i in range(1, 10)),
+        *(f"LPT{i}" for i in range(1, 10)),
+    }
 
     def __init__(self, main_config: MainConfig, output_cfg: OutputConfig) -> None:
         self.main_config = main_config
         self.root_dir = output_cfg.root_dir
         self.data_dir = output_cfg.data_dir
         self.out_dir = output_cfg.output_dir
+        self.encoding = output_cfg.encoding
         os.makedirs(self.data_dir, exist_ok=True)
         os.makedirs(self.out_dir, exist_ok=True)
 
@@ -276,39 +287,68 @@ class FileIO:
 
         self.main_config.reset_clean_flag()
 
-    def get_latest_files_by_date(self, hash_alg: str, length: int, dir_path: Path = None) \
-        -> List[Path]:
+    @staticmethod
+    def _parse_json_timestamp(path: Path) -> Optional[datetime]:
         """
-        Parse the filename to extract base name without extension.
+        Parse the run timestamp from the current JSON output path.
         """
+        for fmt in ("%Y-%m-%d %H-%M-%S", "%Y-%m-%d %H:%M:%S"):
+            try:
+                return datetime.strptime(path.parent.name, fmt)
+            except ValueError:
+                pass
+
         pattern = re.compile(r'(\d{4}-\d{2}-\d{2}) (\d{2}-\d{2}-\d{2})')
-        base = dir_path if dir_path is not None else self.out_dir / "json" / f"{length}"
-        candidates = list(base.glob(f"{hash_alg.upper()}_{length}_*.json"))
+        match = pattern.search(path.name)
+        if match is None:
+            return None
+
+        date_str, time_str = match.groups()
+        try:
+            return datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H-%M-%S")
+        except ValueError:
+            return None
+
+    def get_latest_files_by_date(
+        self,
+        hash_alg: str,
+        length: int,
+        dir_path: Optional[Path] = None,
+    ) -> List[Path]:
+        """
+        Return JSON log files from the latest run for the hash algorithm and length.
+
+        Current JSON output is grouped by program start time:
+            output/json/YYYY-MM-DD HH-MM-SS/<HASH>_<LENGTH>_..._<INDEX>.json
+
+        Older output grouped by length is still supported by falling back to the
+        timestamp embedded in the filename.
+        """
+        base = Path(dir_path) if dir_path is not None else self.out_dir / "json"
+        candidates = list(base.rglob(f"{hash_alg.upper()}_{length}_*.json"))
         latest_dt: Optional[datetime] = None
         latest_files: List[Path] = []
 
         for p in candidates:
-            m = pattern.search(p.name)
-            if not m:
+            if not p.is_file():
                 continue
-            date_str, time_str = m.groups()
-            dt = datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H-%M-%S")
+            dt = self._parse_json_timestamp(p)
+            if dt is None:
+                continue
             if latest_dt is None or dt > latest_dt:
                 latest_dt = dt
                 latest_files = [p]
             elif dt == latest_dt:
                 latest_files.append(p)
-        return latest_files
+        return sorted(latest_files)
 
     def select_dir(self, filepath: Path | str, **kwargs) -> Path:
         """
         Decide subdirectory by extension and ensure it exists.
         """
-        if isinstance(filepath, str):
-            if not any(filepath.endswith(ext) for ext in self.allow_extensions):
-                raise ValueError(f"Invalid file extension. Use {', '.join(self.allow_extensions)}")
         length: int = kwargs.pop("length", None)
         data_type: str = kwargs.pop("data_type", None)
+        path_infix = kwargs.pop("path_infix", None)
 
         if isinstance(filepath, Path):
             filepath = str(filepath.name)
@@ -320,8 +360,14 @@ class FileIO:
             base = self.data_dir / "character"
 
         elif filepath.endswith(".json") or filepath == "json":
-            assert length is not None, "length must be specified for JSON files"
-            base = self.out_dir / "json" / f"{length}"
+            base = self.out_dir / "json"
+            if path_infix is not None:
+                _path_infix = self._sanitize_filename(str(path_infix)[:19])
+                _path_infix = Path(_path_infix)
+                base = base / _path_infix
+            else:
+                assert length is not None, "length must be specified for JSON files"
+                base = base / f"{length}"
 
         elif filepath.endswith(".xlsx") or filepath == "xlsx":
             assert length is not None, "length must be specified for XLSX files"
@@ -340,16 +386,29 @@ class FileIO:
 
         return base
 
-    def _sanitize_filename(self, name: str) -> str:
-        # 윈도우/범용 안전: 콜론, 슬래시, 역슬래시 등 치환
-        return name.replace(":", "-").replace("/", "_").replace("\\", "_")
+    @classmethod
+    def _sanitize_filename(cls, name: str) -> str:
+        # Windows-safe file/path component. Colons appear in timestamps, so keep them readable.
+        sanitized = str(name).replace(":", "-").replace("/", "_").replace("\\", "_")
+        sanitized = re.sub(r'[<>|?*\x00-\x1f]', "_", sanitized)
+        sanitized = sanitized.rstrip(" .")
+        if sanitized == "":
+            return "_"
+
+        stem = sanitized.split(".", maxsplit=1)[0].upper()
+        if stem in cls._reserved_windows_names:
+            sanitized = f"_{sanitized}"
+        return sanitized
+
+    def _sanitize_relative_path(self, path: Path) -> Path:
+        if path.is_absolute():
+            return path
+        return Path(*(self._sanitize_filename(part) for part in path.parts))
 
     def file_writer(self, filename: Path | str, content: Any, **kwargs) -> None:
         """
         Get the full path for writing a file, ensuring directories exist.
         """
-        length = kwargs.get("length", None)
-        data_type = kwargs.pop("data_type", None)
         parent_dir = kwargs.pop("parent_dir", None)
         if parent_dir is not None:
             parent_dir = Path(parent_dir)
@@ -358,24 +417,22 @@ class FileIO:
         base: Path
 
         if isinstance(filename, str):
-            base = self.select_dir(filename, length=length, data_type=data_type)
+            base = self.select_dir(filename, **kwargs)
             safe_name = self._sanitize_filename(filename)
             full_path = base / safe_name
         elif isinstance(filename, Path):
             if not filename.is_dir():
-                base = self.select_dir(filename, length=length, data_type=data_type)
-            full_path = base / filename
+                base = self.select_dir(filename, **kwargs)
+            full_path = base / self._sanitize_relative_path(filename)
         else:
             raise ValueError(f"filename must be a string or Path, got {type(filename)}")
 
-        # print(full_path)
-
         if full_path.suffix == ".json":
-            Writer.write_json(full_path, content)
+            Writer.write_json(full_path, content, encoding=self.encoding)
         elif full_path.suffix == ".xlsx":
             Writer.write_xlsx(full_path, content)
         elif full_path.suffix in (".bin", ".char"):
-            Writer.write_binary(full_path, content=content, **kwargs)
+            Writer.write_binary(full_path, content=content, encoding=self.encoding, **kwargs)
         elif full_path.suffix == ".png" or isinstance(content, Dataset):
             Writer.image_writer(full_path, content)
         else:

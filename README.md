@@ -12,6 +12,18 @@ pip install -e .
 cd src/diffusion_hash_inv
 python hash_main.py
 ```
+
+# MLX Conditional Diffusion Example
+``` bash
+pip install -e ".[mlx]"
+python -m diffusion_hash_inv.models.diffusion_with_mlx \
+  --device cpu \
+  --train-steps 200 \
+  --timesteps 50 \
+  --output output/conditional_diffusion_mlx_samples.png
+```
+`--device gpu` can be used on an Apple Silicon machine with Metal available.
+
 ## Command Line Argument
 --hash_alg "Hash Algorithm": Hash algorithm  
 -l "Length" /  -e "Exponential": Message Length  

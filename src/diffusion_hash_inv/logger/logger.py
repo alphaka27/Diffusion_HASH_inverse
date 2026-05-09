@@ -3,13 +3,13 @@ Logging utilities for Diffusion Hash Inversion
 """
 
 from __future__ import annotations
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Callable, TypeVar, cast
+from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
 
 from datetime import datetime
 from collections.abc import Hashable, MutableMapping
 from dataclasses import dataclass, field
 import time
-from functools import wraps
+from pathlib import Path
 
 @dataclass
 class Metadata:
@@ -493,38 +493,177 @@ class LogHelper:
         return ret
 
     @staticmethod
-    def get_logs(io_controller,
+    def iter_logs(io_controller,
                 hash_cfg,
-                main_cfg,
-                hierarchy: Optional[List[str]] = None) -> List[Dict]:
+                main_cfg) -> Iterator[Dict]:
         """
-        Get Logs data from file.
+        Stream Logs data from files one at a time.
         """
         latest_logs = \
             io_controller.get_latest_files_by_date(hash_cfg.hash_alg, \
                                                         hash_cfg.length)
         latest_logs.sort()
-        logs: List[Dict] = []
 
         assert len(latest_logs) > 0, "No Logs files found."
-        if main_cfg.verbose_flag:
-            print(f"Found {len(latest_logs)} Logs files.")
 
         for log_file in latest_logs:
             if main_cfg.verbose_flag:
                 print(f"Loading Logs from file: {log_file}")
 
             log = io_controller.file_reader(log_file)
+
+            yield {log_file.stem: log}
+
+    @staticmethod
+    def get_logs(io_controller,
+                hash_cfg,
+                main_cfg) -> List[Dict]:
+        """
+        Get Logs data from file.
+        """
+        return list(LogHelper.iter_logs(io_controller, hash_cfg, main_cfg))
+
+    @staticmethod
+    def iter_logs_with_hierarchy(io_controller,
+                            hierarchy: Optional[List[str]] = None,
+                            logs_path: Optional[List[Path]] = None) -> Iterator[Dict]:
+        """
+        Get Logs data from file with hierarchy information.
+        """
+        assert logs_path is not None, "logs_path must be specified"
+        assert len(logs_path) > 0, "logs_path must not be empty"
+        assert hierarchy is not None, "hierarchy must be specified"
+
+        logs_path.sort()
+
+        for log_file in logs_path:
+            log = io_controller.file_reader(log_file)
             _hierarchy = log.get("Hierarchy", None)
             assert _hierarchy is not None, "No Hierarchy found in Logs."
-            if isinstance(hierarchy, list) and len(hierarchy) == 0:
-                hierarchy.clear()
-                hierarchy.extend(_hierarchy)
-            logs.append({log_file.stem: log})
+            if isinstance(hierarchy, list):
+                if len(hierarchy) == 0:
+                    hierarchy.extend(_hierarchy)
+                if "Block" not in hierarchy:
+                    hierarchy.append("Block")
+                if "Block" not in _hierarchy:
+                    _hierarchy.append("Block")
+                if len(hierarchy) >=0 and not all(h in _hierarchy for h in hierarchy):
+                    raise ValueError(f"Hierarchy mismatch: expected {_hierarchy}, "
+                                    f"found {hierarchy}")
 
-        hierarchy.extend(["Block"])  # Add "Block" to the end of hierarchy for later use
+            yield {log_file.stem: log}
 
-        return logs
+    @staticmethod
+    def log_parser(log_dict: Dict[str, Any]) -> Tuple[str, str, Dict[str, Any]]:
+        """
+        Parse the log dictionary to extract the file name, message, and step logs.
+        'Message' field contains the main message of the log.
+        'Logs' field contains logs for each step.
+
+        Arguments:
+            log_dict: A dictionary containing the log information.
+        Returns:
+            A tuple containing the file name, message, and step logs.  
+            **file_name**: The name of the file to save the image.  
+            **message**: The main message of the log.  
+            **step_logs**: A dictionary containing logs for each step.  
+        """
+        if isinstance(log_dict, dict):
+            file_name: List[str] = list(log_dict.keys())
+        else:
+            raise ValueError("log_dict must be a dictionary.")
+
+        if len(file_name) == 1:
+            file_name: str = file_name[0]
+        else:
+            raise ValueError("Multiple keys found in log_dict.")
+        full_log: Dict[str, Any] = log_dict[file_name]
+
+        message: str = full_log.get("Message", None)
+        assert message is not None, "No message found in log."
+        step_logs: Dict[str, Any] = full_log.get("Logs", None)
+        assert step_logs is not None, "No step_logs found in log."
+
+        return file_name, message, step_logs
+
+    @staticmethod
+    def dfs_searcher(data_dict: Dict[str, Any],
+                        key_path: Path = None,
+                        hierarchy: List[str] = None) \
+        -> List[Dict[str, Any]]:
+        """
+        Depth-first search to traverse the log hierarchy.
+        """
+        ret = None
+        assert isinstance(data_dict, dict), "Data must be a dictionary."
+        for key, value in data_dict.items():
+            current_path = key_path / key if key_path is not None else Path(key)
+            if isinstance(value, (str, int, float, list, tuple, bytes)):
+                if ret is None:
+                    ret = [{str(current_path): value},]
+                else:
+                    ret += [{str(current_path): value},]
+            elif isinstance(value, dict):
+                has_match = any(h in k for k in value for h in hierarchy)
+
+                if not has_match:
+                    _temp = [v for v in value.values() \
+                            if isinstance(v, (str, int, float, list, tuple, bytes))]
+                    _ret = [{str(current_path): _temp},] if len(_temp) > 0 else None
+                else:
+                    _ret = Logs.dfs_searcher(value, current_path, hierarchy)
+
+                if _ret is not None:
+                    ret = _ret if ret is None else ret + _ret
+
+            else:
+                raise ValueError(
+                    f"Unsupported data type in log hierarchy: {type(value)} at path: {current_path}"
+                    )
+        return ret if ret is not None else []
+
+    @staticmethod
+    def steplogs_parser(step_logs: Dict[str, Any], hierarchy: List[str]) -> Tuple[Dict[str, Any]]:
+        """
+        Parse step logs to extract log information.
+        'Logs' field contains logs for each step.
+        'Logs' must be a dictionary with step names as keys.
+
+        Returns:
+            A tuple containing the parsed log information.  
+            **key**: path to the log in the hierarchy  
+            **value**: log value
+        """
+        ret = None
+
+        assert isinstance(step_logs, dict), "Step logs must be a dictionary."
+        for step_name, log in step_logs.items():
+            ret_dict = {}
+
+            if isinstance(log, (str, int, float, list, tuple, bytes)):
+                ret_dict[step_name] = log
+                if ret is None:
+                    ret = [ret_dict,]
+                else:
+                    ret += [ret_dict,]
+
+            if isinstance(log, dict):
+                has_match = any(h in k for k in log for h in hierarchy)
+
+                if not has_match:
+                    _temp = [v for v in log.values() \
+                            if isinstance(v, (str, int, float, list, tuple, bytes))]
+                    _ret = [{step_name: _temp},] if len(_temp) > 0 else None
+                else:
+                    _ret = Logs.dfs_searcher(log, Path(step_name), hierarchy)
+
+                if _ret is not None:
+                    ret = _ret if ret is None else ret + _ret
+
+        assert ret is not None, "Failed to parse step logs."
+        return tuple(ret)
+
+
 
 class Logs(LogHelper, TimeHelper):
     """
