@@ -3,9 +3,9 @@ Entry point for the diffusion hash inversion process.
 This module initializes the necessary components.
 This module starts the hash inversion process based on the provided configurations.
 """
-import sys
-from tqdm import tqdm
 from typing import Optional, Any
+
+from tqdm import tqdm
 
 from diffusion_hash_inv.logger import Logs, Metadata, BaseLogs, StepLogs
 from diffusion_hash_inv.config \
@@ -176,31 +176,34 @@ class MainEP:
         runtime_state = self._loop_preprocess()
         assert iteration >= 0, "Iteration count must be non-negative integer."
 
-        pbar = tqdm(range(iteration), desc="Hash Generation Progress", unit="iteration")
-        pbar.set_postfix(
-            {"Hash Algorithm": self.runtime_cfg.hash.hash_alg_upper,
-            "Message Length": self.runtime_cfg.message.length}
-            )
+        with tqdm(
+            range(iteration),
+            desc="Hash Generation Progress",
+            unit="iteration",
+        ) as pbar:
+            pbar.set_postfix(
+                {"Hash Algorithm": self.runtime_cfg.hash.hash_alg_upper,
+                "Message Length": self.runtime_cfg.message.length}
+                )
 
-        for _i in pbar:
-            kwargs.update({"message": _i})
-                # For sequential mode, generate messages based on iteration index
-            json_file_name = \
-                Logs.json_file_namer(
-                    self.runtime_cfg.hash.hash_alg_upper,
-                    self.runtime_cfg.message.length,
-                    self.program_start_time,
-                    _i, iteration)
+            for _i in pbar:
+                kwargs.update({"message": _i})
+                    # For sequential mode, generate messages based on iteration index
+                json_file_name = \
+                    Logs.json_file_namer(
+                        self.runtime_cfg.hash.hash_alg_upper,
+                        self.runtime_cfg.message.length,
+                        self.program_start_time,
+                        _i, iteration)
 
-            runtime_state = self._loop_main(runtime_state, **kwargs)
+                runtime_state = self._loop_main(runtime_state, **kwargs)
 
-            self.io_controller.file_writer(
-                filename=json_file_name,
-                content={"metadata": runtime_state.metadata,
-                    "baselogs": runtime_state.baselogs, "steplogs": runtime_state.steplogs},
-                length=self.runtime_cfg.message.length,
-                path_infix=f"{self.program_start_time}/{_i}")
-
+                self.io_controller.file_writer(
+                    filename=json_file_name,
+                    content={"metadata": runtime_state.metadata,
+                        "baselogs": runtime_state.baselogs, "steplogs": runtime_state.steplogs},
+                    length=self.runtime_cfg.message.length,
+                    path_infix=f"{self.program_start_time}/{_i}")
     def run(self,
             iteration: Optional[int] = None,
             **kwargs):
