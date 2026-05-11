@@ -1,11 +1,10 @@
 """
-Streaming helpers for analyzing hash intermediate process logs.
+Class-based streaming analyzers for hash intermediate process logs.
 """
 
 from __future__ import annotations
 
 import argparse
-import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, Iterator, List, Optional, Sequence
@@ -13,7 +12,7 @@ from typing import Any, Dict, Iterable, Iterator, List, Optional, Sequence
 import numpy as np
 
 from diffusion_hash_inv.config import OutputConfig
-from diffusion_hash_inv.logger import Logs
+from diffusion_hash_inv.logger import LogStream, Logs, StepLogParser
 
 
 JsonDict = Dict[str, Any]
@@ -32,158 +31,114 @@ class BetaScheduleSummary:
     mean: np.ndarray
     variance: np.ndarray
     std: np.ndarray
-    first: np.ndarray
 
 
-def _unwrap_log(log_dict: JsonDict) -> JsonDict:
+class BetaScheduleAnalyzer:
     """
-    Accept either a raw log or {filename: log} and return the actual log body.
+    Build and summarize beta schedules from step logs.
     """
-    if "Logs" in log_dict:
-        return log_dict
 
-    if len(log_dict) != 1:
-        raise ValueError("Each wrapped log must contain exactly one file key.")
+    def __init__(self, step_name: str = "4th Step") -> None:
+        self.step_name = step_name
 
-    full_log = next(iter(log_dict.values()))
-    if not isinstance(full_log, dict) or "Logs" not in full_log:
-        raise ValueError("Log body must be a dictionary containing a 'Logs' field.")
+    @staticmethod
+    def append_cumulative_block(values: List[int], block: bytes) -> None:
+        """
+        Append byte-wise cumulative values to an existing schedule.
+        """
+        running = values[-1] if values else 0
+        for byte_value in block:
+            running += byte_value
+            values.append(running)
 
-    return full_log
+    @classmethod
+    def make_schedule(cls, step_logs: JsonDict) -> List[int]:
+        """
+        Build one cumulative byte schedule from a step log.
+        """
+        beta_schedule: List[int] = []
 
+        for value in Logs.iter_leaf_values(step_logs):
+            if not isinstance(value, str):
+                raise ValueError(f"Step log leaf value must be a hex string, got {type(value)}")
+            cls.append_cumulative_block(beta_schedule, Logs.str_to_bytes(value))
 
-def cumulative_block(values: List[int], block: bytes) -> None:
-    """
-    Append byte-wise cumulative values to an existing schedule.
-    """
-    running = values[-1] if values else 0
-    for byte_value in block:
-        running += byte_value
-        values.append(running)
+        return beta_schedule
 
+    def iter_schedules(self, logs: Iterable[JsonDict]) -> Iterator[List[int]]:
+        """
+        Yield schedules without retaining all logs or schedules in memory.
+        """
+        for step_log in Logs.iter_step_logs(logs, step_name=self.step_name):
+            yield self.make_schedule(step_log)
 
-def make_beta_schedule(step4_logs: JsonDict) -> List[int]:
-    """
-    Build one cumulative byte schedule from the MD5 4th Step log.
-    """
-    beta_schedule: List[int] = []
+    @staticmethod
+    def summarize(
+        schedules: Iterable[Sequence[int]],
+        *,
+        dtype: np.dtype | type = np.float64,
+    ) -> BetaScheduleSummary:
+        """
+        Compute min, max, mean, variance, and std in one pass.
 
-    for round_log in step4_logs.values():
-        if not isinstance(round_log, dict):
-            raise ValueError(f"Round log must be a dictionary, got {type(round_log)}")
+        The variance matches numpy's default population variance (ddof=0), which
+        is what the notebook previously used after materializing the full array.
+        """
+        count = 0
+        length = 0
+        minimum: Optional[np.ndarray] = None
+        maximum: Optional[np.ndarray] = None
+        mean: Optional[np.ndarray] = None
+        m2: Optional[np.ndarray] = None
 
-        for state in round_log.values():
-            if not isinstance(state, dict):
-                raise ValueError(f"Loop state must be a dictionary, got {type(state)}")
+        for schedule in schedules:
+            arr = np.asarray(schedule, dtype=dtype)
+            if arr.ndim != 1 or arr.size == 0:
+                raise ValueError("Each beta schedule must be a non-empty one-dimensional sequence.")
 
-            for value in state.values():
-                if not isinstance(value, str):
-                    raise ValueError(f"Loop state value must be a hex string, got {type(value)}")
-                cumulative_block(beta_schedule, Logs.str_to_bytes(value))
+            if count == 0:
+                count = 1
+                length = int(arr.size)
+                minimum = arr.copy()
+                maximum = arr.copy()
+                mean = arr.copy()
+                m2 = np.zeros_like(arr, dtype=dtype)
+                continue
 
-    return beta_schedule
+            if arr.size != length:
+                raise ValueError(f"Schedule length mismatch: expected {length}, got {arr.size}.")
 
+            count += 1
+            assert minimum is not None
+            assert maximum is not None
+            assert mean is not None
+            assert m2 is not None
 
-def iter_step_logs(logs: Iterable[JsonDict], step_name: str = "4th Step") -> Iterator[JsonDict]:
-    """
-    Yield one named step log at a time from a raw or wrapped log stream.
-    """
-    for log_dict in logs:
-        full_log = _unwrap_log(log_dict)
-        step_logs = full_log.get("Logs")
-        if not isinstance(step_logs, dict):
-            raise ValueError("Log body must contain a dictionary 'Logs' field.")
-
-        step_log = step_logs.get(step_name)
-        if step_log is None:
-            continue
-        if not isinstance(step_log, dict):
-            raise ValueError(f"{step_name} must be a dictionary.")
-
-        yield step_log
-
-
-def iter_beta_schedules(
-    logs: Iterable[JsonDict],
-    step_name: str = "4th Step",
-) -> Iterator[List[int]]:
-    """
-    Yield beta schedules without retaining all logs or schedules in memory.
-    """
-    for step_log in iter_step_logs(logs, step_name=step_name):
-        yield make_beta_schedule(step_log)
-
-
-def summarize_beta_schedules(
-    schedules: Iterable[Sequence[int]],
-    *,
-    dtype: np.dtype | type = np.float64,
-) -> BetaScheduleSummary:
-    """
-    Compute min, max, mean, variance, and std in one pass.
-
-    The variance matches numpy's default population variance (ddof=0), which is
-    what the notebook previously used after materializing the full array.
-    """
-    count = 0
-    length = 0
-    first: Optional[np.ndarray] = None
-    minimum: Optional[np.ndarray] = None
-    maximum: Optional[np.ndarray] = None
-    mean: Optional[np.ndarray] = None
-    m2: Optional[np.ndarray] = None
-
-    for schedule in schedules:
-        arr = np.asarray(schedule, dtype=dtype)
-        if arr.ndim != 1 or arr.size == 0:
-            raise ValueError("Each beta schedule must be a non-empty one-dimensional sequence.")
+            minimum = np.minimum(minimum, arr)
+            maximum = np.maximum(maximum, arr)
+            delta = arr - mean
+            mean = mean + delta / count
+            delta2 = arr - mean
+            m2 = m2 + delta * delta2
 
         if count == 0:
-            count = 1
-            length = int(arr.size)
-            first = arr.copy()
-            minimum = arr.copy()
-            maximum = arr.copy()
-            mean = arr.copy()
-            m2 = np.zeros_like(arr, dtype=dtype)
-            continue
+            raise ValueError("No beta schedules were provided.")
 
-        if arr.size != length:
-            raise ValueError(f"Schedule length mismatch: expected {length}, got {arr.size}.")
-
-        count += 1
         assert minimum is not None
         assert maximum is not None
         assert mean is not None
         assert m2 is not None
 
-        minimum = np.minimum(minimum, arr)
-        maximum = np.maximum(maximum, arr)
-        delta = arr - mean
-        mean = mean + delta / count
-        delta2 = arr - mean
-        m2 = m2 + delta * delta2
-
-    if count == 0:
-        raise ValueError("No beta schedules were provided.")
-
-    assert first is not None
-    assert minimum is not None
-    assert maximum is not None
-    assert mean is not None
-    assert m2 is not None
-
-    variance = m2 / count
-    return BetaScheduleSummary(
-        count=count,
-        length=length,
-        minimum=minimum,
-        maximum=maximum,
-        mean=mean,
-        variance=variance,
-        std=np.sqrt(variance),
-        first=first,
-    )
+        variance = m2 / count
+        return BetaScheduleSummary(
+            count=count,
+            length=length,
+            minimum=minimum,
+            maximum=maximum,
+            mean=mean,
+            variance=variance,
+            std=np.sqrt(variance),
+        )
 
 
 class Analyze:
@@ -194,49 +149,81 @@ class Analyze:
     when the full dataset is intentionally small enough to keep in memory.
     """
 
-    def __init__(self, data_path: str | Path, is_verbose: bool = False, preload: bool = False):
-        self.data_path = Path(data_path)
-        self.is_verbose = is_verbose
+    def __init__(
+        self,
+        data_path: str | Path,
+        is_verbose: bool = False,
+        preload: bool = False,
+        step_name: str = "4th Step",
+    ) -> None:
+        self.stream = LogStream(data_path, is_verbose=is_verbose)
+        self.beta_schedule = BetaScheduleAnalyzer(step_name=step_name)
         self.data: List[JsonDict] = []
 
         if preload:
             self.load()
 
+    @property
+    def data_path(self) -> Path:
+        """
+        Return the configured log path.
+        """
+        return self.stream.data_path
+
+    @property
+    def is_verbose(self) -> bool:
+        """
+        Return whether verbose streaming is enabled.
+        """
+        return self.stream.is_verbose
+
     def iter_files(self) -> Iterator[Path]:
         """
         Yield JSON files below data_path in deterministic order.
         """
-        if self.data_path.is_file():
-            if self.data_path.suffix == ".json":
-                yield self.data_path
-            return
-
-        if not self.data_path.exists():
-            raise FileNotFoundError(f"Data path not found: {self.data_path}")
-        if not self.data_path.is_dir():
-            raise NotADirectoryError(f"Data path is not a directory: {self.data_path}")
-
-        yield from sorted(path for path in self.data_path.rglob("*.json") if path.is_file())
+        return self.stream.iter_files()
 
     def iter_logs(self) -> Iterator[JsonDict]:
         """
         Stream raw JSON logs one file at a time.
         """
-        for log_path in self.iter_files():
-            if self.is_verbose:
-                print(f"Loading log: {log_path}")
-            with log_path.open("r", encoding="utf-8") as rf:
-                yield json.load(rf)
+        return self.stream.iter_logs()
+
+    def iter_step_logs(self, step_name: Optional[str] = None) -> Iterator[JsonDict]:
+        """
+        Stream selected step logs from this analyzer's input logs.
+        """
+        selected_step = step_name if step_name is not None else self.beta_schedule.step_name
+        return StepLogParser.iter_step_logs(self.iter_logs(), step_name=selected_step)
+
+    def iter_beta_schedules(self, step_name: Optional[str] = None) -> Iterator[List[int]]:
+        """
+        Stream beta schedules from this analyzer's input logs.
+        """
+        selected_step = step_name if step_name is not None else self.beta_schedule.step_name
+        analyzer = self.beta_schedule if selected_step == self.beta_schedule.step_name \
+            else BetaScheduleAnalyzer(step_name=selected_step)
+        return analyzer.iter_schedules(self.iter_logs())
+
+    def summarize_beta_schedules(
+        self,
+        step_name: Optional[str] = None,
+        *,
+        dtype: np.dtype | type = np.float64,
+    ) -> BetaScheduleSummary:
+        """
+        Stream schedules and return online aggregate statistics.
+        """
+        return BetaScheduleAnalyzer.summarize(
+            self.iter_beta_schedules(step_name=step_name),
+            dtype=dtype,
+        )
 
     def load(self) -> List[JsonDict]:
         """
         Load all logs into memory for small datasets.
         """
-        self.data = list(self.iter_logs())
-        if self.is_verbose:
-            print(f"Loaded logs: {len(self.data)}")
-            if self.data:
-                print(self.data[0])
+        self.data = self.stream.load()
         return self.data
 
     def get(self, name: Optional[str] = None, iteration: int = 0) -> Any:

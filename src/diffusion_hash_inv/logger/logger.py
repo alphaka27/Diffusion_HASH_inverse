@@ -3,11 +3,12 @@ Logging utilities for Diffusion Hash Inversion
 """
 
 from __future__ import annotations
-from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, Iterator, List, Optional, Sequence, Tuple
 
 from datetime import datetime
 from collections.abc import Hashable, MutableMapping
 from dataclasses import dataclass, field
+import json
 import time
 from pathlib import Path
 
@@ -322,6 +323,135 @@ class StepLogs:
         }
         return self.logs, self.step_metadata
 
+
+class LogStream:
+    """
+    Stream JSON log files from a file or directory without retaining them.
+    """
+
+    def __init__(
+        self,
+        data_path: str | Path,
+        *,
+        is_verbose: bool = False,
+        encoding: str = "utf-8",
+    ) -> None:
+        self.data_path = Path(data_path)
+        self.is_verbose = is_verbose
+        self.encoding = encoding
+
+    def iter_files(self) -> Iterator[Path]:
+        """
+        Yield JSON files below data_path in deterministic order.
+        """
+        if self.data_path.is_file():
+            if self.data_path.suffix == ".json":
+                yield self.data_path
+            return
+
+        if not self.data_path.exists():
+            raise FileNotFoundError(f"Data path not found: {self.data_path}")
+        if not self.data_path.is_dir():
+            raise NotADirectoryError(f"Data path is not a directory: {self.data_path}")
+
+        yield from sorted(path for path in self.data_path.rglob("*.json") if path.is_file())
+
+    def iter_logs(self) -> Iterator[Dict[str, Any]]:
+        """
+        Stream raw JSON logs one file at a time.
+        """
+        for log_path in self.iter_files():
+            if self.is_verbose:
+                print(f"Loading log: {log_path}")
+            raw = log_path.read_text(encoding=self.encoding).strip()
+            if not raw:
+                raise ValueError(f"JSON log file is empty: {log_path}")
+            try:
+                yield json.loads(raw)
+            except json.JSONDecodeError as exc:
+                raise ValueError(
+                    f"Invalid JSON in log file: {log_path} ({exc.msg} at line {exc.lineno}, column {exc.colno})"
+                ) from exc
+
+    def load(self) -> List[Dict[str, Any]]:
+        """
+        Load all logs into memory for intentionally small datasets.
+        """
+        logs = list(self.iter_logs())
+        if self.is_verbose:
+            print(f"Loaded logs: {len(logs)}")
+            if logs:
+                print(logs[0])
+        return logs
+
+
+class StepLogParser:
+    """
+    Parse wrapped or raw JSON logs and expose selected step logs or values.
+    """
+
+    @staticmethod
+    def unwrap_log(log_dict: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Accept either a raw log or {filename: log} and return the actual log body.
+        """
+        if "Logs" in log_dict:
+            return log_dict
+
+        if len(log_dict) != 1:
+            raise ValueError("Each wrapped log must contain exactly one file key.")
+
+        full_log = next(iter(log_dict.values()))
+        if not isinstance(full_log, dict) or "Logs" not in full_log:
+            raise ValueError("Log body must be a dictionary containing a 'Logs' field.")
+
+        return full_log
+
+    @classmethod
+    def iter_step_logs(
+        cls,
+        logs: Iterable[Dict[str, Any]],
+        step_name: str = "4th Step",
+    ) -> Iterator[Dict[str, Any]]:
+        """
+        Yield one named step log at a time from a raw or wrapped log stream.
+        """
+        for log_dict in logs:
+            full_log = cls.unwrap_log(log_dict)
+            step_logs = full_log.get("Logs")
+            if not isinstance(step_logs, dict):
+                raise ValueError("Log body must contain a dictionary 'Logs' field.")
+
+            step_log = step_logs.get(step_name)
+            if step_log is None:
+                continue
+            if not isinstance(step_log, dict):
+                raise ValueError(f"{step_name} must be a dictionary.")
+
+            yield step_log
+
+    @classmethod
+    def iter_leaf_values(cls, value: Any) -> Iterator[Any]:
+        """
+        Yield leaf values from nested log dictionaries/lists in insertion order.
+        """
+        if isinstance(value, dict):
+            for item in value.values():
+                yield from cls.iter_leaf_values(item)
+            return
+
+        if isinstance(value, (list, tuple)):
+            for item in value:
+                yield from cls.iter_leaf_values(item)
+            return
+
+        if isinstance(value, (str, int, float, bytes)):
+            yield value
+            return
+
+        raise ValueError(f"Unsupported log leaf value type: {type(value)}")
+
+
 class TimeHelper:
     """
     Helper class for time-related functions
@@ -522,6 +652,42 @@ class LogHelper:
         Get Logs data from file.
         """
         return list(LogHelper.iter_logs(io_controller, hash_cfg, main_cfg))
+
+    @staticmethod
+    def iter_logs_from_path(
+        data_path: str | Path,
+        *,
+        is_verbose: bool = False,
+        encoding: str = "utf-8",
+    ) -> Iterator[Dict[str, Any]]:
+        """
+        Stream raw JSON logs from a file or directory path.
+        """
+        return LogStream(data_path, is_verbose=is_verbose, encoding=encoding).iter_logs()
+
+    @staticmethod
+    def unwrap_log(log_dict: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Accept either a raw log or {filename: log} and return the actual log body.
+        """
+        return StepLogParser.unwrap_log(log_dict)
+
+    @staticmethod
+    def iter_step_logs(
+        logs: Iterable[Dict[str, Any]],
+        step_name: str = "4th Step",
+    ) -> Iterator[Dict[str, Any]]:
+        """
+        Yield one named step log at a time from a raw or wrapped log stream.
+        """
+        return StepLogParser.iter_step_logs(logs, step_name=step_name)
+
+    @staticmethod
+    def iter_leaf_values(value: Any) -> Iterator[Any]:
+        """
+        Yield leaf values from nested log dictionaries/lists in insertion order.
+        """
+        return StepLogParser.iter_leaf_values(value)
 
     @staticmethod
     def iter_logs_with_hierarchy(io_controller,

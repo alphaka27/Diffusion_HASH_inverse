@@ -24,6 +24,99 @@ python -m diffusion_hash_inv.models.diffusion_with_mlx \
 ```
 `--device gpu` can be used on an Apple Silicon machine with Metal available.
 
+# Generated Image Conditional DDPM Training
+Train a conditional DDPM on PNG files generated under `data/images`.
+The trainer uses only `data/images/<run-id>/message.png` files as input images.
+Condition labels are read from the matching JSON file under `output/json` and
+fixed to `Logs/4th Step` for each `<run-id>`.
+Default `fit_mode` is `reshape`: each `message.png` is flattened and reshaped
+to an equal-area square (e.g. `7168x28 -> 448x448`). `height-flatten` uses the
+`ImgConfig.img_size` height as the unit, flattens ImgConfig-sized blocks, and
+then reshapes to a square RGB image. The source dimensions must be multiples of
+`ImgConfig.img_size` (`28x28` by default). `pad` and `resize` are also available.
+
+``` bash
+pip install -e ".[train]"
+python -m diffusion_hash_inv.models.conditional_diffusion \
+  --data-root data/images \
+  --json-root output/json \
+  --output-dir output/conditional_diffusion \
+  --image-size 64 \
+  --batch-size 32 \
+  --epochs 1 \
+  --timesteps 200 \
+  --beta-schedule linear \
+  --save-train-batches-every 5 \
+  --save-process-traces \
+  --trace-sample-count 4 \
+  --trace-steps 8 \
+  --device auto
+```
+
+For a quick smoke run:
+``` bash
+python -m diffusion_hash_inv.models.conditional_diffusion \
+  --data-root data/images \
+  --json-root output/json \
+  --max-images 256 \
+  --image-size 32 \
+  --batch-size 8 \
+  --train-steps 2 \
+  --timesteps 4 \
+  --base-channels 8 \
+  --time-dim 16 \
+  --beta-schedule linear \
+  --save-train-batches-every 5 \
+  --device cpu
+```
+
+Artifacts are written to `output/conditional_diffusion`: `condition_to_idx.json`,
+`train_config.json`, `beta_schedule.json`, checkpoints, and sample grids.
+Use `--save-train-batches-every N` to save actual training input batches as
+PNG grids every `N` optimizer steps under `output/conditional_diffusion/train_batches`.
+Each saved step also includes `step_XXXXXX.batch.json` with the exact source
+image paths, labels, and conditions used in that batch.
+When `--save-process-traces` is enabled, the forward process is saved for every
+timestep and reverse process grids are saved under
+`output/conditional_diffusion/process_traces`.
+
+Training can be controlled with either `--train-steps` or `--epochs`.
+When `--epochs` is set, the trainer uses
+`ceil(dataset_size / batch_size) * epochs` optimizer updates.
+
+`--condition-mode` is retained for backward compatibility, but training data
+selection and labels are fixed to `message.png` and `Logs/4th Step`.
+
+Custom beta schedules can be used with:
+``` bash
+python -m diffusion_hash_inv.models.conditional_diffusion \
+  --data-root data/images \
+  --json-root output/json \
+  --output-dir output/conditional_diffusion_custom_beta \
+  --timesteps 200 \
+  --beta-schedule hash-approach2
+```
+Supported `--beta-schedule` values are `linear`, `file`, `hash-approach1`,
+and `hash-approach2`. For `file`, pass `--beta-values-path` pointing to a
+JSON, TXT/CSV, NPY, or NPZ file containing beta values. With `file`,
+`hash-approach1`, and `hash-approach2`, diffusion `timesteps` are inferred
+from the resulting beta schedule length (the `--timesteps` argument applies to
+`linear` schedule).
+
+Process trace outputs:
+```text
+output/conditional_diffusion/process_traces/
+  forward/
+    x0.png
+    t_000000.png
+    ...
+  reverse/
+    xT_noise.png
+    t_000199.png
+    ...
+    t_000000.png
+```
+
 ## Command Line Argument
 --hash_alg "Hash Algorithm": Hash algorithm  
 -l "Length" /  -e "Exponential": Message Length  

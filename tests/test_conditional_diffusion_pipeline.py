@@ -1,0 +1,364 @@
+import json
+from pathlib import Path
+
+import pytest
+
+torch = pytest.importorskip("torch")
+pytest.importorskip("PIL")
+
+from PIL import Image
+
+from diffusion_hash_inv.models.conditional_diffusion import (
+    ConditionalDiffusionTrainConfig,
+    ConditionalUNet,
+    DDPMNoiseScheduler,
+    GeneratedImageDataset,
+    _ensure_square_batch,
+    cleanup_torch_resources,
+    build_beta_schedule,
+    discover_generated_image_samples,
+    resolve_train_steps,
+    save_image_grid,
+    trace_timesteps,
+    train_conditional_diffusion,
+)
+
+
+def _write_png(path: Path, size: tuple[int, int], color: tuple[int, int, int, int]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    Image.new("RGBA", size, color).save(path)
+
+
+def test_generated_image_dataset_uses_message_png_and_step4_labels(tmp_path: Path) -> None:
+    root = tmp_path / "images"
+    json_root = tmp_path / "output" / "json"
+    _write_png(root / "RUN_0001" / "message.png", (28, 28), (255, 0, 0, 255))
+    _write_png(
+        root / "RUN_0001" / "4th Step" / "1st Round" / "57th Loop.png",
+        (112, 112),
+        (0, 255, 0, 255),
+    )
+    _write_png(root / "RUN_0002" / "message.png", (896, 28), (0, 0, 255, 255))
+    _write_png(root / "RUN_0002" / "1st Step.png", (16, 16), (4, 5, 6, 255))
+
+    for run_id, step4_value in [("RUN_0001", "0xstep4-run1"), ("RUN_0002", "0xstep4-run2")]:
+        json_path = json_root / "2026-05-09 14-13-27" / f"{run_id}.json"
+        json_path.parent.mkdir(parents=True, exist_ok=True)
+        json_path.write_text(
+            json.dumps({"Message": {"Hex": "0xmessage"}, "Logs": {"4th Step": step4_value}}),
+            encoding="utf-8",
+        )
+
+    samples, condition_to_idx = discover_generated_image_samples(
+        root,
+        json_root=json_root,
+    )
+
+    assert len(samples) == 2
+    assert all(sample.path.name == "message.png" for sample in samples)
+    assert set(condition_to_idx) == {"0xstep4-run1", "0xstep4-run2"}
+
+    dataset = GeneratedImageDataset(
+        root,
+        json_root=json_root,
+        image_size=32,
+        channels=3,
+        fit_mode="pad",
+    )
+    image, label = dataset[0]
+    with Image.open(dataset.samples[0].path) as source:
+        expected_side = max(source.width, source.height)
+
+    assert image.shape == (3, expected_side, expected_side)
+    assert image.dtype == torch.float32
+    assert label.dtype == torch.long
+    assert image.min() >= -1.0
+    assert image.max() <= 1.0
+    assert dataset.num_conditions == 2
+
+
+def test_generated_image_dataset_requires_step4_label_in_json(tmp_path: Path) -> None:
+    image_root = tmp_path / "images"
+    json_root = tmp_path / "output" / "json"
+    run_id = "MD5_256_2026-05-09 14-13-27_0000"
+    _write_png(image_root / run_id / "message.png", (16, 16), (1, 2, 3, 255))
+    json_path = json_root / "2026-05-09 14-13-27" / f"{run_id}.json"
+    json_path.parent.mkdir(parents=True, exist_ok=True)
+    json_path.write_text(
+        json.dumps({"Message": {"Hex": "0xmessage"}, "Logs": {"1st Step": "0xstep1"}}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(KeyError, match="Logs/4th Step"):
+        GeneratedImageDataset(
+            image_root,
+            json_root=json_root,
+            image_size=16,
+        )
+
+
+def test_generated_image_dataset_rejects_empty_json_payload_file(tmp_path: Path) -> None:
+    image_root = tmp_path / "images"
+    json_root = tmp_path / "output" / "json"
+    run_id = "MD5_256_2026-05-09 14-13-27_0000"
+    _write_png(image_root / run_id / "message.png", (16, 16), (1, 2, 3, 255))
+    json_path = json_root / "2026-05-09 14-13-27" / f"{run_id}.json"
+    json_path.parent.mkdir(parents=True, exist_ok=True)
+    json_path.write_text("", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="JSON payload file is empty"):
+        GeneratedImageDataset(
+            image_root,
+            json_root=json_root,
+            image_size=16,
+        )
+
+
+def test_generated_image_dataset_supports_equal_area_reshape_mode(tmp_path: Path) -> None:
+    image_root = tmp_path / "images"
+    json_root = tmp_path / "output" / "json"
+    run_id = "RUN_0001"
+    _write_png(image_root / run_id / "message.png", (8, 2), (1, 2, 3, 255))
+    json_path = json_root / "2026-05-09 14-13-27" / f"{run_id}.json"
+    json_path.parent.mkdir(parents=True, exist_ok=True)
+    json_path.write_text(
+        json.dumps({"Message": {"Hex": "0xmessage"}, "Logs": {"4th Step": "0xstep4"}}),
+        encoding="utf-8",
+    )
+
+    dataset = GeneratedImageDataset(
+        image_root,
+        json_root=json_root,
+        image_size=32,
+        fit_mode="reshape",
+    )
+    image, _ = dataset[0]
+
+    assert image.shape == (3, 4, 4)
+
+
+def test_generated_image_dataset_supports_height_flatten_mode(tmp_path: Path) -> None:
+    image_root = tmp_path / "images"
+    json_root = tmp_path / "output" / "json"
+    run_id = "RUN_0001"
+    _write_png(image_root / run_id / "message.png", (112, 28), (1, 2, 3, 255))
+    json_path = json_root / "2026-05-09 14-13-27" / f"{run_id}.json"
+    json_path.parent.mkdir(parents=True, exist_ok=True)
+    json_path.write_text(
+        json.dumps({"Message": {"Hex": "0xmessage"}, "Logs": {"4th Step": "0xstep4"}}),
+        encoding="utf-8",
+    )
+
+    dataset = GeneratedImageDataset(
+        image_root,
+        json_root=json_root,
+        image_size=32,
+        channels=3,
+        fit_mode="height-flatten",
+    )
+    image, _ = dataset[0]
+
+    assert dataset.channels == 3
+    assert image.shape == (3, 56, 56)
+
+
+def test_conditional_unet_and_scheduler_preserve_shape() -> None:
+    model = ConditionalUNet(in_channels=3, num_conditions=4, base_channels=8, time_dim=16)
+    scheduler = DDPMNoiseScheduler(timesteps=8)
+    x0 = torch.randn(2, 3, 16, 16)
+    labels = torch.tensor([0, 3], dtype=torch.long)
+    timesteps = torch.tensor([0, 7], dtype=torch.long)
+    noise = torch.randn_like(x0)
+
+    noised = scheduler.q_sample(x0, timesteps, noise)
+    pred_noise = model(noised, timesteps, labels)
+
+    assert noised.shape == x0.shape
+    assert pred_noise.shape == x0.shape
+
+
+def test_ensure_square_batch_resizes_non_square_tensor() -> None:
+    images = torch.randn(2, 3, 12, 20)
+
+    squared = _ensure_square_batch(images)
+
+    assert squared.shape == (2, 3, 20, 20)
+
+
+def test_ddpm_noise_scheduler_accepts_custom_betas() -> None:
+    betas = torch.tensor([0.01, 0.02, 0.03], dtype=torch.float32)
+
+    scheduler = DDPMNoiseScheduler(betas=betas)
+
+    assert scheduler.timesteps == 3
+    torch.testing.assert_close(scheduler.betas.cpu(), betas)
+
+
+def test_build_beta_schedule_uses_file_beta_length(tmp_path: Path) -> None:
+    beta_path = tmp_path / "betas.json"
+    beta_path.write_text(json.dumps({"betas": [0.01, 0.03]}), encoding="utf-8")
+    config = ConditionalDiffusionTrainConfig(
+        beta_schedule="file",
+        beta_values_path=beta_path,
+        timesteps=4,
+    )
+
+    betas = build_beta_schedule(config)
+
+    assert betas is not None
+    assert betas.shape == (2,)
+    assert betas[0] == 0.01
+    assert betas[-1] == 0.03
+    assert (betas > 0).all()
+    assert (betas < 1).all()
+
+
+def test_build_beta_schedule_rejects_empty_beta_json_file(tmp_path: Path) -> None:
+    beta_path = tmp_path / "betas.json"
+    beta_path.write_text("", encoding="utf-8")
+    config = ConditionalDiffusionTrainConfig(
+        beta_schedule="file",
+        beta_values_path=beta_path,
+        timesteps=4,
+    )
+
+    with pytest.raises(ValueError, match="Beta values file is empty"):
+        build_beta_schedule(config)
+
+
+def test_build_beta_schedule_rejects_invalid_beta_json_file(tmp_path: Path) -> None:
+    beta_path = tmp_path / "betas.json"
+    beta_path.write_text("{", encoding="utf-8")
+    config = ConditionalDiffusionTrainConfig(
+        beta_schedule="file",
+        beta_values_path=beta_path,
+        timesteps=4,
+    )
+
+    with pytest.raises(ValueError, match="Invalid JSON in beta values file"):
+        build_beta_schedule(config)
+
+
+def test_resolve_train_steps_uses_epochs_when_provided() -> None:
+    assert resolve_train_steps(
+        dataset_size=10,
+        batch_size=4,
+        train_steps=99,
+        epochs=2,
+    ) == 6
+
+
+def test_resolve_train_steps_uses_train_steps_without_epochs() -> None:
+    assert resolve_train_steps(
+        dataset_size=10,
+        batch_size=4,
+        train_steps=99,
+        epochs=None,
+    ) == 99
+
+
+def test_trace_timesteps_are_evenly_spaced_unique_values() -> None:
+    assert trace_timesteps(timesteps=10, trace_steps=4) == [0, 3, 6, 9]
+    assert trace_timesteps(timesteps=3, trace_steps=8) == [0, 1, 2]
+    assert trace_timesteps(timesteps=3, trace_steps=0) == []
+
+
+def test_save_image_grid_saves_individual_files_for_multiple_samples(tmp_path: Path) -> None:
+    images = torch.zeros((2, 3, 4, 4), dtype=torch.float32)
+    labels = torch.tensor([0, 1], dtype=torch.long)
+    path = tmp_path / "grid.png"
+
+    save_image_grid(images, labels, ["A", "B"], path)
+
+    assert not path.exists()
+    assert (tmp_path / "grid_000.png").exists()
+    assert (tmp_path / "grid_001.png").exists()
+    labels_payload = json.loads((tmp_path / "grid.labels.json").read_text(encoding="utf-8"))
+    assert labels_payload[0]["file"] == "grid_000.png"
+    assert labels_payload[1]["file"] == "grid_001.png"
+
+
+def test_training_can_save_forward_and_reverse_process_traces(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    image_root = tmp_path / "images"
+    json_root = tmp_path / "output" / "json"
+    run_id = "MD5_256_2026-05-09 14-13-27_0000"
+    _write_png(image_root / run_id / "message.png", (16, 16), (1, 2, 3, 255))
+    _write_png(image_root / run_id / "3rd Step.png", (16, 16), (4, 5, 6, 255))
+    json_path = json_root / "2026-05-09 14-13-27" / f"{run_id}.json"
+    json_path.parent.mkdir(parents=True, exist_ok=True)
+    json_path.write_text(
+        json.dumps(
+            {
+                "Message": {"Hex": "0xmessage"},
+                "Logs": {
+                    "4th Step": {"A": "0x01", "B": "0x02"},
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    config = ConditionalDiffusionTrainConfig(
+        data_root=image_root,
+        json_root=json_root,
+        output_dir=tmp_path / "train_output",
+        image_size=8,
+        batch_size=1,
+        train_steps=1,
+        timesteps=4,
+        base_channels=4,
+        time_dim=8,
+        sample_count=1,
+        save_process_traces=True,
+        save_train_batches_every=1,
+        trace_sample_count=1,
+        trace_steps=2,
+        device="cpu",
+    )
+
+    result = train_conditional_diffusion(config)
+    captured = capsys.readouterr()
+
+    trace_root = result["process_traces"]
+    assert trace_root is not None
+    trace_root = Path(trace_root)
+    assert (trace_root / "forward" / "x0.png").exists()
+    assert (trace_root / "forward" / "t_000000.png").exists()
+    assert (trace_root / "forward" / "t_000001.png").exists()
+    assert (trace_root / "forward" / "t_000002.png").exists()
+    assert (trace_root / "forward" / "t_000003.png").exists()
+    assert (trace_root / "reverse" / "xT_noise.png").exists()
+    assert (trace_root / "reverse" / "t_000003.png").exists()
+    assert (trace_root / "reverse" / "t_000002.png").exists()
+    assert (trace_root / "reverse" / "t_000001.png").exists()
+    assert (trace_root / "reverse" / "t_000000.png").exists()
+    assert "[reshape] mode=reshape source=16x16 output=16x16 channels=3" in captured.out
+    assert "[forward-trace] saving x0 + 4 noising steps" in captured.out
+    assert "[forward-trace] step=000000" in captured.out
+    assert "[forward-trace] step=000003" in captured.out
+    assert "[reverse-trace] saving xT + 4 denoising steps" in captured.out
+    assert "[reverse-trace] step=000003" in captured.out
+    assert "[reverse-trace] step=000000" in captured.out
+    assert Path(result["sample_grid"]).name == "final.png"
+    assert Path(result["sample_source_grid"]).name == "final.source.png"
+    assert Path(result["sample_with_source_grid"]).name == "final.with_source.png"
+    assert Path(result["sample_source_grid"]).exists()
+    assert not Path(result["sample_with_source_grid"]).exists()
+    assert Path(result["sample_with_source_grid"]).with_name("final.with_source.source.png").exists()
+    assert Path(result["sample_with_source_grid"]).with_name("final.with_source.generated.png").exists()
+    assert (Path(result["train_batches"]) / "step_000001.png").exists()
+    batch_metadata = Path(result["train_batches"]) / "step_000001.batch.json"
+    assert batch_metadata.exists()
+    payload = json.loads(batch_metadata.read_text(encoding="utf-8"))
+    assert payload["step"] == 1
+    assert payload["samples"]
+
+
+def test_cleanup_torch_resources_clears_state_dict() -> None:
+    state = {"tensor": torch.ones(1), "text": "keep"}
+
+    cleanup_torch_resources(state)
+
+    assert state == {}
