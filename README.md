@@ -28,7 +28,7 @@ python -m diffusion_hash_inv.models.diffusion_with_mlx \
 Train a conditional DDPM on PNG files generated under `data/images`.
 The trainer uses only `data/images/<run-id>/message.png` files as input images.
 Condition labels are read from the matching JSON file under `output/json` and
-fixed to `Logs/4th Step` for each `<run-id>`.
+use the final hash value for each `<run-id>`.
 Default `fit_mode` is `reshape`: each `message.png` is flattened and reshaped
 to an equal-area square (e.g. `7168x28 -> 448x448`). `height-flatten` uses the
 `ImgConfig.img_size` height as the unit, flattens ImgConfig-sized blocks, and
@@ -42,6 +42,7 @@ python -m diffusion_hash_inv.models.conditional_diffusion \
   --json-root output/json \
   --output-dir output/conditional_diffusion \
   --image-size 64 \
+  --label-source final-hash \
   --batch-size 32 \
   --epochs 1 \
   --timesteps 200 \
@@ -85,7 +86,63 @@ When `--epochs` is set, the trainer uses
 `ceil(dataset_size / batch_size) * epochs` optimizer updates.
 
 `--condition-mode` is retained for backward compatibility, but training data
-selection and labels are fixed to `message.png` and `Logs/4th Step`.
+selection is fixed to `message.png`. `--label-source` only supports
+`final-hash`; `Logs/4th Step` is no longer used as a base conditional DDPM
+label.
+
+Final-hash conditional model:
+``` bash
+python -m diffusion_hash_inv.models.conditional_diffusion \
+  --data-root data/images \
+  --json-root output/json \
+  --output-dir output/conditional_diffusion_final_hash \
+  --label-source final-hash \
+  --image-size 64 \
+  --batch-size 32 \
+  --epochs 1 \
+  --timesteps 200 \
+  --device auto
+```
+
+# Guided Conditional DDPM Training
+Classifier guidance and classifier-free guidance are implemented separately in
+`diffusion_hash_inv.models.guided_conditional_diffusion`, leaving the base
+conditional DDPM module unchanged.
+The notebook version is available at `notebooks/guided_conditional_diffusion.ipynb`.
+
+Classifier-free guidance:
+``` bash
+python -m diffusion_hash_inv.models.guided_conditional_diffusion \
+  --data-root data/images \
+  --json-root output/json \
+  --output-dir output/guided_conditional_diffusion_cfg \
+  --label-source final-hash \
+  --guidance-mode classifier-free \
+  --guidance-scale 2.0 \
+  --condition-dropout 0.1 \
+  --image-size 64 \
+  --batch-size 32 \
+  --epochs 1 \
+  --timesteps 200 \
+  --device auto
+```
+
+Classifier guidance:
+``` bash
+python -m diffusion_hash_inv.models.guided_conditional_diffusion \
+  --data-root data/images \
+  --json-root output/json \
+  --output-dir output/guided_conditional_diffusion_classifier \
+  --label-source final-hash \
+  --guidance-mode classifier \
+  --guidance-scale 1.0 \
+  --classifier-base-channels 32 \
+  --image-size 64 \
+  --batch-size 32 \
+  --epochs 1 \
+  --timesteps 200 \
+  --device auto
+```
 
 Custom beta schedules can be used with:
 ``` bash

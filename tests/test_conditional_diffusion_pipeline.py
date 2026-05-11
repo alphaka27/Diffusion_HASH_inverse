@@ -19,6 +19,7 @@ from diffusion_hash_inv.models.conditional_diffusion import (
     cleanup_torch_resources,
     build_beta_schedule,
     discover_generated_image_samples,
+    discover_loop_image_samples,
     resolve_train_steps,
     save_image_grid,
     trace_timesteps,
@@ -31,7 +32,7 @@ def _write_png(path: Path, size: tuple[int, int], color: tuple[int, int, int, in
     Image.new("RGBA", size, color).save(path)
 
 
-def test_generated_image_dataset_uses_message_png_and_step4_labels(tmp_path: Path) -> None:
+def test_generated_image_dataset_uses_message_png_and_final_hash_labels(tmp_path: Path) -> None:
     root = tmp_path / "images"
     json_root = tmp_path / "output" / "json"
     _write_png(root / "RUN_0001" / "message.png", (28, 28), (255, 0, 0, 255))
@@ -43,11 +44,18 @@ def test_generated_image_dataset_uses_message_png_and_step4_labels(tmp_path: Pat
     _write_png(root / "RUN_0002" / "message.png", (896, 28), (0, 0, 255, 255))
     _write_png(root / "RUN_0002" / "1st Step.png", (16, 16), (4, 5, 6, 255))
 
-    for run_id, step4_value in [("RUN_0001", "0xstep4-run1"), ("RUN_0002", "0xstep4-run2")]:
+    for run_id, final_hash in [("RUN_0001", "0xfinal-run1"), ("RUN_0002", "0xfinal-run2")]:
         json_path = json_root / "2026-05-09 14-13-27" / f"{run_id}.json"
         json_path.parent.mkdir(parents=True, exist_ok=True)
         json_path.write_text(
-            json.dumps({"Message": {"Hex": "0xmessage"}, "Logs": {"4th Step": step4_value}}),
+            json.dumps(
+                {
+                    "Message": {"Hex": "0xmessage"},
+                    "Logs": {"4th Step": "0xlegacy-step4"},
+                    "Generated hash": final_hash,
+                    "Correct   hash": final_hash,
+                }
+            ),
             encoding="utf-8",
         )
 
@@ -58,7 +66,7 @@ def test_generated_image_dataset_uses_message_png_and_step4_labels(tmp_path: Pat
 
     assert len(samples) == 2
     assert all(sample.path.name == "message.png" for sample in samples)
-    assert set(condition_to_idx) == {"0xstep4-run1", "0xstep4-run2"}
+    assert set(condition_to_idx) == {"0xfinal-run1", "0xfinal-run2"}
 
     dataset = GeneratedImageDataset(
         root,
@@ -67,7 +75,7 @@ def test_generated_image_dataset_uses_message_png_and_step4_labels(tmp_path: Pat
         channels=3,
         fit_mode="pad",
     )
-    image, label = dataset[0]
+    image, label, _loop_meta = dataset[0]
     with Image.open(dataset.samples[0].path) as source:
         expected_side = max(source.width, source.height)
 
@@ -79,7 +87,55 @@ def test_generated_image_dataset_uses_message_png_and_step4_labels(tmp_path: Pat
     assert dataset.num_conditions == 2
 
 
-def test_generated_image_dataset_requires_step4_label_in_json(tmp_path: Path) -> None:
+def test_generated_image_dataset_explicitly_accepts_final_hash_labels(tmp_path: Path) -> None:
+    root = tmp_path / "images"
+    json_root = tmp_path / "output" / "json"
+    _write_png(root / "RUN_0001" / "message.png", (28, 28), (255, 0, 0, 255))
+    _write_png(root / "RUN_0002" / "message.png", (28, 28), (0, 0, 255, 255))
+
+    for run_id, step4_value, final_hash in [
+        ("RUN_0001", "0xstep4-run1", "0xfinal-run1"),
+        ("RUN_0002", "0xstep4-run2", "0xfinal-run2"),
+    ]:
+        json_path = json_root / "2026-05-09 14-13-27" / f"{run_id}.json"
+        json_path.parent.mkdir(parents=True, exist_ok=True)
+        json_path.write_text(
+            json.dumps(
+                {
+                    "Message": {"Hex": "0xmessage"},
+                    "Logs": {"4th Step": step4_value},
+                    "Generated hash": final_hash,
+                    "Correct   hash": final_hash,
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    samples, condition_to_idx = discover_generated_image_samples(
+        root,
+        json_root=json_root,
+        label_source="final-hash",
+    )
+
+    assert len(samples) == 2
+    assert set(condition_to_idx) == {"0xfinal-run1", "0xfinal-run2"}
+    assert {sample.condition for sample in samples} == {"0xfinal-run1", "0xfinal-run2"}
+
+    dataset = GeneratedImageDataset(
+        root,
+        json_root=json_root,
+        image_size=32,
+        channels=3,
+        fit_mode="pad",
+        label_source="final-hash",
+    )
+
+    assert dataset.label_source == "final-hash"
+    assert dataset.num_conditions == 2
+    assert set(dataset.condition_to_idx) == {"0xfinal-run1", "0xfinal-run2"}
+
+
+def test_generated_image_dataset_requires_final_hash_label_in_json(tmp_path: Path) -> None:
     image_root = tmp_path / "images"
     json_root = tmp_path / "output" / "json"
     run_id = "MD5_256_2026-05-09 14-13-27_0000"
@@ -91,7 +147,7 @@ def test_generated_image_dataset_requires_step4_label_in_json(tmp_path: Path) ->
         encoding="utf-8",
     )
 
-    with pytest.raises(KeyError, match="Logs/4th Step"):
+    with pytest.raises(KeyError, match="Generated hash"):
         GeneratedImageDataset(
             image_root,
             json_root=json_root,
@@ -124,7 +180,13 @@ def test_generated_image_dataset_supports_equal_area_reshape_mode(tmp_path: Path
     json_path = json_root / "2026-05-09 14-13-27" / f"{run_id}.json"
     json_path.parent.mkdir(parents=True, exist_ok=True)
     json_path.write_text(
-        json.dumps({"Message": {"Hex": "0xmessage"}, "Logs": {"4th Step": "0xstep4"}}),
+        json.dumps(
+            {
+                "Message": {"Hex": "0xmessage"},
+                "Logs": {"4th Step": "0xstep4"},
+                "Generated hash": "0xfinal",
+            }
+        ),
         encoding="utf-8",
     )
 
@@ -134,7 +196,7 @@ def test_generated_image_dataset_supports_equal_area_reshape_mode(tmp_path: Path
         image_size=32,
         fit_mode="reshape",
     )
-    image, _ = dataset[0]
+    image, _, _loop_meta = dataset[0]
 
     assert image.shape == (3, 4, 4)
 
@@ -147,7 +209,13 @@ def test_generated_image_dataset_supports_height_flatten_mode(tmp_path: Path) ->
     json_path = json_root / "2026-05-09 14-13-27" / f"{run_id}.json"
     json_path.parent.mkdir(parents=True, exist_ok=True)
     json_path.write_text(
-        json.dumps({"Message": {"Hex": "0xmessage"}, "Logs": {"4th Step": "0xstep4"}}),
+        json.dumps(
+            {
+                "Message": {"Hex": "0xmessage"},
+                "Logs": {"4th Step": "0xstep4"},
+                "Generated hash": "0xfinal",
+            }
+        ),
         encoding="utf-8",
     )
 
@@ -158,7 +226,7 @@ def test_generated_image_dataset_supports_height_flatten_mode(tmp_path: Path) ->
         channels=3,
         fit_mode="height-flatten",
     )
-    image, _ = dataset[0]
+    image, _, _loop_meta = dataset[0]
 
     assert dataset.channels == 3
     assert image.shape == (3, 56, 56)
@@ -375,6 +443,7 @@ def test_training_can_save_forward_and_reverse_process_traces(
                 "Logs": {
                     "4th Step": {"A": "0x01", "B": "0x02"},
                 },
+                "Generated hash": "0xfinal",
             }
         ),
         encoding="utf-8",
@@ -403,16 +472,18 @@ def test_training_can_save_forward_and_reverse_process_traces(
     trace_root = result["process_traces"]
     assert trace_root is not None
     trace_root = Path(trace_root)
-    assert (trace_root / "forward" / "x0.png").exists()
-    assert (trace_root / "forward" / "t_000000.png").exists()
-    assert (trace_root / "forward" / "t_000001.png").exists()
-    assert (trace_root / "forward" / "t_000002.png").exists()
-    assert (trace_root / "forward" / "t_000003.png").exists()
-    assert (trace_root / "reverse" / "xT_noise.png").exists()
-    assert (trace_root / "reverse" / "t_000003.png").exists()
-    assert (trace_root / "reverse" / "t_000002.png").exists()
-    assert (trace_root / "reverse" / "t_000001.png").exists()
-    assert (trace_root / "reverse" / "t_000000.png").exists()
+    assert (trace_root / "forward" / "png" / "x0.png").exists()
+    assert (trace_root / "forward" / "png" / "t_000000.png").exists()
+    assert (trace_root / "forward" / "png" / "t_000001.png").exists()
+    assert (trace_root / "forward" / "png" / "t_000002.png").exists()
+    assert (trace_root / "forward" / "png" / "t_000003.png").exists()
+    assert (trace_root / "forward" / "json" / "x0.labels.json").exists()
+    assert (trace_root / "reverse" / "png" / "xT_noise.png").exists()
+    assert (trace_root / "reverse" / "png" / "t_000003.png").exists()
+    assert (trace_root / "reverse" / "png" / "t_000002.png").exists()
+    assert (trace_root / "reverse" / "png" / "t_000001.png").exists()
+    assert (trace_root / "reverse" / "png" / "t_000000.png").exists()
+    assert (trace_root / "reverse" / "json" / "xT_noise.labels.json").exists()
     assert "[reshape] mode=reshape source=16x16 output=16x16 channels=3" in captured.out
     assert "[forward-trace] saving x0 + 4 noising steps" in captured.out
     assert "[forward-trace] step=000000" in captured.out
@@ -441,3 +512,107 @@ def test_cleanup_torch_resources_clears_state_dict() -> None:
     cleanup_torch_resources(state)
 
     assert state == {}
+
+
+# ---------------------------------------------------------------------------
+# Temporal conditioning tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "temporal_conditioning",
+    ["loop-sinusoidal", "loop-structured", "loop-sequence"],
+)
+def test_conditional_unet_temporal_modes_preserve_shape(temporal_conditioning: str) -> None:
+    model = ConditionalUNet(
+        in_channels=3,
+        num_conditions=4,
+        base_channels=8,
+        time_dim=16,
+        temporal_conditioning=temporal_conditioning,  # type: ignore[arg-type]
+        max_loop_count=8,
+    )
+    x = torch.randn(2, 3, 16, 16)
+    labels = torch.tensor([0, 3], dtype=torch.long)
+    timesteps = torch.tensor([0, 7], dtype=torch.long)
+    # loop_meta: [loop_idx, loop_count, loop_start, loop_end]
+    loop_meta = torch.tensor([[0.0, 8.0, 0.0, 0.125], [7.0, 8.0, 0.875, 1.0]])
+
+    out = model(x, timesteps, labels, loop_meta)
+
+    assert out.shape == x.shape
+
+
+def test_conditional_unet_temporal_class_without_loop_meta_preserves_shape() -> None:
+    """'class' mode must work with loop_meta=None for backward compat."""
+    model = ConditionalUNet(in_channels=3, num_conditions=4, base_channels=8, time_dim=16)
+    x = torch.randn(2, 3, 16, 16)
+    labels = torch.tensor([0, 3], dtype=torch.long)
+    timesteps = torch.tensor([0, 7], dtype=torch.long)
+
+    out = model(x, timesteps, labels)
+
+    assert out.shape == x.shape
+
+
+def test_discover_loop_image_samples_finds_loop_pngs(tmp_path: Path) -> None:
+    root = tmp_path / "images"
+    json_root = tmp_path / "output" / "json"
+    run_id = "RUN_0001"
+
+    # Write 3 loop images (ordinal 1st/2nd/3rd = idx 0/1/2)
+    for loop_label in ("1st Loop", "2nd Loop", "3rd Loop"):
+        _write_png(
+            root / run_id / "4th Step" / "1st Round" / f"{loop_label}.png",
+            (28, 28),
+            (255, 0, 0, 255),
+        )
+
+    json_path = json_root / "2026-05-09 14-13-27" / f"{run_id}.json"
+    json_path.parent.mkdir(parents=True, exist_ok=True)
+    json_path.write_text(
+        json.dumps(
+            {
+                "Message": {"Hex": "0xmsg"},
+                "Logs": {"4th Step": "0xstep4"},
+                "Generated hash": "0xfinal",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    samples, condition_to_idx = discover_loop_image_samples(root, json_root=json_root)
+
+    assert len(samples) == 3
+    assert all(hasattr(s, "loop_idx") for s in samples)
+    loop_indices = sorted(s.loop_idx for s in samples)
+    assert loop_indices == [0, 1, 2]
+    assert len(condition_to_idx) > 0
+
+
+def test_dataset_loop_meta_tensor_has_correct_layout(tmp_path: Path) -> None:
+    root = tmp_path / "images"
+    json_root = tmp_path / "output" / "json"
+    run_id = "RUN_0001"
+    _write_png(root / run_id / "message.png", (16, 16), (1, 2, 3, 255))
+    json_path = json_root / "2026-05-09 14-13-27" / f"{run_id}.json"
+    json_path.parent.mkdir(parents=True, exist_ok=True)
+    json_path.write_text(
+        json.dumps(
+            {
+                "Message": {"Hex": "0xmsg"},
+                "Logs": {"4th Step": "0xstep4"},
+                "Generated hash": "0xfinal",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    dataset = GeneratedImageDataset(root, json_root=json_root, image_size=16)
+    _image, _label, loop_meta = dataset[0]
+
+    assert loop_meta.shape == (4,)
+    assert loop_meta.dtype == torch.float32
+    # Default sample has loop_idx=0, loop_count=1 → start=0, end=1
+    assert loop_meta[0].item() == pytest.approx(0.0)  # loop_idx
+    assert loop_meta[1].item() == pytest.approx(1.0)  # loop_count

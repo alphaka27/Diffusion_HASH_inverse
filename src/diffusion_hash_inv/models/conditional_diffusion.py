@@ -8,8 +8,8 @@ The generated images are expected to live under a structure like:
 
 Only ``message.png`` files are used for training. The first directory under
 ``data/images`` is treated as the run id and matched to
-``output/json/**/<run-id>.json``. The condition label is fixed to the JSON
-value at ``Logs/4th Step`` for each run.
+``output/json/**/<run-id>.json``. The condition label is the final hash value
+from the matching run JSON.
 """
 
 from __future__ import annotations
@@ -19,7 +19,8 @@ import gc
 import json
 import math
 import random
-from dataclasses import asdict, dataclass
+import re
+from dataclasses import asdict, dataclass, field
 from itertools import cycle
 from pathlib import Path
 from typing import Iterable, Literal
@@ -46,15 +47,35 @@ ConditionMode = Literal[
 ]
 FitMode = Literal["pad", "resize", "reshape", "height-flatten"]
 BetaScheduleMode = Literal["linear", "file", "hash-approach1", "hash-approach2"]
+LabelSource = Literal["final-hash"]
+
+# Temporal conditioning mode: how the loop-position signal is encoded.
+#   "class"           – original discrete nn.Embedding (no temporal ordering).
+#   "loop-sinusoidal" – Method 1: sinusoidal PE on loop_idx (adjacent loops ≈ similar).
+#   "loop-structured" – Method 2: sinusoidal(loop_idx) + MLP(loop_start) + MLP(loop_end).
+#   "loop-sequence"   – Method 3: Transformer over the full 64-loop token sequence;
+#                       each position is contextualised by all others.
+TemporalConditioningMode = Literal[
+    "class",
+    "loop-sinusoidal",
+    "loop-structured",
+    "loop-sequence",
+]
 
 
 @dataclass(frozen=True)
 class GeneratedImageSample:
-    """One generated image and the condition derived from its path."""
+    """One generated image and the condition label derived from JSON metadata."""
 
     path: Path
     condition: str
     label: int
+    # Temporal loop metadata (populated when use_loop_images=True or from path).
+    # Defaults represent "no loop context" (single message.png per run).
+    loop_idx: int = 0          # 0-based index within the loop sequence
+    loop_count: int = 1        # total number of loops in the sequence
+    loop_start: float = 0.0   # normalised start position = loop_idx / loop_count
+    loop_end: float = 1.0     # normalised end position = (loop_idx+1) / loop_count
 
 
 @dataclass(frozen=True)
@@ -68,6 +89,7 @@ class ConditionalDiffusionTrainConfig:
     channels: int = 3
     fit_mode: FitMode = "reshape"
     condition_mode: ConditionMode = "json-step"
+    label_source: LabelSource = "final-hash"
     max_images: int | None = None
     batch_size: int = 32
     train_steps: int = 1_000
@@ -92,6 +114,17 @@ class ConditionalDiffusionTrainConfig:
     trace_sample_count: int = 4
     trace_steps: int = 8
     save_train_batches_every: int = 0
+    # ── Temporal conditioning ─────────────────────────────────────────────────
+    # temporal_conditioning selects the loop-position encoding strategy:
+    #   "class"           – discrete nn.Embedding (original, no ordering).
+    #   "loop-sinusoidal" – Method 1: sinusoidal PE on loop_idx.
+    #   "loop-structured" – Method 2: sinusoidal(idx) + MLP(start) + MLP(end).
+    #   "loop-sequence"   – Method 3: Transformer over the full loop sequence.
+    temporal_conditioning: TemporalConditioningMode = "class"
+    # When True, discover 'NNth Loop.png' images instead of message.png.
+    use_loop_images: bool = False
+    # Maximum number of loop positions the sequence conditioner is built for.
+    max_loop_count: int = 64
 
 
 def _condition_from_relative_path(relative_path: Path, mode: ConditionMode) -> str:
@@ -192,21 +225,55 @@ def _uses_json_condition(mode: ConditionMode) -> bool:
     return mode in ("json-step", "json-value", "json-step-value")
 
 
-def _step4_label_from_payload(payload: dict[str, object]) -> str:
-    return _canonical_json_label(_lookup_nested_value(payload, ("Logs", "4th Step")))
+def _final_hash_label_from_payload(payload: dict[str, object]) -> str:
+    for key in ("Generated hash", "Correct   hash", "Correct hash"):
+        value = payload.get(key)
+        if value is not None:
+            return _canonical_json_label(value)
+    raise KeyError("JSON label path not found: Generated hash")
+
+
+def _label_from_payload(payload: dict[str, object], label_source: LabelSource) -> str:
+    if label_source == "final-hash":
+        return _final_hash_label_from_payload(payload)
+    raise ValueError(f"Unsupported label source: {label_source}")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Loop temporal metadata helpers
+# ──────────────────────────────────────────────────────────────────────────────
+
+# Matches "57th Loop", "1st Loop", "2nd loop", etc.
+_LOOP_ORDINAL_RE = re.compile(r"(\d+)(?:st|nd|rd|th)\s+[Ll]oop", re.IGNORECASE)
+
+
+def _parse_loop_ordinal(name: str) -> int | None:
+    """Return 0-based loop index from a name like '57th Loop', or None."""
+    match = _LOOP_ORDINAL_RE.search(name)
+    if match is None:
+        return None
+    return int(match.group(1)) - 1  # convert 1-based ordinal to 0-based index
+
+
+def _loop_normalised_bounds(loop_idx: int, loop_count: int) -> tuple[float, float]:
+    """Return (loop_start, loop_end) as normalised positions in [0, 1]."""
+    denom = max(loop_count, 1)
+    return loop_idx / denom, (loop_idx + 1) / denom
 
 
 def discover_generated_image_samples(
     root: Path | str,
     condition_mode: ConditionMode = "json-step",
     json_root: Path | str = Path("output/json"),
+    label_source: LabelSource = "final-hash",
     max_images: int | None = None,
 ) -> tuple[list[GeneratedImageSample], dict[str, int]]:
     """
-    Discover ``message.png`` images and assign stable integer labels from Logs/4th Step.
+    Discover ``message.png`` images and assign stable integer condition labels.
 
     The label map is sorted by condition name so that repeated runs over the
-    same directory produce the same condition ids.
+    same directory produce the same condition ids. Labels are final hash values
+    from the matching run JSON.
     """
 
     root = Path(root)
@@ -239,7 +306,7 @@ def discover_generated_image_samples(
             raise FileNotFoundError(f"No JSON file found for image run: {run_id}")
         if run_id not in payload_cache:
             payload_cache[run_id] = _read_json_payload(json_index[run_id])
-        condition = _step4_label_from_payload(payload_cache[run_id])
+        condition = _label_from_payload(payload_cache[run_id], label_source)
         condition_names.append(condition)
         unlabeled.append((path, condition))
 
@@ -248,6 +315,114 @@ def discover_generated_image_samples(
         GeneratedImageSample(path=path, condition=condition, label=condition_to_idx[condition])
         for path, condition in unlabeled
     ]
+    return samples, condition_to_idx
+
+
+def discover_loop_image_samples(
+    root: Path | str,
+    json_root: Path | str = Path("output/json"),
+    label_source: LabelSource = "final-hash",
+    max_images: int | None = None,
+    max_loop_count: int = 64,
+) -> tuple[list[GeneratedImageSample], dict[str, int]]:
+    """
+    Discover per-loop images (``NNth Loop.png``) and assign temporal metadata.
+
+    Unlike :func:`discover_generated_image_samples` (which only collects
+    ``message.png``), this function collects images whose filename matches the
+    pattern ``NNth Loop.png`` (e.g. ``57th Loop.png``).  Each image is tagged
+    with:
+
+    * ``loop_idx``   – 0-based position within the 64-step sequence.
+    * ``loop_count`` – total loop count found for that run (capped at
+                       ``max_loop_count``).
+    * ``loop_start`` – ``loop_idx / loop_count`` (normalised position).
+    * ``loop_end``   – ``(loop_idx + 1) / loop_count``.
+
+    The condition label is read from JSON in the same way as
+    :func:`discover_generated_image_samples`.
+    """
+
+    root = Path(root)
+    if not root.exists():
+        raise FileNotFoundError(f"Generated image root does not exist: {root}")
+    if not root.is_dir():
+        raise NotADirectoryError(f"Generated image root must be a directory: {root}")
+
+    # Collect only files that match the loop pattern
+    all_loop_paths: list[Path] = sorted(
+        path
+        for path in root.rglob("*.png")
+        if path.is_file() and _parse_loop_ordinal(path.stem) is not None
+    )
+    if max_images is not None:
+        if max_images <= 0:
+            raise ValueError("max_images must be positive when provided")
+        all_loop_paths = all_loop_paths[:max_images]
+    if not all_loop_paths:
+        raise ValueError(f"No loop images found under: {root}")
+
+    json_index = _load_json_index(json_root)
+    payload_cache: dict[str, dict[str, object]] = {}
+
+    # Determine per-run loop counts so we can normalise
+    run_loop_counts: dict[str, int] = {}
+    for path in all_loop_paths:
+        relative = path.relative_to(root)
+        if len(relative.parts) < 2:
+            continue
+        run_id = relative.parts[0]
+        idx = _parse_loop_ordinal(path.stem)
+        if idx is not None:
+            run_loop_counts[run_id] = min(
+                max_loop_count,
+                max(run_loop_counts.get(run_id, 0), idx + 1),
+            )
+
+    condition_names: list[str] = []
+    unlabeled: list[tuple[Path, str, int, int]] = []  # path, condition, loop_idx, loop_count
+
+    for path in all_loop_paths:
+        relative = path.relative_to(root)
+        if len(relative.parts) < 2:
+            raise ValueError(
+                "Loop images must be stored under data/images/<run-id>/.../<NNth Loop>.png"
+            )
+        run_id = relative.parts[0]
+        if run_id not in json_index:
+            raise FileNotFoundError(f"No JSON file found for image run: {run_id}")
+        if run_id not in payload_cache:
+            payload_cache[run_id] = _read_json_payload(json_index[run_id])
+
+        loop_idx = _parse_loop_ordinal(path.stem)
+        if loop_idx is None:
+            continue  # should not happen given the filter above
+        if loop_idx >= max_loop_count:
+            continue  # index out of range for the embedding table / sequence conditioner
+        loop_count = run_loop_counts.get(run_id, 1)
+
+        condition = _label_from_payload(payload_cache[run_id], label_source)
+        condition_names.append(condition)
+        unlabeled.append((path, condition, loop_idx, loop_count))
+
+    if not condition_names:
+        raise ValueError(f"No valid loop images with JSON metadata found under: {root}")
+
+    condition_to_idx = {name: idx for idx, name in enumerate(sorted(set(condition_names)))}
+    samples: list[GeneratedImageSample] = []
+    for path, condition, loop_idx, loop_count in unlabeled:
+        loop_start, loop_end = _loop_normalised_bounds(loop_idx, loop_count)
+        samples.append(
+            GeneratedImageSample(
+                path=path,
+                condition=condition,
+                label=condition_to_idx[condition],
+                loop_idx=loop_idx,
+                loop_count=loop_count,
+                loop_start=loop_start,
+                loop_end=loop_end,
+            )
+        )
     return samples, condition_to_idx
 
 
@@ -374,12 +549,17 @@ def cleanup_torch_resources(
         torch.mps.empty_cache()
 
 
-class GeneratedImageDataset(Dataset[tuple[Tensor, Tensor]]):
+class GeneratedImageDataset(Dataset[tuple[Tensor, Tensor, Tensor]]):
     """
     Dataset for images generated by ``RGBImgMaker``.
 
-    Each item returns ``(image_tensor, label_tensor)`` where the image is
-    normalized to ``[-1, 1]`` and the label is the condition id.
+    Each item returns ``(image_tensor, label_tensor, loop_meta_tensor)`` where:
+
+    * ``image_tensor``    – float32 (C, H, W) normalised to ``[-1, 1]``.
+    * ``label_tensor``    – long scalar condition id.
+    * ``loop_meta_tensor``– float32 (4,) = [loop_idx, loop_count, loop_start,
+                            loop_end].  Defaults to ``[0, 1, 0, 1]`` for
+                            ``message.png`` images that carry no loop context.
     """
 
     def __init__(
@@ -390,7 +570,10 @@ class GeneratedImageDataset(Dataset[tuple[Tensor, Tensor]]):
         channels: int = 3,
         fit_mode: FitMode = "pad",
         condition_mode: ConditionMode = "json-step",
+        label_source: LabelSource = "final-hash",
         max_images: int | None = None,
+        use_loop_images: bool = False,
+        max_loop_count: int = 64,
     ) -> None:
         self.root = Path(root)
         self.json_root = Path(json_root)
@@ -399,12 +582,23 @@ class GeneratedImageDataset(Dataset[tuple[Tensor, Tensor]]):
         self.source_channels = channels
         self.channels = channels
         self.condition_mode = condition_mode
-        self.samples, self.condition_to_idx = discover_generated_image_samples(
-            self.root,
-            condition_mode=condition_mode,
-            json_root=json_root,
-            max_images=max_images,
-        )
+        self.label_source = label_source
+        if use_loop_images:
+            self.samples, self.condition_to_idx = discover_loop_image_samples(
+                self.root,
+                json_root=json_root,
+                label_source=label_source,
+                max_images=max_images,
+                max_loop_count=max_loop_count,
+            )
+        else:
+            self.samples, self.condition_to_idx = discover_generated_image_samples(
+                self.root,
+                condition_mode=condition_mode,
+                json_root=json_root,
+                label_source=label_source,
+                max_images=max_images,
+            )
         self.idx_to_condition = {idx: name for name, idx in self.condition_to_idx.items()}
 
     @property
@@ -418,17 +612,21 @@ class GeneratedImageDataset(Dataset[tuple[Tensor, Tensor]]):
     def __len__(self) -> int:
         return len(self.samples)
 
-    def __getitem__(self, index: int) -> tuple[Tensor, Tensor]:
+    def __getitem__(self, index: int) -> tuple[Tensor, Tensor, Tensor]:
         sample = self.samples[index]
         with Image.open(sample.path) as image:
             fitted = _fit_image(image, self.image_size, self.fit_mode, self.source_channels)
             array = _normalize_image_array(fitted, self.channels)
         image_tensor = torch.from_numpy(array).to(dtype=torch.float32)
         label_tensor = torch.tensor(sample.label, dtype=torch.long)
-        return image_tensor, label_tensor
+        loop_meta = torch.tensor(
+            [float(sample.loop_idx), float(sample.loop_count), sample.loop_start, sample.loop_end],
+            dtype=torch.float32,
+        )
+        return image_tensor, label_tensor, loop_meta
 
 
-class IndexedGeneratedImageDataset(Dataset[tuple[Tensor, Tensor, Tensor]]):
+class IndexedGeneratedImageDataset(Dataset[tuple[Tensor, Tensor, Tensor, Tensor]]):
     """Wrapper dataset that exposes sample index for batch metadata export."""
 
     def __init__(self, base: GeneratedImageDataset) -> None:
@@ -437,9 +635,9 @@ class IndexedGeneratedImageDataset(Dataset[tuple[Tensor, Tensor, Tensor]]):
     def __len__(self) -> int:
         return len(self.base)
 
-    def __getitem__(self, index: int) -> tuple[Tensor, Tensor, Tensor]:
-        image, label = self.base[index]
-        return image, label, torch.tensor(index, dtype=torch.long)
+    def __getitem__(self, index: int) -> tuple[Tensor, Tensor, Tensor, Tensor]:
+        image, label, loop_meta = self.base[index]
+        return image, label, loop_meta, torch.tensor(index, dtype=torch.long)
 
 
 def _group_count(channels: int, max_groups: int = 8) -> int:
@@ -494,6 +692,131 @@ class ConditionalResBlock(nn.Module):
         return h + self.skip(x)
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Temporal conditioning modules
+# ──────────────────────────────────────────────────────────────────────────────
+
+class LoopSinusoidalConditioner(nn.Module):
+    """
+    Method 1 – Sinusoidal positional encoding for loop index.
+
+    Replaces the discrete ``nn.Embedding`` with the same sinusoidal scheme used
+    for diffusion timesteps so that adjacent loops share similar embeddings and
+    the model can smoothly interpolate between positions.
+
+    ``loop_meta[:, 0]`` is the loop index (converted to ``long``).
+    """
+
+    def __init__(self, time_dim: int) -> None:
+        super().__init__()
+        self.emb = nn.Sequential(
+            SinusoidalTimeEmbedding(time_dim),
+            nn.Linear(time_dim, time_dim * 4),
+            nn.SiLU(),
+            nn.Linear(time_dim * 4, time_dim),
+        )
+
+    def forward(self, loop_meta: Tensor) -> Tensor:
+        loop_idx = loop_meta[:, 0].long()
+        return self.emb(loop_idx)
+
+
+class LoopStructuredConditioner(nn.Module):
+    """
+    Method 2 – Structured 3-part conditioning vector.
+
+    Combines three projections, each mapped to ``time_dim`` and summed:
+
+    * **idx_emb**    – sinusoidal PE of ``loop_idx``   (sequence position).
+    * **start_proj** – MLP of ``loop_start`` ∈ [0, 1] (normalised start).
+    * **end_proj**   – MLP of ``loop_end``   ∈ [0, 1] (normalised end).
+
+    ``loop_meta`` layout: ``[:, 0]``=loop_idx  ``[:, 1]``=loop_count
+    ``[:, 2]``=loop_start  ``[:, 3]``=loop_end
+    """
+
+    def __init__(self, time_dim: int) -> None:
+        super().__init__()
+        self.idx_emb = nn.Sequential(
+            SinusoidalTimeEmbedding(time_dim),
+            nn.Linear(time_dim, time_dim * 4),
+            nn.SiLU(),
+            nn.Linear(time_dim * 4, time_dim),
+        )
+        self.start_proj = nn.Sequential(
+            nn.Linear(1, time_dim),
+            nn.SiLU(),
+            nn.Linear(time_dim, time_dim),
+        )
+        self.end_proj = nn.Sequential(
+            nn.Linear(1, time_dim),
+            nn.SiLU(),
+            nn.Linear(time_dim, time_dim),
+        )
+
+    def forward(self, loop_meta: Tensor) -> Tensor:
+        loop_idx   = loop_meta[:, 0].long()
+        loop_start = loop_meta[:, 2:3]   # (B, 1)
+        loop_end   = loop_meta[:, 3:4]   # (B, 1)
+        return self.idx_emb(loop_idx) + self.start_proj(loop_start) + self.end_proj(loop_end)
+
+
+def _valid_num_heads(dim: int, preferred: int = 4) -> int:
+    """Return the largest even divisor of ``dim`` that is ≤ ``preferred``."""
+    for h in range(preferred, 0, -1):
+        if dim % h == 0:
+            return h
+    return 1
+
+
+class LoopSequenceConditioner(nn.Module):
+    """
+    Method 3 – Transformer-sequence conditioner.
+
+    Maintains one learnable token per loop position (up to ``max_loop_count``).
+    A small Transformer encoder attends over the *entire* sequence so that each
+    position is contextualised by all other positions (bidirectional).
+
+    On each forward pass the full sequence is re-encoded (cheap for ≤ 64
+    tokens) so gradients flow through the transformer weights.  The output at
+    ``loop_idx`` is the conditioning vector for that sample.
+
+    ``loop_meta`` layout: ``[:, 0]``=loop_idx  ``[:, 1]``=loop_count
+    ``[:, 2]``=loop_start  ``[:, 3]``=loop_end
+    """
+
+    def __init__(
+        self,
+        max_loop_count: int,
+        time_dim: int,
+        num_heads: int = 4,
+        num_layers: int = 2,
+    ) -> None:
+        super().__init__()
+        self.max_loop_count = max_loop_count
+        self.loop_tokens = nn.Embedding(max_loop_count, time_dim)
+        heads = _valid_num_heads(time_dim, num_heads)
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=time_dim,
+            nhead=heads,
+            dim_feedforward=time_dim * 4,
+            batch_first=True,
+            norm_first=True,
+        )
+        self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+        self.proj = nn.Sequential(
+            nn.Linear(time_dim, time_dim),
+            nn.SiLU(),
+        )
+
+    def forward(self, loop_meta: Tensor) -> Tensor:
+        loop_idx = loop_meta[:, 0].long()
+        # Re-encode the full sequence on every forward pass (gradient-safe).
+        seq = self.loop_tokens.weight.unsqueeze(0)      # (1, max_loop_count, time_dim)
+        ctx = self.transformer(seq).squeeze(0)          # (max_loop_count, time_dim)
+        return self.proj(ctx[loop_idx])                 # (B, time_dim)
+
+
 class ConditionalUNet(nn.Module):
     """Small conditional U-Net that predicts DDPM noise."""
 
@@ -503,6 +826,8 @@ class ConditionalUNet(nn.Module):
         num_conditions: int,
         base_channels: int = 64,
         time_dim: int = 256,
+        temporal_conditioning: TemporalConditioningMode = "class",
+        max_loop_count: int = 64,
     ) -> None:
         super().__init__()
         if num_conditions <= 0:
@@ -512,6 +837,8 @@ class ConditionalUNet(nn.Module):
         self.num_conditions = num_conditions
         self.base_channels = base_channels
         self.time_dim = time_dim
+        self.temporal_conditioning = temporal_conditioning
+        self.max_loop_count = max_loop_count
 
         self.time_embedding = nn.Sequential(
             SinusoidalTimeEmbedding(time_dim),
@@ -519,7 +846,21 @@ class ConditionalUNet(nn.Module):
             nn.SiLU(),
             nn.Linear(time_dim * 4, time_dim),
         )
-        self.condition_embedding = nn.Embedding(num_conditions, time_dim)
+
+        # Build the condition embedding based on the requested temporal mode.
+        if temporal_conditioning == "class":
+            self.condition_embedding: nn.Module = nn.Embedding(num_conditions, time_dim)
+        elif temporal_conditioning == "loop-sinusoidal":
+            self.condition_embedding = LoopSinusoidalConditioner(time_dim)
+        elif temporal_conditioning == "loop-structured":
+            self.condition_embedding = LoopStructuredConditioner(time_dim)
+        elif temporal_conditioning == "loop-sequence":
+            self.condition_embedding = LoopSequenceConditioner(
+                max_loop_count=max_loop_count,
+                time_dim=time_dim,
+            )
+        else:
+            raise ValueError(f"Unsupported temporal_conditioning: {temporal_conditioning!r}")
 
         self.input = nn.Conv2d(in_channels, base_channels, kernel_size=3, padding=1)
         self.down1 = ConditionalResBlock(base_channels, base_channels, time_dim)
@@ -563,8 +904,22 @@ class ConditionalUNet(nn.Module):
             nn.Conv2d(base_channels, in_channels, kernel_size=3, padding=1),
         )
 
-    def _embedding(self, timesteps: Tensor, labels: Tensor) -> Tensor:
-        return self.time_embedding(timesteps) + self.condition_embedding(labels)
+    def _embedding(
+        self,
+        timesteps: Tensor,
+        labels: Tensor,
+        loop_meta: Tensor | None = None,
+    ) -> Tensor:
+        time_emb = self.time_embedding(timesteps)
+        if self.temporal_conditioning == "class":
+            cond_emb = self.condition_embedding(labels)
+        else:
+            if loop_meta is None:
+                raise ValueError(
+                    f"loop_meta is required for temporal_conditioning={self.temporal_conditioning!r}"
+                )
+            cond_emb = self.condition_embedding(loop_meta)
+        return time_emb + cond_emb
 
     @staticmethod
     def _match_spatial(x: Tensor, target: Tensor) -> Tensor:
@@ -572,8 +927,14 @@ class ConditionalUNet(nn.Module):
             return x
         return F.interpolate(x, size=target.shape[-2:], mode="nearest")
 
-    def forward(self, x: Tensor, timesteps: Tensor, labels: Tensor) -> Tensor:
-        emb = self._embedding(timesteps, labels)
+    def forward(
+        self,
+        x: Tensor,
+        timesteps: Tensor,
+        labels: Tensor,
+        loop_meta: Tensor | None = None,
+    ) -> Tensor:
+        emb = self._embedding(timesteps, labels, loop_meta)
         x0 = self.input(x)
         x1 = self.down1(x0, emb)
         x2 = self.downsample1(x1)
@@ -655,12 +1016,19 @@ class DDPMNoiseScheduler:
         return sqrt_alpha_bars * x0 + sqrt_one_minus * noise
 
     @torch.no_grad()
-    def p_sample(self, model: nn.Module, x: Tensor, step: int, labels: Tensor) -> Tensor:
+    def p_sample(
+        self,
+        model: nn.Module,
+        x: Tensor,
+        step: int,
+        labels: Tensor,
+        loop_meta: Tensor | None = None,
+    ) -> Tensor:
         timesteps = torch.full((x.shape[0],), step, device=x.device, dtype=torch.long)
         beta_t = self._extract(self.betas, timesteps, x.ndim)
         alpha_t = self._extract(self.alphas, timesteps, x.ndim)
         alpha_bar_t = self._extract(self.alpha_bars, timesteps, x.ndim)
-        pred_noise = model(x, timesteps, labels)
+        pred_noise = model(x, timesteps, labels, loop_meta)
 
         mean = (1.0 / torch.sqrt(alpha_t)) * (
             x - (beta_t / torch.sqrt(1.0 - alpha_bar_t)) * pred_noise
@@ -671,11 +1039,17 @@ class DDPMNoiseScheduler:
         return mean + torch.sqrt(variance) * torch.randn_like(x)
 
     @torch.no_grad()
-    def sample(self, model: nn.Module, shape: tuple[int, int, int, int], labels: Tensor) -> Tensor:
+    def sample(
+        self,
+        model: nn.Module,
+        shape: tuple[int, int, int, int],
+        labels: Tensor,
+        loop_meta: Tensor | None = None,
+    ) -> Tensor:
         x = torch.randn(shape, device=labels.device)
         model.eval()
         for step in reversed(range(self.timesteps)):
-            x = self.p_sample(model, x, step, labels)
+            x = self.p_sample(model, x, step, labels, loop_meta)
         return x.clamp(-1.0, 1.0)
 
     @torch.no_grad()
@@ -685,13 +1059,14 @@ class DDPMNoiseScheduler:
         shape: tuple[int, int, int, int],
         labels: Tensor,
         trace_timesteps: Iterable[int],
+        loop_meta: Tensor | None = None,
     ) -> tuple[Tensor, dict[int, Tensor]]:
         x = torch.randn(shape, device=labels.device)
         model.eval()
         trace_set = {int(step) for step in trace_timesteps}
         traces: dict[int, Tensor] = {self.timesteps: x.clamp(-1.0, 1.0).detach().cpu()}
         for step in reversed(range(self.timesteps)):
-            x = self.p_sample(model, x, step, labels)
+            x = self.p_sample(model, x, step, labels, loop_meta)
             if step in trace_set:
                 traces[step] = x.clamp(-1.0, 1.0).detach().cpu()
         return x.clamp(-1.0, 1.0), traces
@@ -877,8 +1252,22 @@ def _image_from_tensor(image_tensor: Tensor) -> Image.Image:
     return Image.fromarray(array.transpose(1, 2, 0))
 
 
-def save_image_grid(images: Tensor, labels: Tensor, condition_names: list[str], path: Path) -> None:
-    """Save image outputs as individual PNG files (one per sample)."""
+def save_image_grid(
+    images: Tensor,
+    labels: Tensor,
+    condition_names: list[str],
+    path: Path,
+    *,
+    json_path: Path | None = None,
+) -> None:
+    """Save image outputs as individual PNG files (one per sample).
+
+    Args:
+        path: Destination PNG path.
+        json_path: If given, save the labels sidecar JSON here instead of
+            alongside *path*.  Useful when PNG and JSON should live in
+            separate directories (e.g. process-trace output).
+    """
 
     images = _denormalize_images(images)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -894,7 +1283,8 @@ def save_image_grid(images: Tensor, labels: Tensor, condition_names: list[str], 
             _image_from_tensor(image_tensor).save(file_path)
             saved_files.append(file_path.name)
 
-    labels_path = path.with_suffix(".labels.json")
+    labels_path = json_path if json_path is not None else path.with_suffix(".labels.json")
+    labels_path.parent.mkdir(parents=True, exist_ok=True)
     label_values = labels.detach().cpu().tolist()
     labels_path.write_text(
         json.dumps(
@@ -923,7 +1313,7 @@ def _reference_images_for_labels(dataset: GeneratedImageDataset, labels: Tensor)
         label_int = int(label)
         if label_int not in first_index_by_label:
             raise ValueError(f"Label {label_int} not found in dataset")
-        image, _ = dataset[first_index_by_label[label_int]]
+        image = dataset[first_index_by_label[label_int]][0]  # (image, label, loop_meta)
         reference_images.append(image)
     return torch.stack(reference_images)
 
@@ -1015,14 +1405,18 @@ def _save_forward_process_trace(
     condition_names: list[str],
     output_dir: Path,
 ) -> list[Path]:
+    png_dir = output_dir / "png"
+    json_dir = output_dir / "json"
+    png_dir.mkdir(parents=True, exist_ok=True)
+    json_dir.mkdir(parents=True, exist_ok=True)
     saved_paths: list[Path] = []
-    output_dir.mkdir(parents=True, exist_ok=True)
-    print(
-        f"[forward-trace] saving x0 + {scheduler.timesteps} noising steps to {output_dir}"
-    )
+    print(f"[forward-trace] saving x0 + {scheduler.timesteps} noising steps to {output_dir}")
 
-    x0_path = output_dir / "x0.png"
-    save_image_grid(images.detach().cpu(), labels.detach().cpu(), condition_names, x0_path)
+    x0_path = png_dir / "x0.png"
+    save_image_grid(
+        images.detach().cpu(), labels.detach().cpu(), condition_names, x0_path,
+        json_path=json_dir / "x0.labels.json",
+    )
     saved_paths.append(x0_path)
     print(f"[forward-trace] saved x0: {x0_path}")
 
@@ -1030,8 +1424,11 @@ def _save_forward_process_trace(
     for step in range(scheduler.timesteps):
         timesteps = torch.full((images.shape[0],), step, device=images.device, dtype=torch.long)
         noised = scheduler.q_sample(images, timesteps, noise)
-        path = output_dir / f"t_{step:06d}.png"
-        save_image_grid(noised, labels, condition_names, path)
+        path = png_dir / f"t_{step:06d}.png"
+        save_image_grid(
+            noised, labels, condition_names, path,
+            json_path=json_dir / f"t_{step:06d}.labels.json",
+        )
         saved_paths.append(path)
         print(f"[forward-trace] step={step:06d} path={path}")
 
@@ -1046,23 +1443,30 @@ def _save_reverse_process_trace(
     condition_names: list[str],
     output_dir: Path,
     sample_shape: tuple[int, int, int, int],
+    loop_meta: Tensor | None = None,
 ) -> list[Path]:
+    png_dir = output_dir / "png"
+    json_dir = output_dir / "json"
+    png_dir.mkdir(parents=True, exist_ok=True)
+    json_dir.mkdir(parents=True, exist_ok=True)
     saved_paths: list[Path] = []
-    output_dir.mkdir(parents=True, exist_ok=True)
-    print(
-        f"[reverse-trace] saving xT + {scheduler.timesteps} denoising steps to {output_dir}"
-    )
+    print(f"[reverse-trace] saving xT + {scheduler.timesteps} denoising steps to {output_dir}")
     _, traces = scheduler.sample_with_trace(
         model,
         sample_shape,
         labels,
         range(scheduler.timesteps),
+        loop_meta=loop_meta,
     )
 
     for step in sorted(traces.keys(), reverse=True):
         filename = "xT_noise.png" if step == scheduler.timesteps else f"t_{step:06d}.png"
-        path = output_dir / filename
-        save_image_grid(traces[step], labels.detach().cpu(), condition_names, path)
+        path = png_dir / filename
+        json_name = filename.replace(".png", ".labels.json")
+        save_image_grid(
+            traces[step], labels.detach().cpu(), condition_names, path,
+            json_path=json_dir / json_name,
+        )
         saved_paths.append(path)
         if step == scheduler.timesteps:
             print(f"[reverse-trace] saved xT: {path}")
@@ -1085,13 +1489,16 @@ def save_process_traces(
     sample_count = min(config.trace_sample_count, len(dataset))
     images = []
     labels = []
+    loop_metas = []
     for index in range(sample_count):
-        image, label = dataset[index]
+        image, label, loop_meta = dataset[index]
         images.append(image)
         labels.append(int(label))
+        loop_metas.append(loop_meta)
 
     image_batch = torch.stack(images).to(device)
     label_batch = torch.tensor(labels, dtype=torch.long, device=device)
+    loop_meta_batch = torch.stack(loop_metas).to(device)
     trace_dir = config.output_dir / "process_traces"
     sample_shape = (image_batch.shape[0], dataset.channels, image_batch.shape[-2], image_batch.shape[-1])
 
@@ -1109,18 +1516,43 @@ def save_process_traces(
         dataset.condition_names,
         trace_dir / "reverse",
         sample_shape,
+        loop_meta=loop_meta_batch,
     )
     return {"forward": forward_paths, "reverse": reverse_paths}
 
 
-def _condition_labels_for_sampling(
+def _condition_tensors_for_sampling(
     dataset: GeneratedImageDataset,
     sample_count: int,
     device: torch.device,
-) -> Tensor:
+) -> tuple[Tensor, Tensor]:
+    """Return ``(labels, loop_meta)`` tensors for inference sampling.
+
+    Labels cycle over all condition ids.  ``loop_meta`` is built from the
+    first dataset sample that matches each label so the temporal context
+    matches real data seen during training.
+    """
     condition_ids = list(range(dataset.num_conditions))
-    labels = [label for _, label in zip(range(sample_count), cycle(condition_ids))]
-    return torch.tensor(labels, dtype=torch.long, device=device)
+    label_list = [label for _, label in zip(range(sample_count), cycle(condition_ids))]
+
+    # Build a fast lookup: label → first matching sample
+    first_by_label: dict[int, GeneratedImageSample] = {}
+    for sample in dataset.samples:
+        first_by_label.setdefault(sample.label, sample)
+
+    loop_meta_list: list[list[float]] = []
+    for lbl in label_list:
+        s = first_by_label.get(lbl)
+        if s is not None:
+            loop_meta_list.append(
+                [float(s.loop_idx), float(s.loop_count), s.loop_start, s.loop_end]
+            )
+        else:
+            loop_meta_list.append([0.0, 1.0, 0.0, 1.0])
+
+    labels_tensor = torch.tensor(label_list, dtype=torch.long, device=device)
+    loop_meta_tensor = torch.tensor(loop_meta_list, dtype=torch.float32, device=device)
+    return labels_tensor, loop_meta_tensor
 
 
 def _checkpoint_payload(
@@ -1150,6 +1582,8 @@ def _checkpoint_payload(
             "num_conditions": model.num_conditions,
             "base_channels": model.base_channels,
             "time_dim": model.time_dim,
+            "temporal_conditioning": model.temporal_conditioning,
+            "max_loop_count": model.max_loop_count,
         },
     }
 
@@ -1201,7 +1635,10 @@ def train_conditional_diffusion(
         channels=config.channels,
         fit_mode=config.fit_mode,
         condition_mode=config.condition_mode,
+        label_source=config.label_source,
         max_images=config.max_images,
+        use_loop_images=config.use_loop_images,
+        max_loop_count=config.max_loop_count,
     )
     _print_preprocess_summary(dataset, config.fit_mode)
     indexed_dataset = IndexedGeneratedImageDataset(dataset)
@@ -1213,7 +1650,7 @@ def train_conditional_diffusion(
         pin_memory=device.type == "cuda",
         drop_last=False,
     )
-    loader_iter: Iterable[tuple[Tensor, Tensor, Tensor]] = cycle(dataloader)
+    loader_iter: Iterable[tuple[Tensor, Tensor, Tensor, Tensor]] = cycle(dataloader)
     effective_train_steps = resolve_train_steps(
         dataset_size=len(dataset),
         batch_size=config.batch_size,
@@ -1226,6 +1663,8 @@ def train_conditional_diffusion(
         num_conditions=dataset.num_conditions,
         base_channels=config.base_channels,
         time_dim=config.time_dim,
+        temporal_conditioning=config.temporal_conditioning,
+        max_loop_count=config.max_loop_count,
     ).to(device)
     sample_image_shape = tuple(int(value) for value in dataset[0][0].shape)
     sample_channels, sample_height, sample_width = sample_image_shape
@@ -1263,16 +1702,18 @@ def train_conditional_diffusion(
         f"steps={effective_train_steps} epochs={config.epochs} "
         f"device={device} beta_schedule={config.beta_schedule} "
         f"diffusion_timesteps={scheduler.timesteps} "
+        f"temporal_conditioning={config.temporal_conditioning} "
         f"sample_image_shape={sample_image_shape} output={config.output_dir}"
     )
 
     train_batch_dir: Path | None = None
     for step in range(1, effective_train_steps + 1):
-        images, labels, indices = next(loader_iter)
+        images, labels, loop_meta, indices = next(loader_iter)
         images = images.to(device=device, non_blocking=True)
         if config.fit_mode != "height-flatten":
             images = _ensure_square_batch(images)
         labels = labels.to(device=device, non_blocking=True)
+        loop_meta = loop_meta.to(device=device, non_blocking=True)
         if config.save_train_batches_every > 0 and step % config.save_train_batches_every == 0:
             train_batch_dir = config.output_dir / "train_batches"
             sample_records = []
@@ -1300,7 +1741,7 @@ def train_conditional_diffusion(
         timesteps = torch.randint(0, scheduler.timesteps, (images.shape[0],), device=device)
         noise = torch.randn_like(images)
         noised = scheduler.q_sample(images, timesteps, noise)
-        pred_noise = model(noised, timesteps, labels)
+        pred_noise = model(noised, timesteps, labels, loop_meta)
         loss = F.mse_loss(pred_noise, noise)
 
         optimizer.zero_grad(set_to_none=True)
@@ -1316,7 +1757,9 @@ def train_conditional_diffusion(
             print(f"saved checkpoint: {checkpoint_path}")
 
         if config.sample_every > 0 and step % config.sample_every == 0:
-            labels_for_sample = _condition_labels_for_sampling(dataset, config.sample_count, device)
+            labels_for_sample, loop_meta_for_sample = _condition_tensors_for_sampling(
+                dataset, config.sample_count, device
+            )
             samples = scheduler.sample(
                 model,
                 (
@@ -1326,6 +1769,7 @@ def train_conditional_diffusion(
                     sample_width,
                 ),
                 labels_for_sample,
+                loop_meta=loop_meta_for_sample,
             )
             sample_path = config.output_dir / "samples" / f"step_{step:06d}.png"
             save_image_grid(samples, labels_for_sample, dataset.condition_names, sample_path)
@@ -1350,7 +1794,9 @@ def train_conditional_diffusion(
         dataset,
         config,
     )
-    labels_for_sample = _condition_labels_for_sampling(dataset, config.sample_count, device)
+    labels_for_sample, loop_meta_for_sample = _condition_tensors_for_sampling(
+        dataset, config.sample_count, device
+    )
     samples = scheduler.sample(
         model,
         (
@@ -1360,6 +1806,7 @@ def train_conditional_diffusion(
             sample_width,
         ),
         labels_for_sample,
+        loop_meta=loop_meta_for_sample,
     )
     final_sample_path = config.output_dir / "samples" / "final.png"
     save_image_grid(samples, labels_for_sample, dataset.condition_names, final_sample_path)
@@ -1468,8 +1915,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=ConditionalDiffusionTrainConfig.condition_mode,
         help=(
             "Retained for backward compatibility. "
-            "Training always uses message.png with labels from Logs/4th Step."
+            "Training always uses message.png; use --label-source to choose labels."
         ),
+    )
+    parser.add_argument(
+        "--label-source",
+        choices=("final-hash",),
+        default=ConditionalDiffusionTrainConfig.label_source,
+        help="Condition label source. Only final hash labels are supported.",
     )
     parser.add_argument("--max-images", type=int, default=None)
     parser.add_argument(
@@ -1581,6 +2034,30 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "Set 0 to disable."
         ),
     )
+    parser.add_argument(
+        "--temporal-conditioning",
+        choices=("class", "loop-sinusoidal", "loop-structured", "loop-sequence"),
+        default=ConditionalDiffusionTrainConfig.temporal_conditioning,
+        help=(
+            "Temporal conditioning mode for loop labels. "
+            "'class' (default) treats each loop as an independent category. "
+            "'loop-sinusoidal' applies sinusoidal PE on the loop index. "
+            "'loop-structured' sums sinusoidal PE + start/end boundary projections. "
+            "'loop-sequence' runs a Transformer over all loop tokens."
+        ),
+    )
+    parser.add_argument(
+        "--use-loop-images",
+        action="store_true",
+        default=ConditionalDiffusionTrainConfig.use_loop_images,
+        help="Load per-loop images using the loop image discovery pipeline.",
+    )
+    parser.add_argument(
+        "--max-loop-count",
+        type=int,
+        default=ConditionalDiffusionTrainConfig.max_loop_count,
+        help="Maximum number of loops (sequence length for loop-sequence mode). Default 64.",
+    )
     return parser
 
 
@@ -1593,6 +2070,7 @@ def config_from_args(args: argparse.Namespace) -> ConditionalDiffusionTrainConfi
         channels=args.channels,
         fit_mode=args.fit_mode,
         condition_mode=args.condition_mode,
+        label_source=args.label_source,
         max_images=args.max_images,
         batch_size=args.batch_size,
         train_steps=args.train_steps,
@@ -1617,6 +2095,9 @@ def config_from_args(args: argparse.Namespace) -> ConditionalDiffusionTrainConfi
         trace_sample_count=args.trace_sample_count,
         trace_steps=args.trace_steps,
         save_train_batches_every=args.save_train_batches_every,
+        temporal_conditioning=args.temporal_conditioning,
+        use_loop_images=args.use_loop_images,
+        max_loop_count=args.max_loop_count,
     )
 
 
