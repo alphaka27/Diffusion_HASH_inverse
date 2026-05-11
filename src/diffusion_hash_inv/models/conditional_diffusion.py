@@ -72,7 +72,7 @@ class ConditionalDiffusionTrainConfig:
     batch_size: int = 32
     train_steps: int = 1_000
     epochs: int | None = None
-    timesteps: int = 1_000
+    timesteps: int | Literal["auto"] = 1_000
     learning_rate: float = 2e-4
     base_channels: int = 64
     time_dim: int = 256
@@ -738,35 +738,76 @@ def _load_beta_values(path: Path | str) -> np.ndarray:
     return _as_1d_beta_array(values, name="betas")
 
 
-def build_beta_schedule(config: ConditionalDiffusionTrainConfig) -> np.ndarray | None:
-    """
-    Build optional custom betas for DDPMNoiseScheduler.
-
-    Returns None for the standard linear schedule.
-    """
-
-    if config.beta_schedule == "linear":
-        return None
-    if config.beta_schedule == "file":
-        if config.beta_values_path is None:
-            raise ValueError("beta_values_path is required when beta_schedule='file'")
-        return _load_beta_values(config.beta_values_path)
-
+def _hash_approach_beta_candidates(config: ConditionalDiffusionTrainConfig) -> tuple[np.ndarray, np.ndarray]:
     analyzer = Analyze(config.json_root, step_name=config.beta_schedule_step)
     summary = analyzer.summarize_beta_schedules(step_name=config.beta_schedule_step)
     beta_scheduler = BetaScheduler(
         beta_min=config.beta_start,
         beta_max=config.beta_end,
     )
+    approach1 = _as_1d_beta_array(
+        beta_scheduler.approach1(summary.mean).rescaled_candidate,
+        name="hash-approach1 betas",
+    )
+    approach2 = _as_1d_beta_array(
+        beta_scheduler.approach2(summary.mean).candidate,
+        name="hash-approach2 betas",
+    )
+    return approach1, approach2
 
+
+def build_beta_schedule(config: ConditionalDiffusionTrainConfig) -> np.ndarray | None:
+    """
+    Build optional custom betas for DDPMNoiseScheduler.
+
+    Returns None for standard linear schedule unless timesteps='auto'.
+    """
+
+    if config.beta_schedule == "linear":
+        if config.timesteps == "auto":
+            approach1_betas, approach2_betas = _hash_approach_beta_candidates(config)
+            if approach1_betas.size != approach2_betas.size:
+                raise ValueError(
+                    "Hash approach schedule length mismatch: "
+                    f"approach1={approach1_betas.size}, approach2={approach2_betas.size}"
+                )
+            return _as_1d_beta_array(
+                np.linspace(
+                    config.beta_start,
+                    config.beta_end,
+                    int(approach1_betas.size),
+                    dtype=np.float64,
+                ),
+                name="betas",
+            )
+        return None
+    if config.beta_schedule == "file":
+        if config.beta_values_path is None:
+            raise ValueError("beta_values_path is required when beta_schedule='file'")
+        return _load_beta_values(config.beta_values_path)
+
+    approach1_betas, approach2_betas = _hash_approach_beta_candidates(config)
     if config.beta_schedule == "hash-approach1":
-        betas = beta_scheduler.approach1(summary.mean).rescaled_candidate
+        betas = approach1_betas
     elif config.beta_schedule == "hash-approach2":
-        betas = beta_scheduler.approach2(summary.mean).candidate
+        betas = approach2_betas
     else:
         raise ValueError(f"Unsupported beta schedule: {config.beta_schedule}")
 
     return _as_1d_beta_array(betas, name="betas")
+
+
+def _parse_timesteps_arg(value: str) -> int | Literal["auto"]:
+    text = value.strip().lower()
+    if text == "auto":
+        return "auto"
+    try:
+        parsed = int(text)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("timesteps must be a positive integer or 'auto'") from exc
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("timesteps must be a positive integer or 'auto'")
+    return parsed
 
 
 def save_beta_schedule(
@@ -1449,10 +1490,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--timesteps",
-        type=int,
+        type=_parse_timesteps_arg,
         default=ConditionalDiffusionTrainConfig.timesteps,
         help=(
-            "Diffusion timesteps used for linear beta schedule. "
+            "Diffusion timesteps used for linear beta schedule, or 'auto' to "
+            "sync linear length to hash approach schedule length. "
             "For file/hash schedules, timesteps follow the beta schedule length."
         ),
     )

@@ -100,8 +100,9 @@ Supported `--beta-schedule` values are `linear`, `file`, `hash-approach1`,
 and `hash-approach2`. For `file`, pass `--beta-values-path` pointing to a
 JSON, TXT/CSV, NPY, or NPZ file containing beta values. With `file`,
 `hash-approach1`, and `hash-approach2`, diffusion `timesteps` are inferred
-from the resulting beta schedule length (the `--timesteps` argument applies to
-`linear` schedule).
+from the resulting beta schedule length. For `linear`, `--timesteps` accepts
+either an integer or `auto`; when set to `auto`, linear timesteps are synced
+to the hash approach schedule length.
 
 Process trace outputs:
 ```text

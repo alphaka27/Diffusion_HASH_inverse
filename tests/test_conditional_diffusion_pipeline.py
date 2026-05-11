@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -8,6 +9,7 @@ pytest.importorskip("PIL")
 
 from PIL import Image
 
+import diffusion_hash_inv.models.conditional_diffusion as conditional_diffusion_module
 from diffusion_hash_inv.models.conditional_diffusion import (
     ConditionalDiffusionTrainConfig,
     ConditionalUNet,
@@ -236,6 +238,83 @@ def test_build_beta_schedule_rejects_invalid_beta_json_file(tmp_path: Path) -> N
     )
 
     with pytest.raises(ValueError, match="Invalid JSON in beta values file"):
+        build_beta_schedule(config)
+
+
+def test_build_beta_schedule_linear_uses_timesteps_when_not_auto() -> None:
+    config = ConditionalDiffusionTrainConfig(
+        beta_schedule="linear",
+        timesteps=7,
+    )
+
+    betas = build_beta_schedule(config)
+
+    assert betas is None
+
+
+def test_build_beta_schedule_linear_auto_uses_hash_approach_length(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class DummyAnalyze:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        def summarize_beta_schedules(self, **_kwargs: object) -> SimpleNamespace:
+            return SimpleNamespace(mean=[1.0, 2.0, 3.0, 4.0])
+
+    class DummyBetaScheduler:
+        def __init__(self, beta_min: float, beta_max: float) -> None:
+            self.beta_min = beta_min
+            self.beta_max = beta_max
+
+        def approach1(self, _mean: object) -> SimpleNamespace:
+            return SimpleNamespace(rescaled_candidate=[0.11, 0.12, 0.13, 0.14])
+
+        def approach2(self, _mean: object) -> SimpleNamespace:
+            return SimpleNamespace(candidate=[0.21, 0.22, 0.23, 0.24])
+
+    monkeypatch.setattr(conditional_diffusion_module, "Analyze", DummyAnalyze)
+    monkeypatch.setattr(conditional_diffusion_module, "BetaScheduler", DummyBetaScheduler)
+    config = ConditionalDiffusionTrainConfig(
+        beta_schedule="linear",
+        timesteps="auto",
+        beta_start=0.001,
+        beta_end=0.009,
+    )
+
+    betas = build_beta_schedule(config)
+
+    assert betas is not None
+    assert betas.shape == (4,)
+    assert betas.tolist() == pytest.approx([0.001, 0.0036666667, 0.0063333333, 0.009])
+
+
+def test_build_beta_schedule_linear_auto_rejects_hash_length_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class DummyAnalyze:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        def summarize_beta_schedules(self, **_kwargs: object) -> SimpleNamespace:
+            return SimpleNamespace(mean=[1.0, 2.0, 3.0])
+
+    class DummyBetaScheduler:
+        def __init__(self, beta_min: float, beta_max: float) -> None:
+            self.beta_min = beta_min
+            self.beta_max = beta_max
+
+        def approach1(self, _mean: object) -> SimpleNamespace:
+            return SimpleNamespace(rescaled_candidate=[0.11, 0.12, 0.13])
+
+        def approach2(self, _mean: object) -> SimpleNamespace:
+            return SimpleNamespace(candidate=[0.21, 0.22, 0.23, 0.24])
+
+    monkeypatch.setattr(conditional_diffusion_module, "Analyze", DummyAnalyze)
+    monkeypatch.setattr(conditional_diffusion_module, "BetaScheduler", DummyBetaScheduler)
+    config = ConditionalDiffusionTrainConfig(beta_schedule="linear", timesteps="auto")
+
+    with pytest.raises(ValueError, match="Hash approach schedule length mismatch"):
         build_beta_schedule(config)
 
 
