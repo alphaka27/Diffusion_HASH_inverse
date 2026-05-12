@@ -2,9 +2,10 @@
 DDPM training pipeline with structured MD5 loop-state conditioning.
 
 Unlike ``conditional_diffusion.py``, this module does not collapse
-``Logs/<step>`` into one categorical class id. It reads the 64 loop states from
-one hash step, converts the A/B/C/D 32-bit words into a continuous tensor, and
-feeds that tensor through a condition encoder inside the denoising U-Net.
+``Logs/<step>`` into one categorical class id. It reads the ordered Step 4 loop
+state trace (``Loop Start`` + each loop + ``Loop End``), converts the A/B/C/D
+32-bit words into a continuous tensor, and feeds the state that corresponds to
+the current diffusion timestep into the denoising U-Net.
 """
 
 from __future__ import annotations
@@ -46,6 +47,7 @@ from diffusion_hash_inv.models.conditional_diffusion import (
     resolve_train_steps,
     save_beta_schedule,
     save_image_grid,
+    save_source_generated_grid,
     set_seed,
 )
 from diffusion_hash_inv.models.conditional_diffusion import (
@@ -54,6 +56,7 @@ from diffusion_hash_inv.models.conditional_diffusion import (
 )
 
 WORD_MAX = float(0xFFFFFFFF)
+UINT32_BYTE_COUNT = 4
 DEFAULT_WORD_NAMES = ("A", "B", "C", "D")
 
 
@@ -92,6 +95,14 @@ def loop_key(index: int) -> str:
     return f"{index}{_ordinal_suffix(index)} Loop"
 
 
+def loop_state_keys(loop_count: int) -> list[str]:
+    """Return the temporal state order used by Step 4 log-derived beta schedules."""
+
+    if loop_count <= 0:
+        raise ValueError("loop_count must be positive")
+    return ["Loop Start", *(loop_key(index) for index in range(1, loop_count + 1)), "Loop End"]
+
+
 def _parse_hex_word(value: object) -> int:
     if isinstance(value, int):
         parsed = value
@@ -113,6 +124,32 @@ def _normalize_uint32(value: int) -> float:
     return (float(value) / WORD_MAX) * 2.0 - 1.0
 
 
+def _extract_loop_state_row(
+    round_payload: dict[str, object],
+    state_key: str,
+    *,
+    condition_step: str,
+    condition_round: str,
+    word_names: Sequence[str],
+) -> list[float]:
+    state_payload = round_payload.get(state_key)
+    if not isinstance(state_payload, dict):
+        raise KeyError(
+            "JSON loop condition path not found: "
+            f"Logs/{condition_step}/{condition_round}/{state_key}"
+        )
+
+    row: list[float] = []
+    for word_name in word_names:
+        if word_name not in state_payload:
+            raise KeyError(
+                "JSON loop condition word not found: "
+                f"Logs/{condition_step}/{condition_round}/{state_key}/{word_name}"
+            )
+        row.append(_normalize_uint32(_parse_hex_word(state_payload[word_name])))
+    return row
+
+
 def extract_loop_condition(
     payload: dict[str, object],
     *,
@@ -122,11 +159,11 @@ def extract_loop_condition(
     word_names: Sequence[str] = DEFAULT_WORD_NAMES,
 ) -> np.ndarray:
     """
-    Extract ``loop_count x len(word_names)`` normalized loop-state features.
+    Extract normalized temporal loop-state features.
 
     The returned array is ``float32`` in ``[-1, 1]``. For the default MD5 trace
-    format this means 64 loops by A/B/C/D words, giving a ``(64, 4)`` condition
-    tensor per training sample.
+    format this means ``Loop Start`` + 64 loops + ``Loop End`` by A/B/C/D words,
+    giving a ``(66, 4)`` condition tensor per training sample.
     """
 
     if loop_count <= 0:
@@ -138,25 +175,59 @@ def extract_loop_condition(
     if not isinstance(round_payload, dict):
         raise ValueError(f"Logs/{condition_step}/{condition_round} must be a JSON object")
 
-    rows: list[list[float]] = []
-    for loop_idx in range(1, loop_count + 1):
-        key = loop_key(loop_idx)
-        loop_payload = round_payload.get(key)
-        if not isinstance(loop_payload, dict):
-            raise KeyError(
-                "JSON loop condition path not found: "
-                f"Logs/{condition_step}/{condition_round}/{key}"
-            )
-        row: list[float] = []
-        for word_name in word_names:
-            if word_name not in loop_payload:
-                raise KeyError(
-                    "JSON loop condition word not found: "
-                    f"Logs/{condition_step}/{condition_round}/{key}/{word_name}"
-                )
-            row.append(_normalize_uint32(_parse_hex_word(loop_payload[word_name])))
-        rows.append(row)
+    rows = [
+        _extract_loop_state_row(
+            round_payload,
+            state_key,
+            condition_step=condition_step,
+            condition_round=condition_round,
+            word_names=word_names,
+        )
+        for state_key in loop_state_keys(loop_count)
+    ]
     return np.asarray(rows, dtype=np.float32)
+
+
+def timestep_to_state_indices(
+    timesteps: Tensor,
+    *,
+    state_count: int,
+    words_per_state: int,
+    diffusion_timesteps: int | None = None,
+) -> Tensor:
+    """
+    Map diffusion timesteps onto the Step 4 state sequence.
+
+    With the log-derived schedule, each state contributes
+    ``words_per_state * 4`` byte positions. For the default 66 states and four
+    uint32 words this is ``66 * 4 * 4 = 1056`` diffusion positions, so timesteps
+    ``0..15`` map to ``Loop Start``, ``16..31`` to ``1st Loop``, and so on.
+    If a different diffusion length is used, the mapping is scaled
+    proportionally while preserving temporal order.
+    """
+
+    if state_count <= 0:
+        raise ValueError("state_count must be positive")
+    if words_per_state <= 0:
+        raise ValueError("words_per_state must be positive")
+    if timesteps.ndim != 1:
+        raise ValueError(f"timesteps must be one-dimensional, got shape {tuple(timesteps.shape)}")
+
+    inferred_timesteps = state_count * words_per_state * UINT32_BYTE_COUNT
+    total_timesteps = (
+        inferred_timesteps
+        if diffusion_timesteps is None
+        else int(diffusion_timesteps)
+    )
+    if total_timesteps <= 0:
+        raise ValueError("diffusion_timesteps must be positive")
+
+    indices = torch.div(
+        timesteps.to(dtype=torch.long) * state_count,
+        total_timesteps,
+        rounding_mode="floor",
+    )
+    return indices.clamp_(0, state_count - 1)
 
 
 def discover_loop_conditioned_samples(
@@ -215,7 +286,9 @@ class LoopConditionedImageDataset(Dataset[tuple[Tensor, Tensor, Tensor]]):
     Dataset that returns ``(image, loop_condition, sample_index)``.
 
     ``loop_condition`` is a float tensor with shape
-    ``(loop_count, len(word_names))``.
+    ``(loop_count + 2, len(word_names))``. The two extra rows are
+    ``Loop Start`` and ``Loop End`` so the sequence aligns with the
+    byte-wise log-derived beta schedule.
     """
 
     def __init__(
@@ -253,7 +326,7 @@ class LoopConditionedImageDataset(Dataset[tuple[Tensor, Tensor, Tensor]]):
 
     @property
     def condition_shape(self) -> tuple[int, int]:
-        return self.loop_count, len(self.word_names)
+        return len(loop_state_keys(self.loop_count)), len(self.word_names)
 
     def __len__(self) -> int:
         return len(self.samples)
@@ -274,9 +347,10 @@ class LoopConditionedUNet(nn.Module):
     def __init__(
         self,
         in_channels: int,
-        condition_shape: tuple[int, int] = (64, 4),
+        condition_shape: tuple[int, int] = (66, 4),
         base_channels: int = 64,
         time_dim: int = 256,
+        diffusion_timesteps: int | None = None,
     ) -> None:
         super().__init__()
         if base_channels <= 0:
@@ -288,7 +362,7 @@ class LoopConditionedUNet(nn.Module):
         self.condition_shape = tuple(int(value) for value in condition_shape)
         self.base_channels = base_channels
         self.time_dim = time_dim
-        condition_dim = math.prod(self.condition_shape)
+        self.diffusion_timesteps = diffusion_timesteps
 
         self.time_embedding = nn.Sequential(
             SinusoidalTimeEmbedding(time_dim),
@@ -296,9 +370,14 @@ class LoopConditionedUNet(nn.Module):
             nn.SiLU(),
             nn.Linear(time_dim * 4, time_dim),
         )
-        self.condition_embedding = nn.Sequential(
-            nn.Flatten(),
-            nn.Linear(condition_dim, time_dim * 2),
+        self.state_embedding = nn.Sequential(
+            nn.Linear(self.condition_shape[1], time_dim * 2),
+            nn.SiLU(),
+            nn.Linear(time_dim * 2, time_dim),
+        )
+        self.state_position_embedding = nn.Sequential(
+            SinusoidalTimeEmbedding(time_dim),
+            nn.Linear(time_dim, time_dim * 2),
             nn.SiLU(),
             nn.Linear(time_dim * 2, time_dim),
         )
@@ -349,7 +428,20 @@ class LoopConditionedUNet(nn.Module):
             raise ValueError(
                 f"conditions must have shape {expected}, got {tuple(conditions.shape)}"
             )
-        return self.time_embedding(timesteps) + self.condition_embedding(conditions)
+        state_indices = timestep_to_state_indices(
+            timesteps,
+            state_count=self.condition_shape[0],
+            words_per_state=self.condition_shape[1],
+            diffusion_timesteps=self.diffusion_timesteps,
+        )
+        batch_indices = torch.arange(conditions.shape[0], device=conditions.device)
+        selected_states = conditions[batch_indices, state_indices.to(device=conditions.device)]
+        state_position = self.state_position_embedding(state_indices.to(device=conditions.device))
+        return (
+            self.time_embedding(timesteps)
+            + self.state_embedding(selected_states)
+            + state_position
+        )
 
     @staticmethod
     def _match_spatial(x: Tensor, target: Tensor) -> Tensor:
@@ -441,16 +533,31 @@ def save_loop_conditioned_images(
     sample_indices: Tensor,
     dataset: LoopConditionedImageDataset,
     path: Path,
+    *,
+    save_originals: bool = False,
 ) -> Path:
-    """Save generated images and sidecar JSON with source run ids."""
+    """Save generated images and sidecar JSON with source run ids.
+
+    When *save_originals* is ``True``, the corresponding original images from
+    the dataset are also written next to each generated file using the
+    ``.original`` infix (e.g. ``step_000100_000.original.png``).
+    """
 
     images = _denormalize_images(images)
     indices = sample_indices.detach().cpu().tolist()
     path.parent.mkdir(parents=True, exist_ok=True)
     saved_files: list[str] = []
+    original_files: list[str | None] = []
     if images.shape[0] == 1:
         _image_from_tensor(images[0]).save(path)
         saved_files.append(path.name)
+        if save_originals and indices:
+            orig_tensor, _, _ = dataset[int(indices[0])]
+            orig_path = path.with_name(f"{path.stem}.original{path.suffix}")
+            _image_from_tensor(_denormalize_images(orig_tensor)).save(orig_path)
+            original_files.append(orig_path.name)
+        else:
+            original_files.append(None)
     else:
         stem = path.stem
         suffix = path.suffix
@@ -458,26 +565,46 @@ def save_loop_conditioned_images(
             file_path = path.with_name(f"{stem}_{idx:03d}{suffix}")
             _image_from_tensor(image_tensor).save(file_path)
             saved_files.append(file_path.name)
+            if save_originals and idx < len(indices):
+                orig_tensor, _, _ = dataset[int(indices[idx])]
+                orig_path = path.with_name(f"{stem}_{idx:03d}.original{suffix}")
+                _image_from_tensor(_denormalize_images(orig_tensor)).save(orig_path)
+                original_files.append(orig_path.name)
+            else:
+                original_files.append(None)
 
     metadata = []
     for idx, sample_index in enumerate(indices):
         sample = dataset.samples[int(sample_index)]
-        metadata.append(
-            {
-                "index": idx,
-                "file": saved_files[idx],
-                "dataset_index": int(sample_index),
-                "run_id": sample.run_id,
-                "source_path": str(sample.path),
-                "condition_step": dataset.condition_step,
-                "condition_round": dataset.condition_round,
-            }
-        )
+        record: dict[str, object] = {
+            "index": idx,
+            "file": saved_files[idx],
+            "dataset_index": int(sample_index),
+            "run_id": sample.run_id,
+            "source_path": str(sample.path),
+            "condition_step": dataset.condition_step,
+            "condition_round": dataset.condition_round,
+        }
+        if idx < len(original_files) and original_files[idx] is not None:
+            record["original_file"] = original_files[idx]
+        metadata.append(record)
     path.with_suffix(".conditions.json").write_text(
         json.dumps(metadata, indent=2),
         encoding="utf-8",
     )
     return path
+
+
+def _source_images_for_indices(
+    dataset: LoopConditionedImageDataset,
+    sample_indices: Tensor,
+) -> Tensor:
+    images = [dataset[int(index)][0] for index in sample_indices.detach().cpu().tolist()]
+    return torch.stack(images)
+
+
+def _source_condition_names(dataset: LoopConditionedImageDataset) -> list[str]:
+    return [sample.run_id for sample in dataset.samples]
 
 
 def _checkpoint_payload(
@@ -507,6 +634,7 @@ def _checkpoint_payload(
             "condition_shape": model.condition_shape,
             "base_channels": model.base_channels,
             "time_dim": model.time_dim,
+            "diffusion_timesteps": model.diffusion_timesteps,
         },
     }
 
@@ -588,7 +716,7 @@ def save_loop_process_traces(
 def train_loop_conditioned_diffusion(
     config: LoopConditionedDiffusionTrainConfig,
 ) -> dict[str, Path | float | int | None]:
-    """Train a DDPM conditioned on structured 64-loop hash state tensors."""
+    """Train a DDPM conditioned on temporal Step 4 loop-state tensors."""
 
     set_seed(config.seed)
     device = resolve_device(config.device)
@@ -621,12 +749,6 @@ def train_loop_conditioned_diffusion(
         epochs=config.epochs,
     )
 
-    model = LoopConditionedUNet(
-        in_channels=dataset.channels,
-        condition_shape=dataset.condition_shape,
-        base_channels=config.base_channels,
-        time_dim=config.time_dim,
-    ).to(device)
     sample_image_shape = tuple(int(value) for value in dataset[0][0].shape)
     sample_channels, sample_height, sample_width = sample_image_shape
     custom_betas = build_beta_schedule(config)
@@ -637,6 +759,13 @@ def train_loop_conditioned_diffusion(
         device=device,
         betas=custom_betas,
     )
+    model = LoopConditionedUNet(
+        in_channels=dataset.channels,
+        condition_shape=dataset.condition_shape,
+        base_channels=config.base_channels,
+        time_dim=config.time_dim,
+        diffusion_timesteps=scheduler.timesteps,
+    ).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.learning_rate)
 
     config.output_dir.mkdir(parents=True, exist_ok=True)
@@ -655,8 +784,12 @@ def train_loop_conditioned_diffusion(
         "condition_step": config.condition_step,
         "condition_round": config.condition_round,
         "loop_count": config.loop_count,
+        "state_count": dataset.condition_shape[0],
+        "state_order": loop_state_keys(config.loop_count),
         "word_names": list(config.word_names),
         "condition_shape": list(dataset.condition_shape),
+        "diffusion_timesteps": scheduler.timesteps,
+        "timesteps_per_state_for_hash_schedule": len(config.word_names) * UINT32_BYTE_COUNT,
         "normalization": "uint32 / 0xffffffff * 2 - 1",
     }
     (config.output_dir / "condition_schema.json").write_text(
@@ -720,8 +853,19 @@ def train_loop_conditioned_diffusion(
                 source_indices,
                 dataset,
                 sample_path,
+                save_originals=True,
+            )
+            reference_images = _source_images_for_indices(dataset, source_indices)
+            paired_sample_path = config.output_dir / "samples" / f"step_{step:06d}.with_source.png"
+            save_source_generated_grid(
+                reference_images,
+                samples,
+                source_indices,
+                _source_condition_names(dataset),
+                paired_sample_path,
             )
             print(f"saved samples: {sample_path}")
+            print(f"saved source+generated samples: {paired_sample_path}")
             model.train()
 
     final_checkpoint = save_checkpoint(
@@ -748,7 +892,29 @@ def train_loop_conditioned_diffusion(
         conditions_for_sample,
     )
     final_sample_path = config.output_dir / "samples" / "final.png"
-    save_loop_conditioned_images(samples, source_indices, dataset, final_sample_path)
+    save_loop_conditioned_images(
+        samples,
+        source_indices,
+        dataset,
+        final_sample_path,
+        save_originals=True,
+    )
+    final_source_path = config.output_dir / "samples" / "final.source.png"
+    reference_images = _source_images_for_indices(dataset, source_indices)
+    save_image_grid(
+        reference_images,
+        source_indices,
+        _source_condition_names(dataset),
+        final_source_path,
+    )
+    final_with_source_path = config.output_dir / "samples" / "final.with_source.png"
+    save_source_generated_grid(
+        reference_images,
+        samples,
+        source_indices,
+        _source_condition_names(dataset),
+        final_with_source_path,
+    )
 
     process_trace_paths: dict[str, list[Path]] | None = None
     if config.save_process_traces:
@@ -769,6 +935,8 @@ def train_loop_conditioned_diffusion(
         "final_loss": last_loss,
         "checkpoint": final_checkpoint,
         "sample_grid": final_sample_path,
+        "sample_source_grid": final_source_path,
+        "sample_with_source_grid": final_with_source_path,
         "beta_schedule": beta_schedule_path,
         "process_traces": (
             None if process_trace_paths is None else config.output_dir / "process_traces"

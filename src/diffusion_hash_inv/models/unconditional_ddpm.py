@@ -42,6 +42,7 @@ from diffusion_hash_inv.models.conditional_diffusion import (
     resolve_train_steps,
     save_beta_schedule,
     save_image_grid,
+    save_source_generated_grid,
     set_seed,
 )
 
@@ -305,15 +306,33 @@ def save_unconditional_images(
     sample_indices: Tensor | None,
     dataset: UnconditionalImageDataset | None,
     path: Path,
+    *,
+    save_originals: bool = False,
 ) -> Path:
-    """Save generated images with optional source sample metadata."""
+    """Save generated images with optional source sample metadata.
+
+    When *save_originals* is ``True`` and *dataset* / *sample_indices* are
+    provided, the corresponding original images are also written next to each
+    generated file using the ``.original`` infix
+    (e.g. ``step_000100_000.original.png``).
+    """
 
     images = _denormalize_images(images)
     path.parent.mkdir(parents=True, exist_ok=True)
     saved_files: list[str] = []
+    original_files: list[str | None] = []
+    indices = [] if sample_indices is None else sample_indices.detach().cpu().tolist()
+
     if images.shape[0] == 1:
         _image_from_tensor(images[0]).save(path)
         saved_files.append(path.name)
+        if save_originals and dataset is not None and indices:
+            orig_tensor, _ = dataset[int(indices[0])]
+            orig_path = path.with_name(f"{path.stem}.original{path.suffix}")
+            _image_from_tensor(_denormalize_images(orig_tensor)).save(orig_path)
+            original_files.append(orig_path.name)
+        else:
+            original_files.append(None)
     else:
         stem = path.stem
         suffix = path.suffix
@@ -321,11 +340,19 @@ def save_unconditional_images(
             file_path = path.with_name(f"{stem}_{idx:03d}{suffix}")
             _image_from_tensor(image_tensor).save(file_path)
             saved_files.append(file_path.name)
+            if save_originals and dataset is not None and idx < len(indices):
+                orig_tensor, _ = dataset[int(indices[idx])]
+                orig_path = path.with_name(f"{stem}_{idx:03d}.original{suffix}")
+                _image_from_tensor(_denormalize_images(orig_tensor)).save(orig_path)
+                original_files.append(orig_path.name)
+            else:
+                original_files.append(None)
 
     metadata: list[dict[str, object]] = []
-    indices = [] if sample_indices is None else sample_indices.detach().cpu().tolist()
     for idx, filename in enumerate(saved_files):
         record: dict[str, object] = {"index": idx, "file": filename}
+        if idx < len(original_files) and original_files[idx] is not None:
+            record["original_file"] = original_files[idx]
         if dataset is not None and idx < len(indices):
             sample = dataset.samples[int(indices[idx])]
             record.update(
@@ -341,6 +368,18 @@ def save_unconditional_images(
         encoding="utf-8",
     )
     return path
+
+
+def _source_images_for_indices(
+    dataset: UnconditionalImageDataset,
+    sample_indices: Tensor,
+) -> Tensor:
+    images = [dataset[int(index)][0] for index in sample_indices.detach().cpu().tolist()]
+    return torch.stack(images)
+
+
+def _source_condition_names(dataset: UnconditionalImageDataset) -> list[str]:
+    return [sample.run_id for sample in dataset.samples]
 
 
 def _sample_source_indices(
@@ -578,8 +617,24 @@ def train_unconditional_ddpm(
             )
             sample_indices = _sample_source_indices(dataset, config.sample_count, device)
             sample_path = config.output_dir / "samples" / f"step_{step:06d}.png"
-            save_unconditional_images(samples, sample_indices, dataset, sample_path)
+            save_unconditional_images(
+                samples,
+                sample_indices,
+                dataset,
+                sample_path,
+                save_originals=True,
+            )
+            reference_images = _source_images_for_indices(dataset, sample_indices)
+            paired_sample_path = config.output_dir / "samples" / f"step_{step:06d}.with_source.png"
+            save_source_generated_grid(
+                reference_images,
+                samples,
+                sample_indices,
+                _source_condition_names(dataset),
+                paired_sample_path,
+            )
             print(f"saved samples: {sample_path}")
+            print(f"saved source+generated samples: {paired_sample_path}")
             model.train()
 
     final_checkpoint = save_checkpoint(model, optimizer, effective_train_steps, last_loss, config)
@@ -590,7 +645,29 @@ def train_unconditional_ddpm(
     )
     final_indices = _sample_source_indices(dataset, config.sample_count, device)
     final_sample_path = config.output_dir / "samples" / "final.png"
-    save_unconditional_images(final_samples, final_indices, dataset, final_sample_path)
+    save_unconditional_images(
+        final_samples,
+        final_indices,
+        dataset,
+        final_sample_path,
+        save_originals=True,
+    )
+    final_source_path = config.output_dir / "samples" / "final.source.png"
+    reference_images = _source_images_for_indices(dataset, final_indices)
+    save_image_grid(
+        reference_images,
+        final_indices,
+        _source_condition_names(dataset),
+        final_source_path,
+    )
+    final_with_source_path = config.output_dir / "samples" / "final.with_source.png"
+    save_source_generated_grid(
+        reference_images,
+        final_samples,
+        final_indices,
+        _source_condition_names(dataset),
+        final_with_source_path,
+    )
 
     process_trace_paths: dict[str, list[Path]] | None = None
     if config.save_process_traces:
@@ -609,6 +686,8 @@ def train_unconditional_ddpm(
         "final_loss": last_loss,
         "checkpoint": final_checkpoint,
         "sample_grid": final_sample_path,
+        "sample_source_grid": final_source_path,
+        "sample_with_source_grid": final_with_source_path,
         "beta_schedule": beta_schedule_path,
         "train_batches": train_batch_dir,
         "process_traces": (

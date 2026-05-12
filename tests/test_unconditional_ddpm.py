@@ -96,5 +96,13 @@ def test_unconditional_training_smoke_run(tmp_path: Path) -> None:
     assert result["train_steps"] == 1
     assert Path(result["checkpoint"]).exists()
     assert Path(result["sample_grid"]).exists()
+    assert Path(result["sample_grid"]).with_name("final.original.png").exists()
+    assert Path(result["sample_source_grid"]).name == "final.source.png"
+    assert Path(result["sample_with_source_grid"]).name == "final.with_source.png"
+    assert Path(result["sample_source_grid"]).exists()
+    assert not Path(result["sample_with_source_grid"]).exists()
+    with_source_path = Path(result["sample_with_source_grid"])
+    assert with_source_path.with_name("final.with_source.source.png").exists()
+    assert with_source_path.with_name("final.with_source.generated.png").exists()
     train_config = (output_dir / "train_config.json").read_text(encoding="utf-8")
     assert "label_source" not in train_config
