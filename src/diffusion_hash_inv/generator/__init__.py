@@ -4,10 +4,17 @@
 - nist_pwgen_utf8, random_n_char 모듈은 네임스페이스로 공개
 """
 
-from .random_n_char import GenerateRandomNChar
-from .n_bits_gen import NBitsGenerator
-
 __all__ = [
     "NBitsGenerator",
     "GenerateRandomNChar",
 ]
+
+
+def __getattr__(name):
+    if name == "GenerateRandomNChar":
+        from .random_n_char import GenerateRandomNChar
+        return GenerateRandomNChar
+    if name == "NBitsGenerator":
+        from .n_bits_gen import NBitsGenerator
+        return NBitsGenerator
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

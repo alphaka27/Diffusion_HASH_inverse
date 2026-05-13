@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import math
 import sys
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -344,8 +345,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main() -> None:
-    output_path = run_demo(build_arg_parser().parse_args())
+def main(argv: Sequence[str] | None = None) -> None:
+    output_path = run_demo(build_arg_parser().parse_args(argv))
     print(f"saved samples: {output_path}")
 
 

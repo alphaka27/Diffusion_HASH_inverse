@@ -2,10 +2,18 @@
 Configuration for hash algorithm parameters.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
-import sys
-from typing import Optional, Tuple, Dict
 import inspect
+import math
+import sys
+from typing import Dict, Optional, Tuple
+
+
+def _validate_positive_byte_multiple(name: str, value: int) -> None:
+    if value <= 0 or value % 8 != 0:
+        raise ValueError(f"{name} must be a positive multiple of 8")
 
 @dataclass(frozen=True)
 class MD5Constants:
@@ -24,7 +32,7 @@ class MD5Constants:
         (6, 10, 15, 21) * 4
 
     k: Tuple[int, ...] = tuple(
-        int(abs((2 ** 32) * (abs(__import__('math').sin(i + 1))))) for i in range(64)
+        int(abs((2 ** 32) * abs(math.sin(i + 1)))) for i in range(64)
     )
 
     init_hash: Dict[str, int] = field(init=False, default_factory=lambda: {
@@ -38,12 +46,8 @@ class MD5Constants:
         default=("Step", "Round", "Loop"))
 
     def __post_init__(self):
-        if self.word_size <= 0 or self.word_size % 8 != 0:
-            raise ValueError("word_size must be a positive multiple of 8")
-
-        if self.block_size <= 0 or self.block_size % 8 != 0:
-            raise ValueError("block_size must be a positive multiple of 8")
-
+        _validate_positive_byte_multiple("word_size", self.word_size)
+        _validate_positive_byte_multiple("block_size", self.block_size)
         object.__setattr__(self, "mask", (1 << self.word_size) - 1)
 
 @dataclass(frozen=True)
@@ -60,13 +64,15 @@ class SHA256Constants:
         default=("Round", "Step", "Loop"))
 
     def __post_init__(self):
-        if self.word_size <= 0 or self.word_size % 8 != 0:
-            raise ValueError("word_size must be a positive multiple of 8")
-
-        if self.block_size <= 0 or self.block_size % 8 != 0:
-            raise ValueError("block_size must be a positive multiple of 8")
-
+        _validate_positive_byte_multiple("word_size", self.word_size)
+        _validate_positive_byte_multiple("block_size", self.block_size)
         object.__setattr__(self, "mask", (1 << self.word_size) - 1)
+
+
+_CONSTANTS_BY_ALGORITHM: dict[str, type[MD5Constants] | type[SHA256Constants]] = {
+    "md5": MD5Constants,
+    "sha256": SHA256Constants,
+}
 
 @dataclass(frozen=True)
 class HashConfig:
@@ -87,21 +93,14 @@ class HashConfig:
             raise ValueError("length must be specified")
 
         hash_alg_lower = self.hash_alg.lower()
-
-        if hash_alg_lower == "md5":
-            object.__setattr__(self, "constants", MD5Constants()) # bypass frozen
-
-        elif hash_alg_lower == "sha256":
-            object.__setattr__(self, "constants", SHA256Constants()) # bypass frozen
-
-        else:
+        constants_type = _CONSTANTS_BY_ALGORITHM.get(hash_alg_lower)
+        if constants_type is None:
             raise ValueError(f"Unsupported hash algorithm: {self.hash_alg}")
+        object.__setattr__(self, "constants", constants_type()) # bypass frozen
 
-        if self.length <= 0 or self.length % 8 != 0:
-            raise ValueError("length must be a positive multiple of 8")
-
-        if self.constants is None:
-            raise ValueError("Hash algorithm constants are not set.")
+        _validate_positive_byte_multiple("length", self.length)
+        self._constant_value("word_size")
+        self._constant_value("block_size")
 
     def __repr__(self):
         return (
@@ -119,86 +118,53 @@ class HashConfig:
         """
         Get the byte order configuration.
         """
-        if self.constants.byteorder is None:
-            raise ValueError("byteorder is not set in hash algorithm constants.")
-
-        if self.constants.byteorder not in ("little", "big"):
+        byteorder = self._constant_value("byteorder")
+        if byteorder not in ("little", "big"):
             raise ValueError("byteorder must be either 'little' or 'big'")
 
-        ret = None
-        if isinstance(self.constants.byteorder, str):
-            ret = str(self.constants.byteorder)
-        assert ret is not None, "byteorder conversion failed."
-
-        return ret
+        return str(byteorder)
 
     @property
     def ws_bits(self) -> int:
         """
         Get the word size configuration.
         """
-        if self.constants.word_size is None:
-            raise ValueError("word_size is not set in hash algorithm constants.")
-        if self.constants.word_size < 0 or self.constants.word_size % 8 != 0:
-            raise ValueError("word_size must be a positive multiple of 8")
-
-        return self.constants.word_size
+        return self._positive_multiple_constant("word_size")
 
     @property
     def bs_bits(self) -> int:
         """
         Get the block size configuration.
         """
-        if self.constants.block_size is None:
-            raise ValueError("block_size is not set in hash algorithm constants.")
-        if self.constants.block_size < 0 or self.constants.block_size % 8 != 0:
-            raise ValueError("block_size must be a positive multiple of 8")
-
-        return self.constants.block_size
+        return self._positive_multiple_constant("block_size")
 
     @property
     def ws_bytes(self) -> int:
         """
         Get the word size in bytes.
         """
-        if self.constants.word_size is None:
-            raise ValueError("word_size is not set in hash algorithm constants.")
-        if self.constants.word_size < 0 or self.constants.word_size % 8 != 0:
-            raise ValueError("word_size must be a positive multiple of 8")
-
-        return self.constants.word_size // 8
+        return self.ws_bits // 8
 
     @property
     def bs_bytes(self) -> int:
         """
         Get the block size in bytes.
         """
-        if self.constants.block_size is None:
-            raise ValueError("block_size is not set in hash algorithm constants.")
-        if self.constants.block_size < 0 or self.constants.block_size % 8 != 0:
-            raise ValueError("block_size must be a positive multiple of 8")
-
-        return self.constants.block_size // 8
+        return self.bs_bits // 8
 
     @property
     def mask(self) -> int:
         """
         Get the mask configuration.
         """
-        if self.constants.mask is None:
-            raise ValueError("mask is not set in hash algorithm constants.")
-
-        return self.constants.mask
+        return self._constant_value("mask")
 
     @property
     def hierarchy(self) -> Tuple[str, str, str]:
         """
         Get the hierarchy configuration.
         """
-        if self.constants.hierarchy is None:
-            raise ValueError("hierarchy is not set in hash algorithm constants.")
-
-        return self.constants.hierarchy
+        return self._constant_value("hierarchy")
 
     @property
     def hash_alg_upper(self) -> str:
@@ -209,13 +175,21 @@ class HashConfig:
             raise ValueError("hash_alg is not set.")
         return self.hash_alg.upper()
 
-    def __getattribute__(self, name):
-        try:
-            return super().__getattribute__(name)
-        except AttributeError:
-            if hasattr(self.constants, name):
-                return getattr(self.constants, name)
-            raise
+    def _constant_value(self, name: str):
+        constants = object.__getattribute__(self, "constants")
+        if constants is None:
+            raise ValueError("Hash algorithm constants are not set.")
+        value = getattr(constants, name)
+        if value is None:
+            raise ValueError(f"{name} is not set in hash algorithm constants.")
+        return value
+
+    def _positive_multiple_constant(self, name: str) -> int:
+        value = self._constant_value(name)
+        if not isinstance(value, int):
+            raise TypeError(f"{name} must be an integer.")
+        _validate_positive_byte_multiple(name, value)
+        return value
 
     def __getattr__(self, name):
         if hasattr(self.constants, name):

@@ -851,10 +851,10 @@ class Logs(LogHelper, TimeHelper):
 
         if "metadata" in kwargs:
             _metadata: Optional[Metadata] = kwargs.get("metadata")
-        if "base_logs" in kwargs:
-            _base_logs: Optional[BaseLogs] = kwargs.get("base_logs")
-        if "step_logs" in kwargs:
-            _step_logs: Optional[StepLogs] = kwargs.get("step_logs")
+        if "base_logs" in kwargs or "baselogs" in kwargs:
+            _base_logs: Optional[BaseLogs] = kwargs.get("base_logs", kwargs.get("baselogs"))
+        if "step_logs" in kwargs or "steplogs" in kwargs:
+            _step_logs: Optional[StepLogs] = kwargs.get("step_logs", kwargs.get("steplogs"))
 
         if _metadata is not None:
             _metadata.clear()

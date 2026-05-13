@@ -21,7 +21,7 @@ __all__ = [
 
 # dev 패키지 버전
 try:
-    __version__ = version("diffusion-hash-inv")
+    __version__ = version("diffusion-hash-inverse")
 
 except PackageNotFoundError:
     # 개발환경(로컬)에서 pyproject 설치 전인 경우 대비

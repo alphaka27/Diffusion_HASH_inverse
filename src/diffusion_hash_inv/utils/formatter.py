@@ -8,6 +8,38 @@ import json
 
 from diffusion_hash_inv.logger import Metadata, BaseLogs, StepLogs
 
+
+def bytes_to_hex_block(
+    data: bytes,
+    *,
+    word_bytes: int = 2,
+    line_bytes: int = 16,
+    pad_last: bool = True,
+) -> str:
+    """
+    Format bytes as grouped hexadecimal text.
+    """
+    out_lines: list[str] = []
+    for i in range(0, len(data), line_bytes):
+        line = data[i:i + line_bytes]
+        groups: list[str] = []
+        for j in range(0, len(line), word_bytes):
+            chunk = line[j:j + word_bytes]
+            hex_string = chunk.hex()
+            if pad_last and len(chunk) < word_bytes:
+                hex_string = hex_string.zfill(word_bytes * 2)
+            groups.append(hex_string)
+        out_lines.append(" ".join(groups))
+    return "\n".join(out_lines)
+
+
+def bytes_to_binary_block(data: bytes) -> str:
+    """
+    Format bytes as space-separated binary octets.
+    """
+    return " ".join(f"{byte:08b}" for byte in data)
+
+
 class JSONFormat:
     """
     Class to handle output formatting for hash results.

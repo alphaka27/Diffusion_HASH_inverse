@@ -13,6 +13,10 @@ cd src/diffusion_hash_inv
 python hash_main.py
 ```
 
+# Full Workflow
+See `Docs/Workflow.md` for the end-to-end workflow from hash trace generation
+to RGB image dataset creation, analysis, and DDPM training.
+
 # MLX Conditional Diffusion Example
 ``` bash
 pip install -e ".[mlx]"

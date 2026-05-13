@@ -9,6 +9,7 @@ from typing import Optional, TYPE_CHECKING
 
 from diffusion_hash_inv.config import MessageConfig, HashConfig
 from diffusion_hash_inv.logger import Logs
+from diffusion_hash_inv.utils.formatter import bytes_to_binary_block, bytes_to_hex_block
 from diffusion_hash_inv.utils.file_io import FileIO
 if TYPE_CHECKING:
     from diffusion_hash_inv.main.context import RuntimeConfig
@@ -34,18 +35,12 @@ class NBitsGenerator:
         """
         Convert bytes to a formatted hexadecimal string.
         """
-        out_lines = []
-        for i in range(0, len(b), line_bytes):
-            line = b[i:i+line_bytes]
-            groups = []
-            for j in range(0, len(line), word_bytes):
-                chunk = line[j:j+word_bytes]
-                hs = chunk.hex()
-                if pad_last and len(chunk) < word_bytes:
-                    hs = hs.zfill(word_bytes * 2)  # 마지막 덜 찬 그룹 0패딩
-                groups.append(hs)
-            out_lines.append(' '.join(groups))
-        return '\n'.join(out_lines)
+        return bytes_to_hex_block(
+            b,
+            word_bytes=word_bytes,
+            line_bytes=line_bytes,
+            pad_last=pad_last,
+        )
 
     @staticmethod
     def print_hex(msg, x):
@@ -68,7 +63,7 @@ class NBitsGenerator:
             print(msg, end="")
         else:
             print(msg+":")
-        print(' '.join(f'{x:08b}' for x in data))
+        print(bytes_to_binary_block(data))
         print()
 
     @staticmethod

@@ -10,9 +10,14 @@ import argparse
 import string
 from typing import Optional, ClassVar
 
-from diffusion_hash_inv.config import MainConfig
+from diffusion_hash_inv.config import MainConfig, OutputConfig
 from diffusion_hash_inv.utils import FileIO
 from diffusion_hash_inv.logger import Logs
+
+
+DEFAULT_BIT_LENGTH = 512
+DEFAULT_EXPONENT = 9
+
 
 class GenerateRandomNChar:
     """
@@ -25,6 +30,9 @@ class GenerateRandomNChar:
         self.file_io = file_io
         self.is_verbose = self.main_config.verbose_flag
         self.start_time = Logs.get_current_timestamp()
+        main_config_values = object.__getattribute__(self.main_config, "__dict__")
+        self.seed_flag = main_config_values.get("seed_flag", True)
+        self.seed = main_config_values.get("seed", None)
 
         type(self).alphabet = string.ascii_letters \
             + string.digits + string.punctuation + " "
@@ -45,11 +53,11 @@ class GenerateRandomNChar:
         """
         Generate a random string of N characters.
         """
-        if self.main_config.seed_flag:
+        if self.seed_flag:
             _pwd = ''.join(choice(GenerateRandomNChar.alphabet) for _ in range(length))
         else:
-            random.seed(self.main_config.seed)
-            _pwd = ''.join(random.choice(GenerateRandomNChar.alphabet) for _ in range(length))
+            rng = random.Random(self.seed)
+            _pwd = ''.join(rng.choice(GenerateRandomNChar.alphabet) for _ in range(length))
 
         return _pwd
 
@@ -58,7 +66,8 @@ class GenerateRandomNChar:
         Normalize a string to the specified Unicode normalization form.
         """
         assert form in ["NFKC", "NFKD", "NFC", "none"], "Invalid normalization form"
-        s = unicodedata.normalize(form.upper(), s)
+        if form != "none":
+            s = unicodedata.normalize(form.upper(), s)
         return s.encode("utf-8")
 
     def main(self, length: int = 256, \
@@ -85,16 +94,20 @@ class GenerateRandomNChar:
 
         return _pwd
 
-if __name__ == "__main__":
+
+def build_arg_parser() -> argparse.ArgumentParser:
+    """
+    Build CLI parser for random character generation.
+    """
     parser = argparse.ArgumentParser(description="Generate random bits and save to a binary file.")
-    parser.add_argument('-l', '--length', type=int, default=argparse.SUPPRESS,
-                        help='Length of random bits to generate (default: 512)')
+    parser.add_argument('-l', '--length', type=int, default=None,
+                        help=f'Length of random bits to generate (default: {DEFAULT_BIT_LENGTH})')
 
     parser.add_argument('-i', '--iterations', type=int,
                         default=1, help='Number of iterations to run (default: 1)')
 
-    parser.add_argument('-e', '--exponentiation', type=int, default=argparse.SUPPRESS,
-                        help='2 to the power of <exponentiation> (default: 9)')
+    parser.add_argument('-e', '--exponentiation', type=int, default=None,
+                        help=f'2 to the power of <exponentiation> (default: {DEFAULT_EXPONENT})')
 
     gv = parser.add_mutually_exclusive_group()
     gv.add_argument('-v', '--verbose', action='store_true', dest='verbose',
@@ -106,41 +119,45 @@ if __name__ == "__main__":
     gc = parser.add_mutually_exclusive_group()
     gc.add_argument('-c', '--clear', action='store_true',
                     dest='clear', help='Clear generated files')
-    gc.add_argument('-C', '--no-clear', action='store_true', dest='clear',
+    gc.add_argument('-C', '--no-clear', action='store_false', dest='clear',
                     help='Do not clear generated files (default)')
     parser.set_defaults(clear=False)
-    parser.set_defaults(length=512)
-    parser.set_defaults(exponentiation=9)
+    return parser
 
-    args = parser.parse_args()
-    LEN_FLAG = False
-    EXP_FLAG = False
 
-    if hasattr(args, 'length'):
-        LENGTH = args.length
-        LEN_FLAG = True
+def resolve_bit_length(args: argparse.Namespace) -> int:
+    """
+    Resolve bit length from parsed CLI arguments.
+    """
+    if args.length is not None:
+        return args.length
+    if args.exponentiation is not None:
+        return 2 ** args.exponentiation
+    return DEFAULT_BIT_LENGTH
 
-    else:
-        LENGTH = 512
 
-    if hasattr(args, 'exponentiation'):
-        EXP = args.exponentiation
-        EXP_FLAG = True
-    else:
-        EXP = 9
+def main(argv: Optional[list[str]] = None) -> None:
+    """
+    Console entry point for random character generation.
+    """
+    parser = build_arg_parser()
+    args = parser.parse_args(argv)
+    bit_len = resolve_bit_length(args)
 
-    BIT_LEN = None
-    if LEN_FLAG:
-        BIT_LEN = LENGTH
-
-    elif EXP_FLAG:
-        BIT_LEN = 2 ** EXP
-
-    assert BIT_LEN is not None, "Either length or exponentiation must be specified."
-
-    pw_gen = GenerateRandomNChar()
+    main_config = MainConfig(
+        verbose_flag=args.verbose,
+        clean_flag=args.clear,
+        debug_flag=False,
+        make_image_flag=False,
+    )
+    file_io = FileIO(main_config, OutputConfig())
+    pw_gen = GenerateRandomNChar(main_config, file_io)
 
     for _ in range(args.iterations):
         timer = Logs.perftimer_start()
         print(f"Iteration: {_ + 1}")
-        pw_gen.main(length=BIT_LEN, byteorder='little', timer_start=timer)
+        pw_gen.main(length=bit_len, byteorder='little', timer_start=timer)
+
+
+if __name__ == "__main__":
+    main()

@@ -66,6 +66,12 @@ class RuntimeConfig:
                                 default_factory=lambda: ["length"])
 
     def __post_init__(self):
+        self._validate()
+
+    def _validate(self) -> None:
+        """
+        Validate cross-config constraints.
+        """
         config_validate(asdict(self.message),
                 asdict(self.hash),
                 key=self.checklist)
@@ -113,9 +119,8 @@ class RuntimeConfig:
         Update the main configuration in the context
         """
         object.__setattr__(self, "main", main_config) # bypass frozen
-        config_validate(asdict(self.message),
-                asdict(self.hash),
-                key=self.checklist)
+        self._validate()
+        return self
 
 
     def message_update(self, message_config: MessageConfig) -> RuntimeConfig:
@@ -123,18 +128,16 @@ class RuntimeConfig:
         Update the message configuration in the context
         """
         object.__setattr__(self, "message", message_config) # bypass frozen
-        config_validate(asdict(self.message),
-                asdict(self.hash),
-                key=self.checklist)
+        self._validate()
+        return self
 
     def hash_update(self, hash_config: HashConfig) -> RuntimeConfig:
         """
         Update the hash configuration in the context
         """
         object.__setattr__(self, "hash", hash_config) # bypass frozen
-        config_validate(asdict(self.message),
-                asdict(self.hash),
-                key=self.checklist)
+        self._validate()
+        return self
 
     def full_update(
         self,
@@ -151,5 +154,5 @@ class RuntimeConfig:
         if hash_config is not None:
             object.__setattr__(self, "hash", hash_config)
 
-        config_validate(self.message, self.hash,
-                key=self.checklist)
+        self._validate()
+        return self
