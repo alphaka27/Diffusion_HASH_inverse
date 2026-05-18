@@ -108,9 +108,53 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--make-image",
         action="store_true",
         default=False,
-        help="Create RGB images from generated JSON logs after hashing",
+        help="Create PNG images and HDF5 tensor shards from generated JSON logs after hashing",
+    )
+    parser.add_argument(
+        "--make-png",
+        action="store_true",
+        default=False,
+        help="Create PNG images from JSON logs",
+    )
+    parser.add_argument(
+        "--make-hdf5",
+        action="store_true",
+        default=False,
+        help="Create HDF5 tensor shards from JSON logs",
+    )
+    parser.add_argument(
+        "--skip-hash-json",
+        "--artifacts-only",
+        action="store_false",
+        dest="run_hash_json",
+        default=True,
+        help="Skip binary/hash JSON generation and create requested artifacts from existing JSON logs",
+    )
+    parser.add_argument(
+        "--image-workers",
+        type=int,
+        default=1,
+        help="Number of processes used for PNG/HDF5 conversion (default: 1)",
     )
     return parser
+
+
+def _run_png_from_args(args: argparse.Namespace) -> bool:
+    return bool(args.make_image or args.make_png)
+
+
+def _run_hdf5_from_args(args: argparse.Namespace) -> bool:
+    return bool(args.make_image or args.make_hdf5)
+
+
+def _validate_stage_args(args: argparse.Namespace) -> None:
+    if not args.run_hash_json and args.clear:
+        raise ValueError("--clear cannot be used with --skip-hash-json because it removes existing JSON logs.")
+    if not args.run_hash_json and not _run_png_from_args(args) and not _run_hdf5_from_args(args):
+        raise ValueError(
+            "At least one stage must run. Use --make-png, --make-hdf5, or --make-image "
+            "with --skip-hash-json."
+        )
 
 
 def resolve_length(args: argparse.Namespace) -> int:
@@ -128,15 +172,18 @@ def config_from_args(args: argparse.Namespace) -> RuntimeConfig:
     """
     Convert parsed CLI arguments into the runtime configuration object.
     """
+    _validate_stage_args(args)
     length = resolve_length(args)
     random_flag = bool(args.random and not args.sequential)
+    run_artifacts = _run_png_from_args(args) or _run_hdf5_from_args(args)
 
     return RuntimeConfig(
         main=MainConfig(
             verbose_flag=args.verbose,
             clean_flag=args.clear,
             debug_flag=False,
-            make_image_flag=args.make_image,
+            make_image_flag=run_artifacts,
+            image_workers=args.image_workers,
         ),
         message=MessageConfig(
             message_flag=args.message,
@@ -159,7 +206,14 @@ def run_from_args(args: argparse.Namespace) -> None:
     runtime_config = config_from_args(args)
     entry_point = MainEP(runtime_config)
     mode = "sequential" if args.sequential else "default"
-    entry_point.run(iteration=args.iteration, mode=mode)
+    iteration = args.iteration if args.run_hash_json else None
+    entry_point.run(
+        iteration=iteration,
+        mode=mode,
+        run_hash_json=args.run_hash_json,
+        run_png=_run_png_from_args(args),
+        run_hdf5=_run_hdf5_from_args(args),
+    )
 
 
 def main(argv: Sequence[str] | None = None) -> None:

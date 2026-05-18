@@ -5,14 +5,13 @@ This module starts the hash inversion process based on the provided configuratio
 """
 from typing import Optional, Any
 
-from tqdm import tqdm
-
 from diffusion_hash_inv.logger import Logs, Metadata, BaseLogs, StepLogs
 from diffusion_hash_inv.config \
     import (MainConfig, MessageConfig, HashConfig, OutputConfig, Byte2RGBConfig)
 from diffusion_hash_inv.generator import NBitsGenerator
 from diffusion_hash_inv.main.context import RuntimeState, RuntimeConfig
-from diffusion_hash_inv.utils import FileIO, RGBImgMaker
+from diffusion_hash_inv.utils import FileIO, HDF5Maker, RGBImgMaker
+from diffusion_hash_inv.utils.progress import progress
 from diffusion_hash_inv.validation import validate
 from diffusion_hash_inv import hashing
 
@@ -84,11 +83,28 @@ class MainEP:
                                 self.runtime_cfg,
                                 self.io_controller,
                                 self.rgb_cfg)
-        rgb_encoder.main()
+        rgb_encoder.main(
+            workers=self.main_cfg.image_workers,
+        )
 
-    def _make_img_perf(self):
+    def hdf5_tensor_maker(self):
         """
-        Create RGB image from hash outputs
+        Create HDF5 tensor shards from hash outputs.
+        """
+        hdf5_maker = HDF5Maker(
+                                self.runtime_cfg,
+                                self.io_controller)
+        hdf5_maker.main(
+            rgb_config=self.rgb_cfg,
+            workers=self.main_cfg.image_workers,
+            output_name="hash_tensors",
+            normalize=False,
+            preserve_log_hierarchy=True,
+        )
+
+    def _make_png_perf(self):
+        """
+        Create PNG images from hash outputs.
         """
         print("RGB Image Maker Module Loaded.")
         _img_make_start = Logs.perftimer_start()
@@ -103,6 +119,35 @@ class MainEP:
         print()
 
         return _img_make_end
+
+    def _make_hdf5_perf(self):
+        """
+        Create HDF5 tensor shards from hash outputs.
+        """
+        print("HDF5 Tensor Maker Module Loaded.")
+        _hdf5_make_start = Logs.perftimer_start()
+
+        self.hdf5_tensor_maker()
+
+        _hdf5_make_end = Logs.perftimer_end(_hdf5_make_start)
+        hdf5_process_time = Logs.perftimer_str(_hdf5_make_end)
+        print("HDF5 Tensor Maker execution time:", hdf5_process_time)
+        print("HDF5 Tensor Maker process completed.")
+        print("=========================")
+        print()
+
+        return _hdf5_make_end
+
+    def _make_artifacts_perf(self):
+        """
+        Create PNG images and HDF5 tensors from hash outputs.
+        """
+        _artifact_make_start = Logs.perftimer_start()
+
+        self._make_png_perf()
+        self._make_hdf5_perf()
+
+        return Logs.perftimer_end(_artifact_make_start)
 
     def _loop_preprocess(self) -> RuntimeState:
         """
@@ -176,7 +221,7 @@ class MainEP:
         runtime_state = self._loop_preprocess()
         assert iteration >= 0, "Iteration count must be non-negative integer."
 
-        with tqdm(
+        with progress(
             range(iteration),
             desc="Hash Generation Progress",
             unit="iteration",
@@ -203,14 +248,34 @@ class MainEP:
                     content={"metadata": runtime_state.metadata,
                         "baselogs": runtime_state.baselogs, "steplogs": runtime_state.steplogs},
                     length=self.runtime_cfg.message.length,
-                    path_infix=f"{self.program_start_time}/{_i}")
+                    path_infix=self.program_start_time)
     def run(self,
             iteration: Optional[int] = None,
+            *,
+            run_hash_json: bool = True,
+            run_image_hdf5: Optional[bool] = None,
+            run_png: Optional[bool] = None,
+            run_hdf5: Optional[bool] = None,
             **kwargs):
         """
-        Run the main process
+        Run hash/json generation and optional PNG/HDF5 artifact generation.
+
+        ``run_hash_json`` controls binary input and JSON trace generation.
+        ``run_png`` controls PNG image generation.
+        ``run_hdf5`` controls HDF5 tensor shard generation.
+        ``run_image_hdf5`` is a backward-compatible combined default for both
+        artifact stages. When it is ``None``, ``MainConfig.make_image_flag`` is used.
         """
-        if iteration is None:
+        if run_image_hdf5 is None:
+            run_image_hdf5 = self.main_cfg.make_image_flag
+        if run_png is None:
+            run_png = run_image_hdf5
+        if run_hdf5 is None:
+            run_hdf5 = run_image_hdf5
+        if not run_hash_json and not run_png and not run_hdf5:
+            raise ValueError("At least one of run_hash_json, run_png, or run_hdf5 must be True.")
+
+        if run_hash_json and iteration is None:
             mode = kwargs.get("mode", "default")
             if mode == "sequential":
                 iteration = 2 ** self.runtime_cfg.message.length
@@ -218,24 +283,40 @@ class MainEP:
             else:
                 raise ValueError("Iteration count must be specified for non-sequential modes.\n"
                                 "Use --iteration or -i flag to specify the number of iterations.\n")
-        if iteration < 0:
+        if run_hash_json and iteration < 0:
             raise ValueError("Iteration count must be a positive integer.\n"
                             "Use --iteration or -i flag to specify the number of iterations.\n"
                             f"Currently set to: {iteration}\n")
 
         _start_total = Logs.perftimer_start()
 
-        self.main(iteration, **kwargs)
+        if run_hash_json:
+            assert iteration is not None
+            _hash_start = Logs.perftimer_start()
+            self.main(iteration, **kwargs)
+            _hash_end = Logs.perftimer_end(_hash_start)
+            elapsed_time_str = Logs.perftimer_str(_hash_end)
+            print(f"Hash Calculation time: {elapsed_time_str}")
+            print("Hash/json generation completed.")
+            print("=========================\n")
+        else:
+            print("Hash/json generation skipped.")
+            print("=========================\n")
+
+        if run_png and run_hdf5:
+            self._make_artifacts_perf()
+        else:
+            if run_png:
+                self._make_png_perf()
+            else:
+                print("PNG image generation skipped.")
+                print("=========================\n")
+
+            if run_hdf5:
+                self._make_hdf5_perf()
+            else:
+                print("HDF5 tensor generation skipped.")
+                print("=========================\n")
 
         _end_total = Logs.perftimer_end(_start_total)
-        elapsed_time_str = Logs.perftimer_str(_end_total)
-        print(f"Hash Calculation time: {elapsed_time_str}")
-        print("Process completed.")
-        print("=========================\n")
-
-        _img_make_end = 0
-
-        if self.main_cfg.make_image_flag:
-            _img_make_end = self._make_img_perf()
-
-        print(f"Total Execution Time: {Logs.perftimer_str(_end_total + _img_make_end)}\n")
+        print(f"Total Execution Time: {Logs.perftimer_str(_end_total)}\n")

@@ -10,6 +10,7 @@ self-contained so it can be run before wiring in a real dataset.
 from __future__ import annotations
 
 import argparse
+import json
 import math
 import sys
 from collections.abc import Sequence
@@ -178,6 +179,20 @@ class DDPMScheduler:
             x = self.p_sample(model, x, step, labels)
         return mx.clip(x, -1.0, 1.0)
 
+    def sample_with_trace(
+        self,
+        model: ConditionalDenoiser,
+        labels: mx.array,
+        image_dim: int,
+    ) -> tuple[mx.array, dict[int, mx.array]]:
+        """Run full reverse diffusion and return every intermediate state."""
+        x = mx.random.normal((labels.shape[0], image_dim), dtype=mx.float32)
+        traces: dict[int, mx.array] = {self.timesteps: mx.clip(x, -1.0, 1.0)}
+        for step in reversed(range(self.timesteps)):
+            x = self.p_sample(model, x, step, labels)
+            traces[step] = mx.clip(x, -1.0, 1.0)
+        return mx.clip(x, -1.0, 1.0), traces
+
 
 def make_class_prototypes(num_classes: int, image_size: int) -> mx.array:
     """Build deterministic label-conditioned prototype images in [-1, 1]."""
@@ -250,7 +265,9 @@ def save_image_grid(
     output_path: Path,
     image_size: int,
     columns: int = 5,
-) -> None:
+    *,
+    json_path: Path | None = None,
+) -> Path:
     samples = ((samples.reshape(samples.shape[0], image_size, image_size) + 1.0) * 127.5).astype(
         mx.uint8
     )
@@ -272,6 +289,106 @@ def save_image_grid(
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     grid.save(output_path)
+    if json_path is not None:
+        json_path.parent.mkdir(parents=True, exist_ok=True)
+        json_path.write_text(
+            json.dumps(
+                [
+                    {
+                        "index": idx,
+                        "file": output_path.name,
+                        "label": int(label),
+                        "row": idx // columns,
+                        "column": idx % columns,
+                    }
+                    for idx, label in enumerate(label_values)
+                ],
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+    return output_path
+
+
+def save_process_traces(
+    scheduler: DDPMScheduler,
+    model: ConditionalDenoiser,
+    prototypes: mx.array,
+    labels: mx.array,
+    output_dir: Path,
+    image_size: int,
+    columns: int,
+) -> dict[str, list[Path]]:
+    """Save forward noising and reverse denoising traces for every timestep."""
+    forward_png_dir = output_dir / "forward" / "png"
+    forward_json_dir = output_dir / "forward" / "json"
+    reverse_png_dir = output_dir / "reverse" / "png"
+    reverse_json_dir = output_dir / "reverse" / "json"
+    forward_png_dir.mkdir(parents=True, exist_ok=True)
+    forward_json_dir.mkdir(parents=True, exist_ok=True)
+    reverse_png_dir.mkdir(parents=True, exist_ok=True)
+    reverse_json_dir.mkdir(parents=True, exist_ok=True)
+
+    x0 = mx.take(prototypes, labels, axis=0)
+    forward_paths: list[Path] = []
+    print(
+        f"[forward-trace] saving x0 + {scheduler.timesteps} noising steps "
+        f"to {output_dir / 'forward'}"
+    )
+    x0_path = forward_png_dir / "x0.png"
+    save_image_grid(
+        x0,
+        labels,
+        x0_path,
+        image_size,
+        columns,
+        json_path=forward_json_dir / "x0.labels.json",
+    )
+    forward_paths.append(x0_path)
+    print(f"[forward-trace] saved x0: {x0_path}")
+
+    noise = mx.random.normal(x0.shape, dtype=mx.float32)
+    for step in range(scheduler.timesteps):
+        timesteps = mx.full((labels.shape[0],), step, dtype=mx.int32)
+        noised = scheduler.q_sample(x0, timesteps, noise)
+        path = forward_png_dir / f"t_{step:06d}.png"
+        save_image_grid(
+            noised,
+            labels,
+            path,
+            image_size,
+            columns,
+            json_path=forward_json_dir / f"t_{step:06d}.labels.json",
+        )
+        forward_paths.append(path)
+        print(f"[forward-trace] step={step:06d} path={path}")
+    print(f"[forward-trace] completed: {len(forward_paths)} files")
+
+    print(
+        f"[reverse-trace] saving xT + {scheduler.timesteps} denoising steps "
+        f"to {output_dir / 'reverse'}"
+    )
+    _, traces = scheduler.sample_with_trace(model, labels, image_size * image_size)
+    reverse_paths: list[Path] = []
+    for step in sorted(traces.keys(), reverse=True):
+        filename = "xT_noise.png" if step == scheduler.timesteps else f"t_{step:06d}.png"
+        path = reverse_png_dir / filename
+        json_name = filename.replace(".png", ".labels.json")
+        save_image_grid(
+            traces[step],
+            labels,
+            path,
+            image_size,
+            columns,
+            json_path=reverse_json_dir / json_name,
+        )
+        reverse_paths.append(path)
+        if step == scheduler.timesteps:
+            print(f"[reverse-trace] saved xT: {path}")
+        else:
+            print(f"[reverse-trace] step={step:06d} path={path}")
+    print(f"[reverse-trace] completed: {len(reverse_paths)} files")
+    return {"forward": forward_paths, "reverse": reverse_paths}
 
 
 def run_demo(args: argparse.Namespace) -> Path:
@@ -317,6 +434,24 @@ def run_demo(args: argparse.Namespace) -> Path:
     )
     samples = scheduler.sample(model, sample_labels, config.image_dim)
     save_image_grid(samples, sample_labels, args.output, config.image_size, args.columns)
+    if args.save_process_traces:
+        if args.trace_sample_count <= 0:
+            raise ValueError("trace_sample_count must be positive")
+        trace_count = min(args.trace_sample_count, config.num_classes)
+        trace_labels = mx.array(
+            [idx % config.num_classes for idx in range(trace_count)],
+            dtype=mx.int32,
+        )
+        trace_dir = args.process_traces_dir or args.output.parent / "process_traces"
+        save_process_traces(
+            scheduler,
+            model,
+            prototypes,
+            trace_labels,
+            trace_dir,
+            config.image_size,
+            args.columns,
+        )
     return args.output
 
 
@@ -337,6 +472,18 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--samples", type=int, default=10)
     parser.add_argument("--columns", type=int, default=5)
     parser.add_argument("--log-every", type=int, default=25)
+    parser.add_argument(
+        "--save-process-traces",
+        action="store_true",
+        help="Save forward noising and reverse denoising intermediate PNG grids.",
+    )
+    parser.add_argument("--trace-sample-count", type=int, default=4)
+    parser.add_argument(
+        "--process-traces-dir",
+        type=Path,
+        default=None,
+        help="Directory for process traces. Defaults to OUTPUT parent/process_traces.",
+    )
     parser.add_argument(
         "--output",
         type=Path,

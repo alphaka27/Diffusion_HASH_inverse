@@ -47,9 +47,14 @@ diffhash hash [options]
 | `--sequential` | 반복 인덱스 값을 입력으로 사용 | 꺼짐 |
 | `-v`, `--verbose` | 상세 로그 출력 | 꺼짐 |
 | `-c`, `--clear` | 실행 전 `data`, `output` 정리 | 꺼짐 |
-| `--make-image` | 해시 로그 생성 후 RGB 이미지 생성 | 꺼짐 |
+| `--make-image` | PNG 이미지와 HDF5 tensor shard를 모두 생성 | 꺼짐 |
+| `--make-png` | JSON 로그에서 PNG 이미지만 생성 | 꺼짐 |
+| `--make-hdf5` | JSON 로그에서 HDF5 tensor shard만 생성 | 꺼짐 |
+| `--skip-hash-json`, `--artifacts-only` | 해시/JSON 생성을 건너뛰고 기존 JSON 로그에서 artifact 생성 | 꺼짐 |
+| `--image-workers` | PNG/HDF5 변환 process 수 | `1` |
 
 `-l`과 `-e`는 동시에 사용할 수 없다. `--sequential`을 사용해도 `-i` 기본값은 `0`이므로 실제 생성하려면 반복 횟수를 명시한다.
+`--skip-hash-json`은 기존 JSON 로그를 입력으로 쓰므로 `--clear`와 함께 사용할 수 없다.
 
 ### 예시
 
@@ -77,10 +82,64 @@ python -m diffusion_hash_inv.hash_main -i 5 -e 8 --hash-alg md5
 python -m diffusion_hash_inv.hash_main -c -i 10 -l 128 --hash-alg md5
 ```
 
-해시 로그 생성 후 이미지 생성까지 실행한다.
+해시 로그 생성 후 PNG 이미지와 HDF5 tensor shard 생성까지 실행한다.
 
 ```bash
 python -m diffusion_hash_inv.hash_main -i 10 -l 128 --hash-alg md5 --make-image
+```
+
+변환 process 수를 지정한다.
+
+```bash
+python -m diffusion_hash_inv.hash_main \
+  -i 10 \
+  -l 128 \
+  --hash-alg md5 \
+  --make-image \
+  --image-workers 4
+```
+
+해시/JSON만 먼저 만든다.
+
+```bash
+python -m diffusion_hash_inv.hash_main \
+  -i 100000 \
+  -l 128 \
+  --hash-alg md5 \
+  --clear
+```
+
+기존 JSON 로그에서 PNG만 생성한다.
+
+```bash
+python -m diffusion_hash_inv.hash_main \
+  --skip-hash-json \
+  -l 128 \
+  --hash-alg md5 \
+  --make-png \
+  --image-workers 4
+```
+
+기존 JSON 로그에서 HDF5만 생성한다.
+
+```bash
+python -m diffusion_hash_inv.hash_main \
+  --skip-hash-json \
+  -l 128 \
+  --hash-alg md5 \
+  --make-hdf5 \
+  --image-workers 4
+```
+
+기존 JSON 로그에서 PNG와 HDF5를 모두 생성한다.
+
+```bash
+python -m diffusion_hash_inv.hash_main \
+  --skip-hash-json \
+  -l 128 \
+  --hash-alg md5 \
+  --make-image \
+  --image-workers 4
 ```
 
 ## 출력 위치
@@ -91,7 +150,8 @@ python -m diffusion_hash_inv.hash_main -i 10 -l 128 --hash-alg md5 --make-image
 | --- | --- |
 | 생성 입력 바이너리 | `data/binary/` |
 | 해시 JSON 로그 | `output/json/<program-start-time>/` |
-| 이미지 출력 | `data/images/`, `output/images/` |
+| PNG 이미지 출력 | `data/images/` |
+| HDF5 tensor shard | `data/tensor_datasets/hash_tensors/` |
 
 ## 랜덤 비트 생성기
 
@@ -167,8 +227,10 @@ python -m diffusion_hash_inv.models.conditional_diffusion_mlx \
   --json-root output/json \
   --output-dir output/conditional_diffusion_mlx \
   --train-steps 500 \
-  --timesteps 100 \
+  --timesteps auto \
+  --beta-schedule linear \
   --batch-size 32 \
+  --checkpoint-every 100 \
   --device cpu
 ```
 
@@ -180,7 +242,23 @@ diffhash mlx-conditional \
   --json-root output/json \
   --output-dir output/conditional_diffusion_mlx \
   --train-steps 500 \
-  --timesteps 100 \
+  --timesteps auto \
+  --beta-schedule linear \
   --batch-size 32 \
+  --checkpoint-every 100 \
   --device cpu
 ```
+
+MLX 학습은 `output-dir/checkpoints/` 아래에 최종 checkpoint를 항상 저장한다.
+`--checkpoint-every N`을 지정하면 `N` step마다 중간 checkpoint도 저장한다.
+`--beta-schedule`은 `linear`, `file`, `hash-approach1`, `hash-approach2`를
+지원한다. `linear`에서 `--timesteps auto`를 사용하면 approach 1/2로 만든
+hash 기반 beta schedule 길이와 동일한 길이의 linear schedule을 사용한다.
+`--save-process-traces`를 켜면 forward/reverse diffusion 각 timestep의 PNG와
+label JSON을 `process_traces/forward`, `process_traces/reverse`에 저장한다.
+최종 sample은 `sample/` 아래의 `source/`, `final/` 폴더에 sample별 개별
+PNG인 `source_*.png`, `final_*.png`로 저장되고, 각 목록은
+`source.labels.json`, `final.labels.json`에 기록된다. 별도의 preview PNG는
+생성하지 않는다. `sample/decode_comparison.json`에는 source/final을
+Byte2RGB로 디코딩한 byte string, RGB 색상 목록, decoded byte 기준
+해밍 거리가 기록된다.

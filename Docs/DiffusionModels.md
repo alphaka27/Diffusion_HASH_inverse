@@ -10,6 +10,7 @@
 | `models/loop_conditioned_diffusion.py` | Loop-conditioned DDPM | PyTorch | MD5 Step 4 loop-state tensor | 구조화된 루프 상태 조건 |
 | `models/diffusion_with_mlx.py` | Conditional DDPM toy | MLX | synthetic class prototype | MLX 동작 확인용 self-contained 예제 |
 | `models/conditional_diffusion_mlx.py` | Conditional DDPM | MLX | `message.png`, 최종 해시 라벨 | 새 MLX 실제 데이터셋 학습 파이프라인 |
+| `models/ddpm_mlx_equivalent.py` | DDPM U-Net equivalents | MLX | NHWC image tensor, class/loop conditions | PyTorch DDPM 4종과 대응되는 모델/스케줄러/샘플링 구현 |
 | `models/ddim.py` | DDIM placeholder | 없음 | 없음 | placeholder |
 | `models/ddpm.py` | DDPM placeholder | 없음 | 없음 | 빈 파일 |
 
@@ -134,7 +135,58 @@ python -m diffusion_hash_inv.models.conditional_diffusion_mlx \
 | --- | --- |
 | `output/conditional_diffusion_mlx/config.json` | 학습 설정 |
 | `output/conditional_diffusion_mlx/label_map.json` | 최종 해시 라벨과 class index 매핑 |
-| `output/conditional_diffusion_mlx/samples.png` | 생성 샘플 grid |
+| `output/conditional_diffusion_mlx/sample/final/final_*.png` | sample별 생성 이미지 |
+| `output/conditional_diffusion_mlx/sample/source/source_*.png` | sample별 source 이미지 |
+| `output/conditional_diffusion_mlx/sample/final/final.labels.json` | final sample manifest |
+| `output/conditional_diffusion_mlx/sample/source/source.labels.json` | source sample manifest |
+| `output/conditional_diffusion_mlx/sample/decode_comparison.json` | source/final RGB 색상, Byte2RGB decoded byte, decoded byte 해밍 거리 |
+| `output/conditional_diffusion_mlx/beta_schedule.json` | 실제 사용한 MLX beta schedule |
+| `output/conditional_diffusion_mlx/checkpoints/step_*.json` | checkpoint metadata |
+| `output/conditional_diffusion_mlx/checkpoints/step_*.safetensors` | MLX model weights |
+| `output/conditional_diffusion_mlx/checkpoints/step_*.optimizer.safetensors` | MLX optimizer state |
+| `output/conditional_diffusion_mlx/process_traces/forward` | forward noising trace |
+| `output/conditional_diffusion_mlx/process_traces/reverse` | reverse denoising trace |
+
+MLX Conditional DDPM도 PyTorch Conditional DDPM과 동일하게 `linear`,
+`file`, `hash-approach1`, `hash-approach2` beta schedule을 지원한다. `linear`
+모드에서 `timesteps="auto"` 또는 CLI `--timesteps auto`를 사용하면 approach
+1/2에서 계산되는 hash 기반 beta schedule 길이와 같은 길이의 linear schedule을
+생성한다.
+
+### MLX U-Net equivalent module
+
+`ddpm_mlx_equivalent.py`는 `ddpm_models_usage.ipynb`에서 사용하는 PyTorch
+DDPM 모델군과 같은 의미의 MLX 구성요소를 제공한다. 기존
+`conditional_diffusion_mlx.py`의 flattened MLP denoiser를 대체하지 않고,
+backend 비교용 U-Net 계열을 별도 모듈로 둔다.
+
+| PyTorch 구현 | MLX 대응 |
+| --- | --- |
+| `ConditionalUNet` | `MLXConditionalUNet` |
+| `UnconditionalUNet` | `MLXUnconditionalUNet` |
+| `LoopConditionedUNet` | `MLXLoopConditionedUNet` |
+| `NoisyImageClassifier` | `MLXNoisyImageClassifier` |
+| `DDPMNoiseScheduler` | `MLXImageDDPMScheduler` |
+
+동등하게 맞춘 항목:
+
+| 항목 | 내용 |
+| --- | --- |
+| tensor layout | MLX convolution 기준인 `NHWC` 입력/출력, `nchw_to_nhwc`, `nhwc_to_nchw` 변환 helper 제공 |
+| time embedding | PyTorch `SinusoidalTimeEmbedding`과 같은 scale 및 `sin/cos` 순서 |
+| U-Net block | GroupNorm, SiLU, Conv2d, ConvTranspose2d, skip concat 구조 대응 |
+| conditioning | `class`, `loop-sinusoidal`, `loop-structured`, `loop-sequence` 조건화 대응 |
+| loop mapping | `timestep_to_state_indices`와 같은 state index 매핑 |
+| DDPM 수식 | `q_sample`, posterior mean/variance, reverse sampling 수식 대응 |
+| guidance | classifier-free guidance, classifier guidance, condition dropout, noisy classifier loss 대응 |
+
+완전히 동일하지 않은 항목:
+
+| 항목 | 이유 |
+| --- | --- |
+| weight bit-level parity | PyTorch와 MLX의 parameter layout 및 초기화 구현이 다름 |
+| NCHW/NHWC 내부 layout | Torch는 `NCHW`, MLX는 `NHWC`를 사용 |
+| runtime determinism | backend RNG와 convolution kernel 구현이 다름 |
 
 ## 동작 수식 정리
 

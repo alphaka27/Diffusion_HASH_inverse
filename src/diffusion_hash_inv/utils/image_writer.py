@@ -2,12 +2,17 @@
 Make RGB images from Logs.
 """
 from __future__ import annotations
-from typing import Any, List, Tuple, Dict, Optional
+import json
+import math
+import os
+import sys
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
+from dataclasses import replace as dataclass_replace
 from pathlib import Path
+from typing import Any, Iterable, List, Tuple, Dict, Optional, Sequence
 
 import numpy as np
 from PIL import Image
-from tqdm import tqdm
 from torchvision import transforms, datasets
 from torch.utils.data import ConcatDataset, DataLoader
 
@@ -18,7 +23,121 @@ from diffusion_hash_inv.logger import Logs
 from diffusion_hash_inv.validation.encoding_validation import encoding_validate
 from diffusion_hash_inv.utils.byte2rgb import Byte2RGB
 from diffusion_hash_inv.utils.file_io import FileIO
+from diffusion_hash_inv.utils.progress import progress
 from diffusion_hash_inv.main.context import RuntimeConfig
+
+ImageRecord = Tuple[Path, Image.Image, Any]
+
+
+def _import_h5py():
+    try:
+        import h5py  # type: ignore[import-not-found]
+    except ImportError as exc:
+        raise RuntimeError(
+            "h5py is required to write HDF5 tensor datasets. "
+            "Install it with `pip install h5py` or `pip install -e '.[hdf5]'`."
+        ) from exc
+    return h5py
+
+
+def _is_notebook_kernel() -> bool:
+    return "ipykernel" in sys.modules or "JPY_PARENT_PID" in os.environ
+
+
+def _parallel_executor_type():
+    """
+    Use threads inside Jupyter to avoid macOS/spawn worker shutdown hangs.
+    """
+    return ThreadPoolExecutor if _is_notebook_kernel() else ProcessPoolExecutor
+
+
+def _runtime_config_without_clean(runtime_cfg: RuntimeConfig) -> RuntimeConfig:
+    """
+    Return a worker-safe runtime config.
+
+    Process workers must never inherit clean_flag=True because each worker creates
+    its own FileIO instance. Keeping clean_flag=True there would delete data/output.
+    """
+    if not runtime_cfg.main.clean_flag:
+        return runtime_cfg
+
+    main_cfg = dataclass_replace(runtime_cfg.main, clean_flag=False)
+    return dataclass_replace(runtime_cfg, main=main_cfg)
+
+
+def _chunk_paths(paths: List[Path], chunk_size: int) -> List[List[Path]]:
+    return [paths[idx:idx + chunk_size] for idx in range(0, len(paths), chunk_size)]
+
+
+def _write_log_chunk_worker(
+    args: Tuple[RuntimeConfig, Byte2RGBConfig, List[str], List[Path]],
+) -> Tuple[int, int]:
+    runtime_cfg, rgb_config, log_hierarchy, log_paths = args
+    worker_runtime_cfg = _runtime_config_without_clean(runtime_cfg)
+    io_controller = FileIO(worker_runtime_cfg.main, worker_runtime_cfg.output)
+    image_maker = RGBImgMaker(worker_runtime_cfg, io_controller, rgb_config, quiet=True)
+    image_maker.log_hierarchy = list(log_hierarchy)
+
+    logs_processed = 0
+    images_written = 0
+    for log_dict in Logs.iter_logs_with_hierarchy(
+        io_controller,
+        image_maker.log_hierarchy,
+        list(log_paths),
+    ):
+        filename, message, parsed_logs = image_maker._parse_image_logs(log_dict)
+        images_written += image_maker._write_parsed_images(
+            filename,
+            message,
+            parsed_logs,
+        )
+        logs_processed += 1
+
+    return logs_processed, images_written
+
+
+def _write_hdf5_chunk_worker(
+    args: Tuple[
+        RuntimeConfig,
+        Byte2RGBConfig,
+        List[str],
+        List[Path],
+        Path,
+        Optional[Tuple[str, ...]],
+        int,
+        bool,
+        Optional[str],
+        bool,
+    ],
+) -> Tuple[Path, int, int]:
+    (
+        runtime_cfg,
+        rgb_config,
+        log_hierarchy,
+        log_paths,
+        shard_path,
+        include_paths,
+        channels,
+        normalize,
+        compression,
+        preserve_log_hierarchy,
+    ) = args
+    worker_runtime_cfg = _runtime_config_without_clean(runtime_cfg)
+    io_controller = FileIO(worker_runtime_cfg.main, worker_runtime_cfg.output)
+    return HDF5Maker._write_hdf5_shard(
+        runtime_cfg=worker_runtime_cfg,
+        io_controller=io_controller,
+        rgb_config=rgb_config,
+        log_hierarchy=log_hierarchy,
+        log_paths=log_paths,
+        shard_path=shard_path,
+        include_paths=include_paths,
+        channels=channels,
+        normalize=normalize,
+        compression=compression,
+        preserve_log_hierarchy=preserve_log_hierarchy,
+    )
+
 
 class RGBImgMaker:
     """
@@ -27,16 +146,19 @@ class RGBImgMaker:
 
     def __init__(self, runtime_cfg: RuntimeConfig,
                 io_controller: FileIO,
-                rgb_config: Byte2RGBConfig):
+                rgb_config: Byte2RGBConfig,
+                quiet: bool = False):
         self.runtime_cfg = runtime_cfg
         self.main_cfg = runtime_cfg.main
         self.hash_cfg = runtime_cfg.hash
         self.io_controller = io_controller
+        self.log_hierarchy: Optional[List[str]] = []
         self.byte2rgb = Byte2RGB(main_config=self.main_cfg,
                                 hash_config=self.hash_cfg,
                                 rgb_config=rgb_config)
         self.log_hierarchy: Optional[List[str]] = []
-        print("RGB Image Maker Initialized.")
+        if not quiet:
+            print("RGB Image Maker Initialized.")
 
 
     def _image_concater(self, images: List[Image.Image], direction: str) -> Image.Image:
@@ -101,7 +223,7 @@ class RGBImgMaker:
             canvas[:, :] = background_color
             canvas[center_y:center_y + center_size[1], center_x:center_x + center_size[0]] = \
                 (rgb.r, rgb.g, rgb.b, 255) if isinstance(rgb, RGB) else (rgb.r, rgb.g, rgb.b, rgb.a)
-            frames.append(Image.fromarray(canvas, "RGBA"))
+            frames.append(Image.fromarray(canvas))
 
         assert len(frames) > 0, "Failed to create image from RGB data."
         if len(frames) == 1:
@@ -201,7 +323,7 @@ class RGBImgMaker:
 
     @staticmethod
     def _image_count(parsed_logs: Tuple[Dict[str, Any], ...]) -> int:
-        """Return the number of PNG files written for one parsed log."""
+        """Return the number of image entries produced for one parsed log."""
         return 1 + len(parsed_logs)  # message image + one image per parsed step log
 
     @staticmethod
@@ -209,6 +331,145 @@ class RGBImgMaker:
         """Advance an optional progress bar after one image is written."""
         if progress_bar is not None:
             progress_bar.update(1)
+
+    @staticmethod
+    def _normalize_worker_count(workers: Optional[int]) -> int:
+        if workers is None:
+            return 1
+        worker_count = int(workers)
+        if worker_count < 1:
+            raise ValueError("workers must be greater than or equal to 1")
+        return worker_count
+
+    def _format_image_records(
+        self,
+        message: str,
+        parsed_logs: Tuple[Dict[str, Any], ...],
+    ) -> List[ImageRecord]:
+        records: List[ImageRecord] = []
+        try:
+            encoded_message = self.data_encoder(message)
+            records.append((Path("message.png"), self.image_formatter(encoded_message), message))
+
+            for log in parsed_logs:
+                assert isinstance(log, dict), "Parsed log must be a dictionary."
+                path = list(log.keys())
+                assert len(path) == 1, \
+                    f"Parsed log dictionary must have exactly one key. {len(path)} keys found."
+                path = path[0]
+                data = log[path]
+                file_name = path.split("/")[-1]
+                assert isinstance(data, (str, int, float, list, tuple, bytes)), \
+                    "Parsed log data must be of type str, int, float, list, tuple, or bytes."
+                encoded_log = self.data_encoder(data)
+                if self.main_cfg.verbose_flag:
+                    print(encoded_log)
+
+                parent_path = Path("/".join(path.split("/")[:-1]))
+                records.append((
+                    parent_path / f"{file_name}.png",
+                    self.image_formatter(encoded_log),
+                    data,
+                ))
+        except Exception:
+            for _, image, _ in records:
+                image.close()
+            raise
+
+        return records
+
+    def _png_output_path(self, filename: str, relative_path: Path) -> Path:
+        output_relative_path = Path(filename, relative_path.parent, relative_path.name)
+        return (
+            self.io_controller.data_dir
+            / "images"
+            / self.io_controller._sanitize_relative_path(output_relative_path)
+        )
+
+    @staticmethod
+    def _sample_image_rgb_rows(image: Image.Image) -> List[Tuple[RGB, ...]]:
+        block_width, block_height = ImgConfig().img_size
+        width, height = image.size
+        if width % block_width != 0 or height % block_height != 0:
+            raise ValueError(
+                "Saved image dimensions must be multiples of ImgConfig.img_size. "
+                f"Got {(width, height)}, block size {(block_width, block_height)}."
+            )
+
+        rgb_image = image.convert("RGB")
+        try:
+            rows: List[Tuple[RGB, ...]] = []
+            for y_idx in range(height // block_height):
+                row: List[RGB] = []
+                y = y_idx * block_height + block_height // 2
+                for x_idx in range(width // block_width):
+                    x = x_idx * block_width + block_width // 2
+                    row.append(RGB.from_tuple(rgb_image.getpixel((x, y))))
+                rows.append(tuple(row))
+            return rows
+        finally:
+            rgb_image.close()
+
+    def _validate_saved_png(self, path: Path, original_data: Any) -> None:
+        with Image.open(path) as image:
+            rows = self._sample_image_rgb_rows(image)
+
+        if isinstance(original_data, list):
+            if not all(isinstance(item, (str, bytes)) for item in original_data):
+                bad_type = next(type(item) for item in original_data
+                                if not isinstance(item, (str, bytes)))
+                raise ValueError(
+                    "Saved PNG validation only supports str/bytes list items. "
+                    f"Got {bad_type} for {path}."
+                )
+            if len(rows) != len(original_data):
+                decoded_rgb = tuple(pixel for row in rows for pixel in row)
+                expected = b"".join(
+                    Logs.str_to_bytes(item) if isinstance(item, str) else item
+                    for item in original_data
+                )
+                if encoding_validate(expected, decoded_rgb, self.byte2rgb):
+                    return
+                raise RuntimeError(
+                    f"Saved PNG validation failed for {path}: "
+                    f"decoded {len(rows)} rows, expected {len(original_data)} rows."
+                )
+            for row_idx, (row, item) in enumerate(zip(rows, original_data), start=1):
+                if not encoding_validate(item, row, self.byte2rgb):
+                    raise RuntimeError(
+                        f"Saved PNG validation failed for {path} at row {row_idx}."
+                    )
+            return
+
+        if not isinstance(original_data, (str, bytes)):
+            raise ValueError(
+                "Saved PNG validation only supports str, bytes, or list[str|bytes]. "
+                f"Got {type(original_data)} for {path}."
+            )
+
+        decoded_rgb = tuple(pixel for row in rows for pixel in row)
+        if not encoding_validate(original_data, decoded_rgb, self.byte2rgb):
+            raise RuntimeError(f"Saved PNG validation failed for {path}.")
+
+    def _write_png_records(
+        self,
+        filename: str,
+        records: List[ImageRecord],
+        image_process: Optional[Any] = None,
+    ) -> int:
+        for relative_path, image, original_data in records:
+            self.io_controller.file_writer(
+                relative_path.name,
+                image,
+                parent_dir=Path(filename, relative_path.parent),
+                data_type="data",
+            )
+            self._validate_saved_png(
+                self._png_output_path(filename, relative_path),
+                original_data,
+            )
+            self._advance_progress(image_process)
+        return len(records)
 
     def _write_parsed_images(
         self,
@@ -218,52 +479,14 @@ class RGBImgMaker:
         image_process: Optional[Any] = None,
     ) -> int:
         """
-        Write already-parsed log data as RGB images.
+        Write already-parsed log data as PNG images.
         """
-        images_written = 0
-
-        encoded_message = self.data_encoder(message)
-        rgb_message = self.image_formatter(encoded_message)
-
+        records = self._format_image_records(message, parsed_logs)
         try:
-            self.io_controller.file_writer("message.png",
-                                        rgb_message,
-                                        parent_dir=filename,
-                                        data_type="data")
+            return self._write_png_records(filename, records, image_process)
         finally:
-            rgb_message.close()
-        images_written += 1
-        self._advance_progress(image_process)
-
-        for log in parsed_logs:
-            assert isinstance(log, dict), "Parsed log must be a dictionary."
-            path = list(log.keys())
-            assert len(path) == 1, \
-                f"Parsed log dictionary must have exactly one key. {len(path)} keys found."
-            path = path[0]
-            data = log[path]
-            _file_name = path.split("/")[-1]
-            assert isinstance(data, (str, int, float, list, tuple, bytes)), \
-                "Parsed log data must be of type str, int, float, list, tuple, or bytes."
-            encoded_log = None
-            encoded_log = self.data_encoder(data)
-            if self.main_cfg.verbose_flag:
-                print(encoded_log)
-
-            path = "/".join(path.split("/")[:-1])
-            path = Path(path)
-            rgb_log = self.image_formatter(encoded_log)
-            try:
-                self.io_controller.file_writer(f"{_file_name}.png",
-                                            rgb_log,
-                                            parent_dir=Path(filename, path),
-                                            data_type="data")
-            finally:
-                rgb_log.close()
-            images_written += 1
-            self._advance_progress(image_process)
-
-        return images_written
+            for _, image, _ in records:
+                image.close()
 
     def img_writer(self, log_dict: Dict[str, Any],
                 image_process: Optional[Any] = None) -> int:
@@ -271,28 +494,108 @@ class RGBImgMaker:
         Write RGB image data to file.
         """
         filename, message, parsed_logs = self._parse_image_logs(log_dict)
-        return self._write_parsed_images(filename, message, parsed_logs, image_process)
+        return self._write_parsed_images(
+            filename,
+            message,
+            parsed_logs,
+            image_process,
+        )
 
-    def main(self) -> None:
+    def _write_parallel(
+        self,
+        selected_logs: List[Path],
+        workers: int,
+        parallel_chunk_size: Optional[int],
+    ) -> int:
+        chunk_size = parallel_chunk_size
+        if chunk_size is None:
+            chunk_size = max(1, min(256, math.ceil(len(selected_logs) / (workers * 8))))
+        chunk_size = max(1, int(chunk_size))
+        chunks = _chunk_paths(selected_logs, chunk_size)
+        executor_type = _parallel_executor_type()
+        print(
+            f"Parallel image writing: {workers} workers, {len(chunks)} chunks, "
+            f"chunk_size={chunk_size}, executor={executor_type.__name__}."
+        )
+
+        images_written = 0
+        logs_processed = 0
+        futures = []
+        log_process = progress((), total=len(selected_logs), desc="Processing Logs", unit="log")
+
+        with executor_type(max_workers=workers) as executor, log_process:
+            for chunk in chunks:
+                futures.append(executor.submit(
+                    _write_log_chunk_worker,
+                    (
+                        self.runtime_cfg,
+                        self.byte2rgb.rgb_config,
+                        list(self.log_hierarchy or []),
+                        chunk,
+                    ),
+                ))
+
+            for future in as_completed(futures):
+                chunk_logs, chunk_images = future.result()
+                logs_processed += chunk_logs
+                images_written += chunk_images
+                log_process.update(chunk_logs)
+                log_process.set_postfix({"images": images_written})
+
+        assert logs_processed == len(selected_logs), \
+            f"Processed {logs_processed} logs, expected {len(selected_logs)}"
+        return images_written
+
+    def main(
+        self,
+        logs: Optional[Iterable[Path | str]] = None,
+        *,
+        workers: Optional[int] = None,
+        parallel_chunk_size: Optional[int] = None,
+    ) -> int:
         """
-        Main method to convert bytes data to a list of RGB tuples.
+        Main method to convert logs to PNG images.
         """
-        logs = self.io_controller.\
-            get_latest_files_by_date(self.hash_cfg.hash_alg, self.hash_cfg.length)
-        print(f"Found {len(logs)} logs to process.")
-        assert len(logs) > 0, "No Logs files found."
+        if workers is None:
+            workers = getattr(self.main_cfg, "image_workers", 1)
+        worker_count = self._normalize_worker_count(workers)
+
+        if logs is None:
+            selected_logs = self.io_controller.get_latest_files_by_date(
+                self.hash_cfg.hash_alg,
+                self.hash_cfg.length,
+            )
+        else:
+            selected_logs = sorted(Path(log) for log in logs)
+
+        print(f"Found {len(selected_logs)} logs to process.")
+        assert len(selected_logs) > 0, "No Logs files found."
 
         first_log = next(
-            Logs.iter_logs_with_hierarchy(self.io_controller, self.log_hierarchy, [logs[0]])
+            Logs.iter_logs_with_hierarchy(
+                self.io_controller,
+                self.log_hierarchy,
+                [selected_logs[0]],
+            )
         )
         _, _, first_parsed_logs = self._parse_image_logs(first_log)
         images_per_log = self._image_count(first_parsed_logs)
-        expected_image_total = images_per_log * len(logs)
-        print(f"Expected {expected_image_total} images to write "
+        expected_image_total = images_per_log * len(selected_logs)
+        print(f"Expected {expected_image_total} PNG files "
             f"({images_per_log} images per log).")
 
-        log_process = tqdm((), total=len(logs), desc="Processing Logs", unit="log")
-        image_process = tqdm(
+        if worker_count > 1 and len(selected_logs) > 1:
+            worker_count = min(worker_count, len(selected_logs))
+            images_written = self._write_parallel(
+                selected_logs,
+                worker_count,
+                parallel_chunk_size,
+            )
+            print(f"Image writing completed: {images_written} images.")
+            return images_written
+
+        log_process = progress((), total=len(selected_logs), desc="Processing Logs", unit="log")
+        image_process = progress(
             (),
             total=expected_image_total,
             desc="Writing Images",
@@ -305,7 +608,7 @@ class RGBImgMaker:
             for log_dict in Logs.iter_logs_with_hierarchy(
                 self.io_controller,
                 self.log_hierarchy,
-                logs,
+                selected_logs,
             ):
                 filename, message, parsed_logs = self._parse_image_logs(log_dict)
                 image_count = self._image_count(parsed_logs)
@@ -321,6 +624,7 @@ class RGBImgMaker:
                 log_process.update(1)
                 log_process.set_postfix({"images": images_written})
         print(f"Image writing completed: {images_written} images.")
+        return images_written
 
 class EMNISTImgMaker:
     """
@@ -368,13 +672,314 @@ class HDF5Maker:
     A class to make HDF5 files from Logs.
     """
     def __init__(self, runtime_cfg: RuntimeConfig,
-                io_controller: FileIO):
+                io_controller: FileIO,
+                quiet: bool = False):
         self.runtime_cfg = runtime_cfg
         self.main_cfg = runtime_cfg.main
         self.hash_cfg = runtime_cfg.hash
         self.io_controller = io_controller
+        self.log_hierarchy: Optional[List[str]] = []
 
-        print("HDF5 Maker Initialized.")
+        if not quiet:
+            print("HDF5 Maker Initialized.")
+
+    @staticmethod
+    def _normalize_channels(channels: int) -> int:
+        if channels not in (1, 3, 4):
+            raise ValueError("channels must be 1, 3, or 4")
+        return channels
+
+    @staticmethod
+    def _pil_to_tensor_array(
+        image: Image.Image,
+        *,
+        channels: int = 3,
+        normalize: bool = True,
+    ) -> np.ndarray:
+        channels = HDF5Maker._normalize_channels(channels)
+        if channels == 1:
+            array = np.asarray(image.convert("L"), dtype=np.uint8)[None, :, :].copy()
+        else:
+            mode = "RGB" if channels == 3 else "RGBA"
+            array = np.asarray(image.convert(mode), dtype=np.uint8).transpose(2, 0, 1).copy()
+
+        if not normalize:
+            return array
+        return (array.astype(np.float32) / 127.5) - 1.0
+
+    @staticmethod
+    def _hierarchy_segments(relative_path: Path) -> Tuple[str, ...]:
+        if relative_path == Path("message.png"):
+            return ("Message", "Hex")
+
+        parts = list(relative_path.parts)
+        if not parts:
+            raise ValueError("relative_path must not be empty")
+        parts[-1] = Path(parts[-1]).stem
+        return ("Logs", *parts)
+
+    @staticmethod
+    def _link_hierarchical_tensor(
+        *,
+        h5_file: Any,
+        source_log: str,
+        relative_path: Path,
+        tensor_dataset: Any,
+        record_key: str,
+    ) -> None:
+        source_group = h5_file.require_group("logs").require_group(source_log)
+        leaf_group = source_group
+        for segment in HDF5Maker._hierarchy_segments(relative_path):
+            leaf_group = leaf_group.require_group(segment)
+
+        if "tensor" in leaf_group:
+            del leaf_group["tensor"]
+        leaf_group["tensor"] = tensor_dataset
+        leaf_group.attrs["record_key"] = record_key
+        leaf_group.attrs["path"] = str(relative_path)
+        leaf_group.attrs["source_log"] = source_log
+
+    @staticmethod
+    def _write_hdf5_shard(
+        *,
+        runtime_cfg: RuntimeConfig,
+        io_controller: FileIO,
+        rgb_config: Byte2RGBConfig,
+        log_hierarchy: Sequence[str],
+        log_paths: Sequence[Path],
+        shard_path: Path,
+        include_paths: Optional[Tuple[str, ...]],
+        channels: int,
+        normalize: bool,
+        compression: Optional[str],
+        preserve_log_hierarchy: bool = True,
+    ) -> Tuple[Path, int, int]:
+        h5py = _import_h5py()
+        channels = HDF5Maker._normalize_channels(channels)
+        include_path_set = set(include_paths) if include_paths is not None else None
+
+        image_maker = RGBImgMaker(runtime_cfg, io_controller, rgb_config, quiet=True)
+        image_maker.log_hierarchy = list(log_hierarchy)
+
+        shard_path.parent.mkdir(parents=True, exist_ok=True)
+        string_dtype = h5py.string_dtype(encoding="utf-8")
+        source_logs: List[str] = []
+        record_paths: List[str] = []
+        record_keys: List[str] = []
+        logs_processed = 0
+        tensors_written = 0
+
+        with h5py.File(shard_path, "w") as h5_file:
+            h5_file.attrs["format"] = "diffusion_hash_inv.hdf5_tensor_shard"
+            h5_file.attrs["channels"] = channels
+            h5_file.attrs["normalized"] = normalize
+            h5_file.attrs["normalization"] = "[-1, 1]" if normalize else "uint8 [0, 255]"
+            h5_file.attrs["tensor_layout"] = "C,H,W"
+            h5_file.attrs["compression"] = "" if compression is None else compression
+            h5_file.attrs["preserve_log_hierarchy"] = preserve_log_hierarchy
+            records_group = h5_file.create_group("records")
+            if preserve_log_hierarchy:
+                h5_file.create_group("logs")
+
+            for log_dict in Logs.iter_logs_with_hierarchy(
+                io_controller,
+                image_maker.log_hierarchy,
+                list(log_paths),
+            ):
+                filename, message, parsed_logs = image_maker._parse_image_logs(log_dict)
+                records = image_maker._format_image_records(message, parsed_logs)
+                try:
+                    for relative_path, image, _ in records:
+                        path_text = str(relative_path)
+                        if include_path_set is not None and path_text not in include_path_set:
+                            continue
+
+                        tensor = HDF5Maker._pil_to_tensor_array(
+                            image,
+                            channels=channels,
+                            normalize=normalize,
+                        )
+                        record_key = f"{tensors_written:08d}"
+                        record_group = records_group.create_group(record_key)
+                        tensor_dataset = record_group.create_dataset(
+                            "tensor",
+                            data=tensor,
+                            compression=compression,
+                            shuffle=compression is not None,
+                        )
+                        record_group.attrs["source_log"] = filename
+                        record_group.attrs["path"] = path_text
+                        record_group.attrs["shape"] = tensor.shape
+                        if preserve_log_hierarchy:
+                            HDF5Maker._link_hierarchical_tensor(
+                                h5_file=h5_file,
+                                source_log=filename,
+                                relative_path=relative_path,
+                                tensor_dataset=tensor_dataset,
+                                record_key=record_key,
+                            )
+                        source_logs.append(filename)
+                        record_paths.append(path_text)
+                        record_keys.append(record_key)
+                        tensors_written += 1
+                finally:
+                    for _, image, _ in records:
+                        image.close()
+                logs_processed += 1
+
+            h5_file.create_dataset("source_logs", data=np.array(source_logs, dtype=object),
+                                dtype=string_dtype)
+            h5_file.create_dataset("paths", data=np.array(record_paths, dtype=object),
+                                dtype=string_dtype)
+            h5_file.create_dataset("record_keys", data=np.array(record_keys, dtype=object),
+                                dtype=string_dtype)
+            h5_file.attrs["log_count"] = logs_processed
+            h5_file.attrs["tensor_count"] = tensors_written
+
+        return shard_path, logs_processed, tensors_written
+
+    def main(
+        self,
+        logs: Optional[Iterable[Path | str]] = None,
+        *,
+        rgb_config: Optional[Byte2RGBConfig] = None,
+        workers: Optional[int] = None,
+        output_dir: Optional[Path | str] = None,
+        output_name: str = "hash_tensors",
+        shard_size: int = 256,
+        include_paths: Optional[Sequence[str]] = None,
+        channels: int = 3,
+        normalize: bool = True,
+        compression: Optional[str] = "gzip",
+        preserve_log_hierarchy: bool = True,
+    ) -> List[Path]:
+        """
+        Build sharded HDF5 tensor datasets from JSON logs.
+
+        Each process writes an independent HDF5 shard. This avoids unsafe
+        concurrent writes to a single HDF5 file while still parallelizing the
+        CPU-heavy log-to-tensor conversion.
+
+        When ``preserve_log_hierarchy`` is true, the same tensor datasets are
+        also hard-linked below ``logs/<source_log>/Message/Hex`` and
+        ``logs/<source_log>/Logs/...`` so the HDF5 file mirrors the JSON log
+        hierarchy without duplicating tensor storage.
+        """
+        if rgb_config is None:
+            rgb_config = self.runtime_cfg.rgb
+        if workers is None:
+            workers = getattr(self.main_cfg, "image_workers", 1)
+        worker_count = RGBImgMaker._normalize_worker_count(workers)
+        channels = self._normalize_channels(channels)
+        if shard_size < 1:
+            raise ValueError("shard_size must be greater than or equal to 1")
+
+        if logs is None:
+            selected_logs = self.io_controller.get_latest_files_by_date(
+                self.hash_cfg.hash_alg,
+                self.hash_cfg.length,
+            )
+        else:
+            selected_logs = sorted(Path(log) for log in logs)
+
+        print(f"Found {len(selected_logs)} logs for HDF5 tensor dataset.")
+        assert len(selected_logs) > 0, "No Logs files found."
+
+        dataset_dir = (
+            Path(output_dir)
+            if output_dir is not None
+            else self.io_controller.data_dir / "tensor_datasets" / output_name
+        )
+        dataset_dir.mkdir(parents=True, exist_ok=True)
+
+        chunks = _chunk_paths(selected_logs, shard_size)
+        include_paths_tuple = tuple(include_paths) if include_paths is not None else None
+        worker_count = min(worker_count, len(chunks))
+        print(
+            f"HDF5 tensor dataset: {len(chunks)} shards, {worker_count} workers, "
+            f"shard_size={shard_size}."
+        )
+
+        results: List[Tuple[Path, int, int]] = []
+        log_process = progress((), total=len(selected_logs), desc="Writing HDF5", unit="log")
+        with log_process:
+            if worker_count > 1:
+                executor_type = _parallel_executor_type()
+                print(f"HDF5 executor: {executor_type.__name__}.")
+                with executor_type(max_workers=worker_count) as executor:
+                    futures = []
+                    for shard_idx, chunk in enumerate(chunks):
+                        shard_path = dataset_dir / f"{output_name}_{shard_idx:06d}.h5"
+                        futures.append(executor.submit(
+                            _write_hdf5_chunk_worker,
+                            (
+                                self.runtime_cfg,
+                                rgb_config,
+                                list(self.log_hierarchy or []),
+                                chunk,
+                                shard_path,
+                                include_paths_tuple,
+                                channels,
+                                normalize,
+                                compression,
+                                preserve_log_hierarchy,
+                            ),
+                        ))
+
+                    for future in as_completed(futures):
+                        shard_path, log_count, tensor_count = future.result()
+                        results.append((shard_path, log_count, tensor_count))
+                        log_process.update(log_count)
+                        log_process.set_postfix({"tensors": sum(result[2] for result in results)})
+            else:
+                for shard_idx, chunk in enumerate(chunks):
+                    shard_path = dataset_dir / f"{output_name}_{shard_idx:06d}.h5"
+                    result = self._write_hdf5_shard(
+                        runtime_cfg=_runtime_config_without_clean(self.runtime_cfg),
+                        io_controller=self.io_controller,
+                        rgb_config=rgb_config,
+                        log_hierarchy=list(self.log_hierarchy or []),
+                        log_paths=chunk,
+                        shard_path=shard_path,
+                        include_paths=include_paths_tuple,
+                        channels=channels,
+                        normalize=normalize,
+                        compression=compression,
+                        preserve_log_hierarchy=preserve_log_hierarchy,
+                    )
+                    results.append(result)
+                    log_process.update(result[1])
+                    log_process.set_postfix({"tensors": sum(item[2] for item in results)})
+
+        results.sort(key=lambda item: item[0].name)
+        manifest = {
+            "format": "diffusion_hash_inv.hdf5_tensor_manifest",
+            "output_name": output_name,
+            "log_count": sum(item[1] for item in results),
+            "tensor_count": sum(item[2] for item in results),
+            "shard_count": len(results),
+            "channels": channels,
+            "normalized": normalize,
+            "include_paths": list(include_paths_tuple) if include_paths_tuple is not None else None,
+            "preserve_log_hierarchy": preserve_log_hierarchy,
+            "shards": [
+                {
+                    "file": item[0].name,
+                    "log_count": item[1],
+                    "tensor_count": item[2],
+                }
+                for item in results
+            ],
+        }
+        (dataset_dir / "manifest.json").write_text(
+            json.dumps(manifest, indent=2),
+            encoding=self.io_controller.encoding,
+        )
+        print(
+            f"HDF5 tensor dataset completed: {manifest['tensor_count']} tensors "
+            f"in {manifest['shard_count']} shards."
+        )
+        return [item[0] for item in results]
 
 
 class ImageMaker(RGBImgMaker, EMNISTImgMaker, HDF5Maker):

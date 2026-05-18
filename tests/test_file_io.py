@@ -3,6 +3,7 @@ from pathlib import Path
 from PIL import Image
 
 from diffusion_hash_inv.config import MainConfig, OutputConfig
+from diffusion_hash_inv.logger import Logs
 from diffusion_hash_inv.utils.file_io import FileIO
 
 
@@ -38,6 +39,26 @@ def test_get_latest_files_by_date_uses_current_timestamp_dirs(tmp_path: Path) ->
     assert [path.name for path in latest] == ["MD5_16_2026-04-25 20-40-00_00000.json"]
 
 
+def test_get_latest_files_by_date_uses_microsecond_timestamp_dirs(tmp_path: Path) -> None:
+    io = _file_io(tmp_path)
+    json_root = io.out_dir / "json"
+
+    _touch(
+        json_root
+        / "2026-04-25 20-40-00.100000+09-00"
+        / "MD5_16_2026-04-25 20-40-00.100000+09-00_0000.json"
+    )
+    _touch(
+        json_root
+        / "2026-04-25 20-40-00.900000+09-00"
+        / "MD5_16_2026-04-25 20-40-00.900000+09-00_0000.json"
+    )
+
+    latest = io.get_latest_files_by_date("md5", 16)
+
+    assert [path.parent.name for path in latest] == ["2026-04-25 20-40-00.900000+09-00"]
+
+
 def test_get_latest_files_by_date_accepts_legacy_colon_timestamp_dirs(tmp_path: Path) -> None:
     io = _file_io(tmp_path)
     json_root = io.out_dir / "json"
@@ -69,10 +90,22 @@ def test_get_latest_files_by_date_keeps_filename_timestamp_fallback(tmp_path: Pa
 def test_select_dir_sanitizes_json_timestamp_dir(tmp_path: Path) -> None:
     io = _file_io(tmp_path)
 
-    path = io.select_dir("json", path_infix="2026-04-27 02:12:47.123456+09:00/0")
+    path = io.select_dir("json", path_infix="2026-04-27 02:12:47.123456+09:00")
 
-    assert path.name == "2026-04-27 02-12-47"
+    assert path.name == "2026-04-27 02-12-47.123456+09-00"
     assert ":" not in path.name
+
+
+def test_json_file_namer_preserves_microsecond_start_time() -> None:
+    filename = Logs.json_file_namer(
+        "MD5",
+        16,
+        "2026-04-27 02:12:47.123456+09:00",
+        7,
+        1000,
+    )
+
+    assert filename == "MD5_16_2026-04-27 02:12:47.123456+09:00_0007.json"
 
 
 def test_file_writer_sanitizes_parent_dir_path_components(tmp_path: Path) -> None:

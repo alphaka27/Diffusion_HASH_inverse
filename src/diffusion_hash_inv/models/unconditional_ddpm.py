@@ -42,7 +42,7 @@ from diffusion_hash_inv.models.conditional_diffusion import (
     resolve_train_steps,
     save_beta_schedule,
     save_image_grid,
-    save_source_generated_grid,
+    save_sample_artifacts,
     set_seed,
 )
 
@@ -393,6 +393,32 @@ def _sample_source_indices(
     return torch.tensor(indices, dtype=torch.long, device=device)
 
 
+def _cleanup_legacy_samples_dir(output_dir: Path) -> None:
+    """Remove sample files written by the previous ``samples/`` layout."""
+    legacy_dir = output_dir / "samples"
+    if not legacy_dir.is_dir():
+        return
+
+    legacy_patterns = (
+        "final*.png",
+        "final*.labels.json",
+        "final*.metadata.json",
+        "final*.conditions.json",
+        "step_*.png",
+        "step_*.labels.json",
+        "step_*.metadata.json",
+        "step_*.conditions.json",
+    )
+    for pattern in legacy_patterns:
+        for legacy_path in legacy_dir.glob(pattern):
+            if legacy_path.is_file():
+                legacy_path.unlink()
+    try:
+        legacy_dir.rmdir()
+    except OSError:
+        pass
+
+
 def _checkpoint_payload(
     model: UnconditionalUNet,
     optimizer: torch.optim.Optimizer,
@@ -504,7 +530,7 @@ def save_unconditional_process_traces(
 
 def train_unconditional_ddpm(
     config: UnconditionalDDPMTrainConfig,
-) -> dict[str, Path | float | int | None]:
+) -> dict[str, Path | list[Path] | float | int | None]:
     """Train an unconditional DDPM on generated ``message.png`` images."""
 
     set_seed(config.seed)
@@ -551,6 +577,7 @@ def train_unconditional_ddpm(
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.learning_rate)
 
     config.output_dir.mkdir(parents=True, exist_ok=True)
+    _cleanup_legacy_samples_dir(config.output_dir)
     config_dict = asdict(config)
     config_dict["data_root"] = str(config.data_root)
     config_dict["json_root"] = str(config.json_root)
@@ -566,6 +593,7 @@ def train_unconditional_ddpm(
 
     last_loss = math.nan
     train_batch_dir: Path | None = None
+    sample_dir = config.output_dir / "sample"
     print(
         f"dataset={len(dataset)} images steps={effective_train_steps} "
         f"epochs={config.epochs} device={device} beta_schedule={config.beta_schedule} "
@@ -616,25 +644,17 @@ def train_unconditional_ddpm(
                 device,
             )
             sample_indices = _sample_source_indices(dataset, config.sample_count, device)
-            sample_path = config.output_dir / "samples" / f"step_{step:06d}.png"
-            save_unconditional_images(
-                samples,
-                sample_indices,
-                dataset,
-                sample_path,
-                save_originals=True,
-            )
             reference_images = _source_images_for_indices(dataset, sample_indices)
-            paired_sample_path = config.output_dir / "samples" / f"step_{step:06d}.with_source.png"
-            save_source_generated_grid(
+            sample_paths = save_sample_artifacts(
                 reference_images,
                 samples,
                 sample_indices,
                 _source_condition_names(dataset),
-                paired_sample_path,
+                sample_dir / f"step_{step:06d}",
             )
-            print(f"saved samples: {sample_path}")
-            print(f"saved source+generated samples: {paired_sample_path}")
+            print(f"saved sample source manifest: {sample_paths['source']}")
+            print(f"saved sample final manifest: {sample_paths['final']}")
+            print(f"saved sample decode comparison: {sample_paths['decode_comparison']}")
             model.train()
 
     final_checkpoint = save_checkpoint(model, optimizer, effective_train_steps, last_loss, config)
@@ -644,30 +664,16 @@ def train_unconditional_ddpm(
         device,
     )
     final_indices = _sample_source_indices(dataset, config.sample_count, device)
-    final_sample_path = config.output_dir / "samples" / "final.png"
-    save_unconditional_images(
-        final_samples,
-        final_indices,
-        dataset,
-        final_sample_path,
-        save_originals=True,
-    )
-    final_source_path = config.output_dir / "samples" / "final.source.png"
     reference_images = _source_images_for_indices(dataset, final_indices)
-    save_image_grid(
-        reference_images,
-        final_indices,
-        _source_condition_names(dataset),
-        final_source_path,
-    )
-    final_with_source_path = config.output_dir / "samples" / "final.with_source.png"
-    save_source_generated_grid(
+    final_sample_paths = save_sample_artifacts(
         reference_images,
         final_samples,
         final_indices,
         _source_condition_names(dataset),
-        final_with_source_path,
+        sample_dir,
     )
+    final_source_path = final_sample_paths["source"]
+    final_sample_path = final_sample_paths["final"]
 
     process_trace_paths: dict[str, list[Path]] | None = None
     if config.save_process_traces:
@@ -687,7 +693,16 @@ def train_unconditional_ddpm(
         "checkpoint": final_checkpoint,
         "sample_grid": final_sample_path,
         "sample_source_grid": final_source_path,
-        "sample_with_source_grid": final_with_source_path,
+        "sample_final_manifest": final_sample_path,
+        "sample_source_manifest": final_source_path,
+        "sample_dir": sample_dir,
+        "sample_final_dir": final_sample_paths["final_dir"],
+        "sample_source_dir": final_sample_paths["source_dir"],
+        "sample_decode_comparison": final_sample_paths["decode_comparison"],
+        "sample_preview_grid": None,
+        "sample_with_source_grid": None,
+        "sample_final_files": final_sample_paths["final_files"],
+        "sample_source_files": final_sample_paths["source_files"],
         "beta_schedule": beta_schedule_path,
         "train_batches": train_batch_dir,
         "process_traces": (
@@ -777,6 +792,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--save-process-traces",
         action="store_true",
         default=UnconditionalDDPMTrainConfig.save_process_traces,
+        help="Save forward noising and reverse denoising intermediate PNG grids.",
     )
     parser.add_argument(
         "--trace-sample-count",
@@ -828,6 +844,10 @@ def main() -> None:
         f"checkpoint={result['checkpoint']} "
         f"samples={result['sample_grid']}"
     )
+    print(f"sample_dir: {result['sample_dir']}")
+    print(f"sample_final_manifest: {result['sample_final_manifest']}")
+    print(f"sample_source_manifest: {result['sample_source_manifest']}")
+    print(f"sample_decode_comparison: {result['sample_decode_comparison']}")
     if result["process_traces"] is not None:
         print(f"process_traces: {result['process_traces']}")
 

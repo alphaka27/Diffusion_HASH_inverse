@@ -23,7 +23,7 @@ MLX 예제를 실행하려면 다음 의존성을 사용한다.
 pip install -e ".[mlx]"
 ```
 
-현재 `pyproject.toml`의 `diffhash` 콘솔 스크립트는 `diffusion_hash_inv.cli:main`을 가리키지만, 해당 `cli.py`는 아직 없다. 지금은 `python -m diffusion_hash_inv...` 형태나 Python API로 실행하는 경로를 기준으로 사용한다.
+`diffhash` 콘솔 스크립트는 `diffusion_hash_inv.cli:main`을 통해 실행된다. Python API로 세부 설정을 명시하거나, CLI에서는 `diffhash hash ...` 또는 `python -m diffusion_hash_inv.hash_main ...` 형태를 사용한다.
 
 ## 2. End-to-End Data Flow
 
@@ -84,7 +84,13 @@ runtime_config = RuntimeConfig(
     rgb=Byte2RGBConfig(),
 )
 
-MainEP(runtime_config).run(iteration=256, mode="sequential")
+MainEP(runtime_config).run(
+    iteration=256,
+    mode="sequential",
+    run_hash_json=True,
+    run_png=False,
+    run_hdf5=False,
+)
 ```
 
 동작 흐름:
@@ -101,11 +107,13 @@ MainEP(runtime_config).run(iteration=256, mode="sequential")
 - `random_flag=False`이면 iteration index가 입력값으로 사용된다.
 - `random_flag=True`이면 iteration마다 난수 입력을 생성한다.
 - `MainConfig.clean_flag=True`는 `data/`와 `output/` 아래 생성물을 지운 뒤 실행한다.
-- 현재 `src/diffusion_hash_inv/hash_main.py`의 CLI 인자는 파싱되지만, 마지막에 하드코딩된 `main()`을 호출하므로 인자값이 실제 실행에 반영되지 않는다.
+- CLI 실행은 `src/diffusion_hash_inv/hash_main.py`에서 인자를 `RuntimeConfig`로 변환한 뒤 `MainEP.run()`을 호출한다.
 
-## 4. Generate RGB Image Dataset
+## 4. Generate RGB Image and HDF5 Dataset
 
-로그 생성과 이미지 생성을 한 번에 수행하려면 `make_image_flag=True`로 실행한다.
+`MainEP.run()`은 해시/JSON 생성 단계, PNG 생성 단계, HDF5 생성 단계를 분리해서 실행할 수 있다. `run_hash_json=True`는 binary input과 JSON trace를 만들고, `run_png=True`는 기존 JSON trace에서 PNG 이미지를 만들며, `run_hdf5=True`는 HDF5 tensor shard를 만든다. `run_image_hdf5`는 기존 호출 호환용 묶음 플래그이며, `run_png`/`run_hdf5`가 생략되었을 때 두 artifact 단계의 기본값으로만 사용된다. `run_image_hdf5=None`이면 기존 동작처럼 `MainConfig.make_image_flag` 값을 따른다.
+
+로그 생성과 이미지/HDF5 생성을 한 번에 수행하려면 `make_image_flag=True` 상태에서 기본 실행하거나, 두 단계 플래그를 모두 켠다.
 
 ```python
 runtime_config = RuntimeConfig(
@@ -114,6 +122,7 @@ runtime_config = RuntimeConfig(
         clean_flag=False,
         debug_flag=False,
         make_image_flag=True,
+        image_workers=4,
     ),
     message=MessageConfig(message_flag=False, length=128, random_flag=False),
     hash=HashConfig(hash_alg="md5", length=128),
@@ -121,15 +130,104 @@ runtime_config = RuntimeConfig(
     rgb=Byte2RGBConfig(seed_flag=False, input_seed=42),
 )
 
-MainEP(runtime_config).run(iteration=256, mode="sequential")
+MainEP(runtime_config).run(
+    iteration=256,
+    mode="sequential",
+    run_hash_json=True,
+    run_png=True,
+    run_hdf5=True,
+)
 ```
 
-이미 만들어진 최신 JSON 로그만 이미지로 변환하려면 같은 `hash_alg`/`length` 설정으로 `rgb_image_maker()`를 호출한다.
+해시/JSON만 먼저 만들려면 `run_png=False`, `run_hdf5=False`로 실행한다.
 
 ```python
 entrypoint = MainEP(runtime_config)
-entrypoint.rgb_image_maker()
+entrypoint.run(
+    iteration=256,
+    mode="sequential",
+    run_hash_json=True,
+    run_png=False,
+    run_hdf5=False,
+)
 ```
+
+이미 만들어진 최신 JSON 로그만 PNG/HDF5로 변환하려면 같은 `hash_alg`/`length` 설정으로 `run_hash_json=False`를 사용한다. 이때 기존 JSON을 지우면 변환할 입력이 없어지므로 `clean_flag=False`를 유지한다.
+
+```python
+entrypoint = MainEP(runtime_config)
+entrypoint.run(
+    run_hash_json=False,
+    run_png=True,
+    run_hdf5=True,
+)
+```
+
+PNG만 다시 만들거나 HDF5만 다시 만들 수도 있다.
+
+```python
+entrypoint.run(run_hash_json=False, run_png=True, run_hdf5=False)
+entrypoint.run(run_hash_json=False, run_png=False, run_hdf5=True)
+```
+
+이미지/HDF5 변환은 log 파일 단위로 병렬화할 수 있다. `image_workers=1`이면 기존처럼 순차 처리하고, `2` 이상이면 터미널에서는 `ProcessPoolExecutor`, Jupyter/ipykernel에서는 `ThreadPoolExecutor`로 log chunk를 나누어 처리한다. worker 내부에서는 `clean_flag=False`를 강제하므로 병렬 worker가 `data/`나 `output/`을 지우지 않는다.
+
+`make_image_flag=True`는 항상 두 산출물을 만든다.
+
+- PNG 이미지: log 1개당 `message.png`와 step 이미지들이 `data/images/<log-stem>/` 아래에 저장된다.
+- HDF5 tensor dataset: `data/tensor_datasets/hash_tensors/` 아래 shard와 `manifest.json`을 저장한다.
+
+PNG 저장은 저장 직후 같은 worker 안에서 검증한다. 저장된 파일을 다시 열고 `ImgConfig.img_size` 블록 중앙 픽셀을 읽은 뒤 `Byte2RGB.rgb_decoder()`로 원본 log 값과 비교한다. 검증 실패 시 별도 검증 process를 만들지 않고 해당 writer worker에서 즉시 예외를 발생시킨다.
+
+현재 DDPM 학습 파이프라인은 `data/images`의 PNG 입력을 기본으로 사용한다. HDF5 loader를 직접 쓰는 경우에는 `HDF5TensorDataset` 또는 `create_hdf5_tensor_dataloader`를 사용한다.
+
+HDF5 tensor dataset은 `HDF5Maker`로도 직접 생성할 수 있다. HDF5는 단일 파일에 여러 process가 동시에 쓰기 어렵기 때문에 worker별 shard 파일을 생성하고 `manifest.json`을 남긴다. 자세한 생성 옵션, shard 구조, loader 사용법은 `Docs/HDF5TensorDataset.md`에 정리되어 있다.
+
+```python
+from diffusion_hash_inv.utils import HDF5Maker
+from diffusion_hash_inv.logger import LogStream
+
+log_paths = list(LogStream(output_cfg.output_dir / "json").iter_files())
+hdf5_maker = HDF5Maker(runtime_config, io_controller)
+hdf5_maker.main(
+    logs=log_paths,
+    rgb_config=byte2rgb_cfg,
+    workers=4,
+    output_name="hash_tensors",
+    shard_size=1000,
+    include_paths=None,  # message와 모든 log tensor 저장
+    normalize=False,  # uint8 [0, 255] 저장
+    preserve_log_hierarchy=True,
+)
+```
+
+출력 위치:
+
+- `data/tensor_datasets/hash_tensors/hash_tensors_000000.h5`
+- `data/tensor_datasets/hash_tensors/manifest.json`
+
+각 HDF5 shard는 `records/<index>/tensor`에 `C,H,W` 텐서를 저장하고, `paths`, `source_logs`, `record_keys` index dataset을 포함한다. 또한 같은 tensor를 `logs/<source_log>/Message/Hex`와 `logs/<source_log>/Logs/...` 아래에 hard-link해서 기존 JSON log 계층으로 탐색할 수 있게 한다. `make_image_flag=True` 통합 경로는 정규화하지 않은 `uint8 [0, 255]` 텐서를 저장한다.
+
+HDF5 tensor loader:
+
+```python
+from diffusion_hash_inv.utils import HDF5TensorDataset, create_hdf5_tensor_dataloader
+
+hdf5_dataset = HDF5TensorDataset(
+    "data/tensor_datasets/hash_tensors",
+    include_paths=("message.png",),
+    require_same_shape=True,
+)
+hdf5_loader = create_hdf5_tensor_dataloader(
+    "data/tensor_datasets/hash_tensors",
+    batch_size=64,
+    shuffle=True,
+    num_workers=4,
+    include_paths=("message.png",),
+)
+```
+
+`DataLoader`의 기본 collate는 batch 안의 tensor shape가 같아야 한다. 따라서 학습용 loader에서는 `include_paths=("message.png",)`처럼 하나의 image type만 선택하는 것을 권장한다. `include_paths=None`은 log당 전체 image tensor를 읽는 inspection 용도에는 쓸 수 있지만, step별 이미지 shape가 다르면 batch collation에서 실패할 수 있다.
 
 이미지 변환 흐름:
 
@@ -138,6 +236,7 @@ entrypoint.rgb_image_maker()
 3. `Byte2RGB.rgb_encoder()`가 byte/hex 값을 RGB tuple로 인코딩한다.
 4. `RGBImgMaker.image_formatter()`가 `ImgConfig.img_size` 기준 PNG를 만든다.
 5. `data/images/<json-stem>/message.png`와 step/round/loop PNG가 저장된다.
+6. 저장된 PNG를 즉시 다시 읽고 decode 검증한다.
 
 DDPM 학습의 기본 입력은 `data/images/<run-id>/message.png`이다. loop 이미지 학습을 켜는 경우에는 `NNth Loop.png` 패턴의 파일도 사용한다.
 
@@ -209,7 +308,7 @@ python -m diffusion_hash_inv.models.conditional_diffusion \
 주요 옵션:
 
 - `--fit-mode reshape`: 이미지를 flatten한 뒤 같은 면적의 정사각형으로 재배열한다.
-- `--fit-mode height-flatten`: `ImgConfig.img_size` 단위 블록을 정사각형 배열로 재배치한다.
+- `--fit-mode height-flatten`: `ImgConfig.img_size` 단위 블록을 `1x1` 픽셀로 축약한 뒤 정사각형 배열로 재배치한다.
 - `--beta-schedule linear`: 일반 DDPM linear beta schedule.
 - `--beta-schedule file`: 외부 JSON/TXT/CSV/NPY/NPZ beta 값을 사용한다.
 - `--beta-schedule hash-approach1` 또는 `hash-approach2`: hash trace 기반 schedule을 사용한다.
@@ -292,9 +391,11 @@ python -m diffusion_hash_inv.models.loop_conditioned_diffusion \
 | `condition_to_idx.json` | conditional/guided label mapping |
 | `beta_schedule.json` | 실제 사용한 beta schedule |
 | `checkpoints/step_*.pt` | 모델/optimizer checkpoint |
-| `samples/final.png` | 최종 generated sample grid |
-| `samples/final.source.png` | source image grid |
-| `samples/final.with_source.png` | source/generated 비교 grid |
+| `sample/final/final_*.png` | sample별 최종 generated image |
+| `sample/source/source_*.png` | sample별 source image |
+| `sample/final/final.labels.json` | final sample manifest |
+| `sample/source/source.labels.json` | source sample manifest |
+| `sample/decode_comparison.json` | source/final RGB 색상, Byte2RGB decoded byte, decoded byte 해밍 거리 |
 | `train_batches/step_*.png` | 실제 training batch grid |
 | `process_traces/forward` | forward noising trace |
 | `process_traces/reverse` | reverse denoising trace |
@@ -307,13 +408,13 @@ python -m diffusion_hash_inv.models.loop_conditioned_diffusion \
 python -m pytest
 ```
 
-학습 파이프라인만 빠르게 확인하려면 smoke 설정으로 먼저 실행한 뒤, 생성된 `samples/final.png`, `train_config.json`, `beta_schedule.json`이 기대한 `output-dir`에 있는지 확인한다.
+학습 파이프라인만 빠르게 확인하려면 smoke 설정으로 먼저 실행한 뒤, 생성된 `sample/final/final.labels.json`, `train_config.json`, `beta_schedule.json`이 기대한 `output-dir`에 있는지 확인한다.
 
 ## 9. Recommended Full Run Order
 
 1. 환경 설치: `pip install -e ".[train]"`
 2. 작은 iteration으로 MD5 JSON 로그 생성
-3. `make_image_flag=True` 또는 `rgb_image_maker()`로 PNG 데이터셋 생성
+3. `make_image_flag=True`로 PNG 데이터셋과 HDF5 tensor shard 생성
 4. `python -m diffusion_hash_inv.analyze.analyze -f output/json -q`로 JSON 인덱스 확인
 5. `unconditional_ddpm` smoke run 실행
 6. `conditional_diffusion` smoke run 실행

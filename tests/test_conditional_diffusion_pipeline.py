@@ -16,6 +16,7 @@ from diffusion_hash_inv.models.conditional_diffusion import (
     DDPMNoiseScheduler,
     GeneratedImageDataset,
     _ensure_square_batch,
+    _denormalize_images,
     cleanup_torch_resources,
     build_beta_schedule,
     discover_generated_image_samples,
@@ -205,7 +206,19 @@ def test_generated_image_dataset_supports_height_flatten_mode(tmp_path: Path) ->
     image_root = tmp_path / "images"
     json_root = tmp_path / "output" / "json"
     run_id = "RUN_0001"
-    _write_png(image_root / run_id / "message.png", (112, 28), (1, 2, 3, 255))
+    image_path = image_root / run_id / "message.png"
+    image_path.parent.mkdir(parents=True, exist_ok=True)
+    source = Image.new("RGBA", (112, 28), (255, 255, 255, 255))
+    block_colors = [
+        (0, 10, 20, 255),
+        (30, 40, 50, 255),
+        (60, 70, 80, 255),
+        (90, 100, 110, 255),
+    ]
+    for index, color in enumerate(block_colors):
+        block = Image.new("RGBA", (28, 28), color)
+        source.paste(block, (index * 28, 0))
+    source.save(image_path)
     json_path = json_root / "2026-05-09 14-13-27" / f"{run_id}.json"
     json_path.parent.mkdir(parents=True, exist_ok=True)
     json_path.write_text(
@@ -229,7 +242,20 @@ def test_generated_image_dataset_supports_height_flatten_mode(tmp_path: Path) ->
     image, _, _loop_meta = dataset[0]
 
     assert dataset.channels == 3
-    assert image.shape == (3, 56, 56)
+    assert image.shape == (3, 2, 2)
+    expected = torch.tensor(block_colors, dtype=torch.float32)[:, :3]
+    expected = (expected / 127.5 - 1.0).reshape(2, 2, 3).permute(2, 0, 1)
+    torch.testing.assert_close(image, expected)
+
+
+def test_denormalize_images_rounds_normalized_uint8_values() -> None:
+    original = torch.tensor([2, 38, 119, 212], dtype=torch.float32)
+    normalized = (original / 127.5 - 1.0).reshape(1, 1, 2, 2)
+
+    restored = _denormalize_images(normalized)
+
+    assert restored.dtype == torch.uint8
+    assert restored.reshape(-1).tolist() == [2, 38, 119, 212]
 
 
 def test_conditional_unet_and_scheduler_preserve_shape() -> None:
@@ -425,6 +451,24 @@ def test_save_image_grid_saves_individual_files_for_multiple_samples(tmp_path: P
     assert labels_payload[1]["file"] == "grid_001.png"
 
 
+def test_save_image_grid_can_save_multiple_samples_as_single_file(tmp_path: Path) -> None:
+    images = torch.zeros((2, 3, 4, 4), dtype=torch.float32)
+    labels = torch.tensor([0, 1], dtype=torch.long)
+    path = tmp_path / "grid.png"
+
+    save_image_grid(images, labels, ["A", "B"], path, single_file=True)
+
+    assert path.exists()
+    assert not (tmp_path / "grid_000.png").exists()
+    labels_payload = json.loads((tmp_path / "grid.labels.json").read_text(encoding="utf-8"))
+    assert labels_payload[0]["file"] == "grid.png"
+    assert labels_payload[0]["row"] == 0
+    assert labels_payload[0]["column"] == 0
+    assert labels_payload[1]["file"] == "grid.png"
+    assert labels_payload[1]["row"] == 0
+    assert labels_payload[1]["column"] == 1
+
+
 def test_training_can_save_forward_and_reverse_process_traces(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
@@ -458,13 +502,25 @@ def test_training_can_save_forward_and_reverse_process_traces(
         timesteps=4,
         base_channels=4,
         time_dim=8,
-        sample_count=1,
+        sample_count=2,
         save_process_traces=True,
         save_train_batches_every=1,
         trace_sample_count=1,
         trace_steps=2,
         device="cpu",
     )
+
+    expected_sample_dir = config.output_dir / "sample"
+    expected_source_dir = expected_sample_dir / "source"
+    expected_final_dir = expected_sample_dir / "final"
+    stale_sample_dir = expected_sample_dir
+    stale_sample_dir.mkdir(parents=True)
+    for stale_name in ("preview.png", "source.png", "final.png", "source_999.png", "final_999.png"):
+        (stale_sample_dir / stale_name).write_bytes(b"stale")
+    expected_source_dir.mkdir(parents=True)
+    expected_final_dir.mkdir(parents=True)
+    (expected_source_dir / "source_999.png").write_bytes(b"stale")
+    (expected_final_dir / "final_999.png").write_bytes(b"stale")
 
     result = train_conditional_diffusion(config)
     captured = capsys.readouterr()
@@ -491,13 +547,37 @@ def test_training_can_save_forward_and_reverse_process_traces(
     assert "[reverse-trace] saving xT + 4 denoising steps" in captured.out
     assert "[reverse-trace] step=000003" in captured.out
     assert "[reverse-trace] step=000000" in captured.out
-    assert Path(result["sample_grid"]).name == "final.png"
-    assert Path(result["sample_source_grid"]).name == "final.source.png"
-    assert Path(result["sample_with_source_grid"]).name == "final.with_source.png"
+    assert Path(result["sample_grid"]).name == "final.labels.json"
+    assert Path(result["sample_source_grid"]).name == "source.labels.json"
+    assert result["sample_final_manifest"] == result["sample_grid"]
+    assert result["sample_source_manifest"] == result["sample_source_grid"]
+    assert Path(result["sample_dir"]) == expected_sample_dir
+    assert Path(result["sample_final_dir"]) == expected_final_dir
+    assert Path(result["sample_source_dir"]) == expected_source_dir
+    assert Path(result["sample_grid"]).parent == expected_final_dir
+    assert Path(result["sample_source_grid"]).parent == expected_source_dir
+    assert result["sample_preview_grid"] is None
+    assert result["sample_with_source_grid"] is None
+    assert Path(result["sample_grid"]).exists()
     assert Path(result["sample_source_grid"]).exists()
-    assert not Path(result["sample_with_source_grid"]).exists()
-    assert Path(result["sample_with_source_grid"]).with_name("final.with_source.source.png").exists()
-    assert Path(result["sample_with_source_grid"]).with_name("final.with_source.generated.png").exists()
+    comparison_path = Path(result["sample_decode_comparison"])
+    assert comparison_path == expected_sample_dir / "decode_comparison.json"
+    comparison_payload = json.loads(comparison_path.read_text(encoding="utf-8"))
+    assert comparison_payload["total"] == 2
+    assert len(comparison_payload["records"]) == 2
+    assert comparison_payload["records"][0]["source"]["supported"] is True
+    assert "bits" in comparison_payload["records"][0]["source"]
+    assert len(result["sample_final_files"]) == 2
+    assert len(result["sample_source_files"]) == 2
+    assert all(Path(path).exists() for path in result["sample_final_files"])
+    assert all(Path(path).exists() for path in result["sample_source_files"])
+    assert not (expected_sample_dir / "preview.png").exists()
+    assert not (expected_sample_dir / "source.png").exists()
+    assert not (expected_sample_dir / "final.png").exists()
+    assert not (expected_sample_dir / "source_999.png").exists()
+    assert not (expected_sample_dir / "final_999.png").exists()
+    assert not (expected_source_dir / "source_999.png").exists()
+    assert not (expected_final_dir / "final_999.png").exists()
     assert (Path(result["train_batches"]) / "step_000001.png").exists()
     batch_metadata = Path(result["train_batches"]) / "step_000001.batch.json"
     assert batch_metadata.exists()

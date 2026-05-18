@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pytest
@@ -86,9 +87,25 @@ def test_unconditional_training_smoke_run(tmp_path: Path) -> None:
         timesteps=2,
         base_channels=4,
         time_dim=8,
-        sample_count=1,
+        sample_count=2,
+        save_process_traces=True,
+        trace_sample_count=1,
         device="cpu",
     )
+    expected_sample_dir = output_dir / "sample"
+    expected_source_dir = expected_sample_dir / "source"
+    expected_final_dir = expected_sample_dir / "final"
+    legacy_samples_dir = output_dir / "samples"
+    legacy_samples_dir.mkdir(parents=True)
+    for legacy_name in (
+        "final.png",
+        "final.original.png",
+        "final.source.png",
+        "final.with_source.png",
+        "step_000001.png",
+        "step_000001.with_source.png",
+    ):
+        (legacy_samples_dir / legacy_name).write_bytes(b"stale")
 
     result = train_unconditional_ddpm(config)
 
@@ -96,13 +113,41 @@ def test_unconditional_training_smoke_run(tmp_path: Path) -> None:
     assert result["train_steps"] == 1
     assert Path(result["checkpoint"]).exists()
     assert Path(result["sample_grid"]).exists()
-    assert Path(result["sample_grid"]).with_name("final.original.png").exists()
-    assert Path(result["sample_source_grid"]).name == "final.source.png"
-    assert Path(result["sample_with_source_grid"]).name == "final.with_source.png"
+    assert Path(result["sample_grid"]).name == "final.labels.json"
+    assert Path(result["sample_source_grid"]).name == "source.labels.json"
+    assert result["sample_final_manifest"] == result["sample_grid"]
+    assert result["sample_source_manifest"] == result["sample_source_grid"]
+    assert Path(result["sample_dir"]) == expected_sample_dir
+    assert Path(result["sample_final_dir"]) == expected_final_dir
+    assert Path(result["sample_source_dir"]) == expected_source_dir
+    assert Path(result["sample_grid"]).parent == expected_final_dir
+    assert Path(result["sample_source_grid"]).parent == expected_source_dir
+    assert result["sample_preview_grid"] is None
+    assert result["sample_with_source_grid"] is None
     assert Path(result["sample_source_grid"]).exists()
-    assert not Path(result["sample_with_source_grid"]).exists()
-    with_source_path = Path(result["sample_with_source_grid"])
-    assert with_source_path.with_name("final.with_source.source.png").exists()
-    assert with_source_path.with_name("final.with_source.generated.png").exists()
+    comparison_path = Path(result["sample_decode_comparison"])
+    assert comparison_path == expected_sample_dir / "decode_comparison.json"
+    comparison_payload = json.loads(comparison_path.read_text(encoding="utf-8"))
+    assert comparison_payload["total"] == 2
+    assert len(result["sample_final_files"]) == 2
+    assert len(result["sample_source_files"]) == 2
+    assert all(Path(path).exists() for path in result["sample_final_files"])
+    assert all(Path(path).exists() for path in result["sample_source_files"])
+    assert not legacy_samples_dir.exists()
+    trace_root = result["process_traces"]
+    assert trace_root is not None
+    trace_root = Path(trace_root)
+    assert (trace_root / "forward" / "png" / "x0.png").exists()
+    assert (trace_root / "forward" / "png" / "t_000000.png").exists()
+    assert (trace_root / "forward" / "png" / "t_000001.png").exists()
+    assert (trace_root / "forward" / "json" / "x0.labels.json").exists()
+    assert (trace_root / "forward" / "json" / "t_000000.labels.json").exists()
+    assert (trace_root / "forward" / "json" / "t_000001.labels.json").exists()
+    assert (trace_root / "reverse" / "png" / "xT_noise.png").exists()
+    assert (trace_root / "reverse" / "png" / "t_000001.png").exists()
+    assert (trace_root / "reverse" / "png" / "t_000000.png").exists()
+    assert (trace_root / "reverse" / "json" / "xT_noise.labels.json").exists()
+    assert (trace_root / "reverse" / "json" / "t_000001.labels.json").exists()
+    assert (trace_root / "reverse" / "json" / "t_000000.labels.json").exists()
     train_config = (output_dir / "train_config.json").read_text(encoding="utf-8")
     assert "label_source" not in train_config

@@ -47,7 +47,7 @@ from diffusion_hash_inv.models.conditional_diffusion import (
     resolve_train_steps,
     save_beta_schedule,
     save_image_grid,
-    save_source_generated_grid,
+    save_sample_artifacts,
     save_train_batch_grid,
     set_seed,
 )
@@ -582,9 +582,39 @@ def _sample_guided(
     return samples, labels
 
 
+def _cleanup_legacy_guided_samples_dir(output_dir: Path) -> None:
+    """Remove sample files written by the previous guided ``samples/`` layout."""
+    legacy_dir = output_dir / "samples"
+    if not legacy_dir.is_dir():
+        return
+
+    legacy_patterns = (
+        "final.png",
+        "final.labels.json",
+        "final.source.png",
+        "final.source.labels.json",
+        "final.with_source.png",
+        "final.with_source.labels.json",
+        "final.with_source.source.png",
+        "final.with_source.generated.png",
+        "final.with_source_*.source.png",
+        "final.with_source_*.generated.png",
+        "step_*.png",
+        "step_*.labels.json",
+    )
+    for pattern in legacy_patterns:
+        for legacy_path in legacy_dir.glob(pattern):
+            if legacy_path.is_file():
+                legacy_path.unlink()
+    try:
+        legacy_dir.rmdir()
+    except OSError:
+        pass
+
+
 def train_guided_conditional_diffusion(
     config: GuidedConditionalDiffusionTrainConfig,
-) -> dict[str, Path | float | int | str | None]:
+) -> dict[str, Path | list[Path] | float | int | str | None]:
     """Train and sample a guided conditional DDPM."""
 
     _validate_config(config)
@@ -648,6 +678,7 @@ def train_guided_conditional_diffusion(
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.learning_rate)
 
     config.output_dir.mkdir(parents=True, exist_ok=True)
+    _cleanup_legacy_guided_samples_dir(config.output_dir)
     (config.output_dir / "condition_to_idx.json").write_text(
         json.dumps(dataset.condition_to_idx, indent=2, sort_keys=True),
         encoding="utf-8",
@@ -660,6 +691,7 @@ def train_guided_conditional_diffusion(
 
     last_diffusion_loss = math.nan
     last_classifier_loss: float | None = None
+    sample_dir = config.output_dir / "sample"
     print(
         f"dataset={len(dataset)} images conditions={dataset.num_conditions} "
         f"guidance_mode={config.guidance_mode} guidance_scale={config.guidance_scale} "
@@ -761,19 +793,17 @@ def train_guided_conditional_diffusion(
                 sample_shape=sample_image_shape,
                 device=device,
             )
-            sample_path = config.output_dir / "samples" / f"step_{step:06d}.png"
-            save_image_grid(samples, sample_labels, dataset.condition_names, sample_path)
             reference_images = _reference_images_for_labels(dataset, sample_labels)
-            paired_sample_path = config.output_dir / "samples" / f"step_{step:06d}.with_source.png"
-            save_source_generated_grid(
+            sample_paths = save_sample_artifacts(
                 reference_images,
                 samples,
                 sample_labels,
                 dataset.condition_names,
-                paired_sample_path,
+                sample_dir / f"step_{step:06d}",
             )
-            print(f"saved samples: {sample_path}")
-            print(f"saved source+generated samples: {paired_sample_path}")
+            print(f"saved sample source manifest: {sample_paths['source']}")
+            print(f"saved sample final manifest: {sample_paths['final']}")
+            print(f"saved sample decode comparison: {sample_paths['decode_comparison']}")
             model.train()
             if classifier is not None:
                 classifier.train()
@@ -798,19 +828,16 @@ def train_guided_conditional_diffusion(
         sample_shape=sample_image_shape,
         device=device,
     )
-    final_sample_path = config.output_dir / "samples" / "final.png"
-    save_image_grid(samples, sample_labels, dataset.condition_names, final_sample_path)
-    final_source_path = config.output_dir / "samples" / "final.source.png"
     reference_images = _reference_images_for_labels(dataset, sample_labels)
-    save_image_grid(reference_images, sample_labels, dataset.condition_names, final_source_path)
-    final_with_source_path = config.output_dir / "samples" / "final.with_source.png"
-    save_source_generated_grid(
+    final_sample_paths = save_sample_artifacts(
         reference_images,
         samples,
         sample_labels,
         dataset.condition_names,
-        final_with_source_path,
+        sample_dir,
     )
+    final_source_path = final_sample_paths["source"]
+    final_sample_path = final_sample_paths["final"]
 
     process_trace_paths: dict[str, list[Path]] | None = None
     if config.save_process_traces:
@@ -835,7 +862,16 @@ def train_guided_conditional_diffusion(
         "checkpoint": final_checkpoint,
         "sample_grid": final_sample_path,
         "sample_source_grid": final_source_path,
-        "sample_with_source_grid": final_with_source_path,
+        "sample_final_manifest": final_sample_path,
+        "sample_source_manifest": final_source_path,
+        "sample_dir": sample_dir,
+        "sample_final_dir": final_sample_paths["final_dir"],
+        "sample_source_dir": final_sample_paths["source_dir"],
+        "sample_decode_comparison": final_sample_paths["decode_comparison"],
+        "sample_preview_grid": None,
+        "sample_with_source_grid": None,
+        "sample_final_files": final_sample_paths["final_files"],
+        "sample_source_files": final_sample_paths["source_files"],
         "beta_schedule": beta_schedule_path,
         "train_batches": train_batch_dir,
         "process_traces": (
@@ -988,11 +1024,21 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--save-process-traces",
         action="store_true",
         default=GuidedConditionalDiffusionTrainConfig.save_process_traces,
+        help="Save forward noising and guided reverse denoising intermediate PNG grids.",
     )
     parser.add_argument(
         "--trace-sample-count",
         type=int,
         default=GuidedConditionalDiffusionTrainConfig.trace_sample_count,
+    )
+    parser.add_argument(
+        "--trace-steps",
+        type=int,
+        default=GuidedConditionalDiffusionTrainConfig.trace_steps,
+        help=(
+            "Deprecated compatibility option. "
+            "Reverse and forward process traces are both saved for all timesteps."
+        ),
     )
     parser.add_argument(
         "--temporal-conditioning",
@@ -1073,6 +1119,7 @@ def config_from_args(args: argparse.Namespace) -> GuidedConditionalDiffusionTrai
         save_train_batches_every=args.save_train_batches_every,
         save_process_traces=args.save_process_traces,
         trace_sample_count=args.trace_sample_count,
+        trace_steps=args.trace_steps,
         temporal_conditioning=args.temporal_conditioning,
         use_loop_images=args.use_loop_images,
         max_loop_count=args.max_loop_count,
@@ -1098,6 +1145,10 @@ def main() -> None:
         print(f"final_classifier_loss: {result['final_classifier_loss']:.6f}")
     print(f"checkpoint: {result['checkpoint']}")
     print(f"sample_grid: {result['sample_grid']}")
+    print(f"sample_dir: {result['sample_dir']}")
+    print(f"sample_final_manifest: {result['sample_final_manifest']}")
+    print(f"sample_source_manifest: {result['sample_source_manifest']}")
+    print(f"sample_decode_comparison: {result['sample_decode_comparison']}")
     print(f"beta_schedule: {result['beta_schedule']}")
     if result["train_batches"] is not None:
         print(f"train_batches: {result['train_batches']}")

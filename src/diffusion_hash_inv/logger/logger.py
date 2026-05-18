@@ -618,7 +618,7 @@ class LogHelper:
                         iteration_max: int) -> str:
         """Generate JSON file name"""
         width = len(str(abs(iteration_max)))
-        ret = f"{hash_alg}_{length}_{start_time[:19]}_{str(iteration).zfill(width)}.json"
+        ret = f"{hash_alg}_{length}_{start_time}_{str(iteration).zfill(width)}.json"
 
         return ret
 
@@ -745,8 +745,11 @@ class LogHelper:
             raise ValueError("Multiple keys found in log_dict.")
         full_log: Dict[str, Any] = log_dict[file_name]
 
-        message: str = full_log.get("Message", None)
+        message: str | Dict[str, Any] = full_log.get("Message", None)
         assert message is not None, "No message found in log."
+        if isinstance(message, dict):
+            message = message.get("Hex", None)
+            assert message is not None, "No message Hex found in log."
         step_logs: Dict[str, Any] = full_log.get("Logs", None)
         assert step_logs is not None, "No step_logs found in log."
 

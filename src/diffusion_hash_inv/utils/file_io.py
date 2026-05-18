@@ -8,8 +8,9 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 from datetime import datetime
-from typing import List, Optional, Any, ClassVar
+from typing import List, Optional, Any, ClassVar, Mapping
 import re
+import numpy as np
 from PIL import Image
 
 import pandas as pd
@@ -168,6 +169,18 @@ class Writer:
             print(f"Saving image to: {path}")
         content.save(par / child)
 
+    @staticmethod
+    def write_npz(path: Path, content: Mapping[str, Any], **kwargs):
+        """
+        Write a NumPy archive.
+        """
+        path.parent.mkdir(parents=True, exist_ok=True)
+        compressed = kwargs.get("compressed", False)
+        if compressed:
+            np.savez_compressed(path, **content)
+        else:
+            np.savez(path, **content)
+
 class Reader:
     """
     File Reader Utilities
@@ -207,13 +220,27 @@ class Reader:
         """
         return Image.open(path)
 
+    @staticmethod
+    def read_npz(path: Path) -> np.lib.npyio.NpzFile:
+        """
+        Read a NumPy archive.
+        """
+        return np.load(path)
+
 
 class FileIO:
     """
     File I/O Utilities
     """
 
-    allow_extensions: ClassVar[tuple[str, ...]] = (".bin", ".char", ".json", ".xlsx", ".png")
+    allow_extensions: ClassVar[tuple[str, ...]] = (
+        ".bin",
+        ".char",
+        ".json",
+        ".xlsx",
+        ".png",
+        ".npz",
+    )
     _reserved_windows_names: ClassVar[set[str]] = {
         "CON", "PRN", "AUX", "NUL",
         *(f"COM{i}" for i in range(1, 10)),
@@ -292,22 +319,39 @@ class FileIO:
         """
         Parse the run timestamp from the current JSON output path.
         """
-        for fmt in ("%Y-%m-%d %H-%M-%S", "%Y-%m-%d %H:%M:%S"):
-            try:
-                return datetime.strptime(path.parent.name, fmt)
-            except ValueError:
-                pass
+        parsed = FileIO._parse_timestamp_text(path.parent.name)
+        if parsed is not None:
+            return parsed
+        return FileIO._parse_timestamp_text(path.name)
 
-        pattern = re.compile(r'(\d{4}-\d{2}-\d{2}) (\d{2}-\d{2}-\d{2})')
-        match = pattern.search(path.name)
+    @staticmethod
+    def _parse_timestamp_text(text: str) -> Optional[datetime]:
+        pattern = re.compile(
+            r"(?P<date>\d{4}-\d{2}-\d{2}) "
+            r"(?P<hour>\d{2})[:-](?P<minute>\d{2})[:-](?P<second>\d{2})"
+            r"(?P<fraction>\.\d{1,6})?"
+            r"(?P<tz>[+-]\d{2}(?::|-)?\d{2})?"
+        )
+        match = pattern.search(text)
         if match is None:
             return None
 
-        date_str, time_str = match.groups()
+        parts = match.groupdict()
+        fraction = parts["fraction"] or ""
+        tz = parts["tz"] or ""
+        if tz:
+            sign = tz[0]
+            digits = tz[1:].replace(":", "").replace("-", "")
+            tz = f"{sign}{digits[:2]}:{digits[2:]}"
+        normalized = (
+            f"{parts['date']}T{parts['hour']}:{parts['minute']}:{parts['second']}"
+            f"{fraction}{tz}"
+        )
         try:
-            return datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H-%M-%S")
+            parsed = datetime.fromisoformat(normalized)
         except ValueError:
             return None
+        return parsed.replace(tzinfo=None)
 
     def get_latest_files_by_date(
         self,
@@ -362,7 +406,7 @@ class FileIO:
         elif filepath.endswith(".json") or filepath == "json":
             base = self.out_dir / "json"
             if path_infix is not None:
-                _path_infix = self._sanitize_filename(str(path_infix)[:19])
+                _path_infix = self._sanitize_filename(str(path_infix))
                 _path_infix = Path(_path_infix)
                 base = base / _path_infix
             else:
@@ -379,6 +423,13 @@ class FileIO:
                 base = self.data_dir / "images"
             elif data_type == "output":
                 base = self.out_dir / "images"
+
+        elif filepath.endswith(".npz") or filepath == "npz":
+            assert data_type is not None, "data_type must be specified for NPZ archives"
+            if data_type == "data":
+                base = self.data_dir / "image_archives"
+            elif data_type == "output":
+                base = self.out_dir / "image_archives"
         else:
             raise ValueError(f"Invalid file extension. Use {', '.join(self.allow_extensions)}")
 
@@ -435,6 +486,8 @@ class FileIO:
             Writer.write_binary(full_path, content=content, encoding=self.encoding, **kwargs)
         elif full_path.suffix == ".png" or isinstance(content, Dataset):
             Writer.image_writer(full_path, content)
+        elif full_path.suffix == ".npz":
+            Writer.write_npz(full_path, content, **kwargs)
         else:
             raise ValueError(f"Invalid file extension. Use {', '.join(self.allow_extensions)}")
 
@@ -457,4 +510,6 @@ class FileIO:
             return Reader.read_xlsx(full_path)
         if full_path.suffix in (".bin", ".char"):
             return Reader.read_binary(full_path)
-        raise ValueError("Invalid file extension. Use .bin, .char, .json, or .xlsx")
+        if full_path.suffix == ".npz":
+            return Reader.read_npz(full_path)
+        raise ValueError("Invalid file extension. Use .bin, .char, .json, .xlsx, or .npz")

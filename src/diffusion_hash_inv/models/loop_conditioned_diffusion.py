@@ -47,7 +47,7 @@ from diffusion_hash_inv.models.conditional_diffusion import (
     resolve_train_steps,
     save_beta_schedule,
     save_image_grid,
-    save_source_generated_grid,
+    save_sample_artifacts,
     set_seed,
 )
 from diffusion_hash_inv.models.conditional_diffusion import (
@@ -607,6 +607,32 @@ def _source_condition_names(dataset: LoopConditionedImageDataset) -> list[str]:
     return [sample.run_id for sample in dataset.samples]
 
 
+def _cleanup_legacy_samples_dir(output_dir: Path) -> None:
+    """Remove sample files written by the previous ``samples/`` layout."""
+    legacy_dir = output_dir / "samples"
+    if not legacy_dir.is_dir():
+        return
+
+    legacy_patterns = (
+        "final*.png",
+        "final*.labels.json",
+        "final*.metadata.json",
+        "final*.conditions.json",
+        "step_*.png",
+        "step_*.labels.json",
+        "step_*.metadata.json",
+        "step_*.conditions.json",
+    )
+    for pattern in legacy_patterns:
+        for legacy_path in legacy_dir.glob(pattern):
+            if legacy_path.is_file():
+                legacy_path.unlink()
+    try:
+        legacy_dir.rmdir()
+    except OSError:
+        pass
+
+
 def _checkpoint_payload(
     model: LoopConditionedUNet,
     optimizer: torch.optim.Optimizer,
@@ -715,7 +741,7 @@ def save_loop_process_traces(
 
 def train_loop_conditioned_diffusion(
     config: LoopConditionedDiffusionTrainConfig,
-) -> dict[str, Path | float | int | None]:
+) -> dict[str, Path | list[Path] | float | int | None]:
     """Train a DDPM conditioned on temporal Step 4 loop-state tensors."""
 
     set_seed(config.seed)
@@ -769,6 +795,7 @@ def train_loop_conditioned_diffusion(
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.learning_rate)
 
     config.output_dir.mkdir(parents=True, exist_ok=True)
+    _cleanup_legacy_samples_dir(config.output_dir)
     config_dict = asdict(config)
     config_dict["data_root"] = str(config.data_root)
     config_dict["json_root"] = str(config.json_root)
@@ -799,6 +826,7 @@ def train_loop_conditioned_diffusion(
     beta_schedule_path = save_beta_schedule(scheduler, config)
 
     last_loss = math.nan
+    sample_dir = config.output_dir / "sample"
     print(
         f"dataset={len(dataset)} images condition_shape={dataset.condition_shape} "
         f"steps={effective_train_steps} epochs={config.epochs} "
@@ -847,25 +875,17 @@ def train_loop_conditioned_diffusion(
                 ),
                 conditions_for_sample,
             )
-            sample_path = config.output_dir / "samples" / f"step_{step:06d}.png"
-            save_loop_conditioned_images(
-                samples,
-                source_indices,
-                dataset,
-                sample_path,
-                save_originals=True,
-            )
             reference_images = _source_images_for_indices(dataset, source_indices)
-            paired_sample_path = config.output_dir / "samples" / f"step_{step:06d}.with_source.png"
-            save_source_generated_grid(
+            sample_paths = save_sample_artifacts(
                 reference_images,
                 samples,
                 source_indices,
                 _source_condition_names(dataset),
-                paired_sample_path,
+                sample_dir / f"step_{step:06d}",
             )
-            print(f"saved samples: {sample_path}")
-            print(f"saved source+generated samples: {paired_sample_path}")
+            print(f"saved sample source manifest: {sample_paths['source']}")
+            print(f"saved sample final manifest: {sample_paths['final']}")
+            print(f"saved sample decode comparison: {sample_paths['decode_comparison']}")
             model.train()
 
     final_checkpoint = save_checkpoint(
@@ -891,30 +911,16 @@ def train_loop_conditioned_diffusion(
         ),
         conditions_for_sample,
     )
-    final_sample_path = config.output_dir / "samples" / "final.png"
-    save_loop_conditioned_images(
-        samples,
-        source_indices,
-        dataset,
-        final_sample_path,
-        save_originals=True,
-    )
-    final_source_path = config.output_dir / "samples" / "final.source.png"
     reference_images = _source_images_for_indices(dataset, source_indices)
-    save_image_grid(
-        reference_images,
-        source_indices,
-        _source_condition_names(dataset),
-        final_source_path,
-    )
-    final_with_source_path = config.output_dir / "samples" / "final.with_source.png"
-    save_source_generated_grid(
+    final_sample_paths = save_sample_artifacts(
         reference_images,
         samples,
         source_indices,
         _source_condition_names(dataset),
-        final_with_source_path,
+        sample_dir,
     )
+    final_source_path = final_sample_paths["source"]
+    final_sample_path = final_sample_paths["final"]
 
     process_trace_paths: dict[str, list[Path]] | None = None
     if config.save_process_traces:
@@ -936,7 +942,16 @@ def train_loop_conditioned_diffusion(
         "checkpoint": final_checkpoint,
         "sample_grid": final_sample_path,
         "sample_source_grid": final_source_path,
-        "sample_with_source_grid": final_with_source_path,
+        "sample_final_manifest": final_sample_path,
+        "sample_source_manifest": final_source_path,
+        "sample_dir": sample_dir,
+        "sample_final_dir": final_sample_paths["final_dir"],
+        "sample_source_dir": final_sample_paths["source_dir"],
+        "sample_decode_comparison": final_sample_paths["decode_comparison"],
+        "sample_preview_grid": None,
+        "sample_with_source_grid": None,
+        "sample_final_files": final_sample_paths["final_files"],
+        "sample_source_files": final_sample_paths["source_files"],
         "beta_schedule": beta_schedule_path,
         "process_traces": (
             None if process_trace_paths is None else config.output_dir / "process_traces"
@@ -1080,11 +1095,21 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--save-process-traces",
         action="store_true",
         default=LoopConditionedDiffusionTrainConfig.save_process_traces,
+        help="Save forward noising and reverse denoising intermediate PNG grids.",
     )
     parser.add_argument(
         "--trace-sample-count",
         type=int,
         default=LoopConditionedDiffusionTrainConfig.trace_sample_count,
+    )
+    parser.add_argument(
+        "--trace-steps",
+        type=int,
+        default=LoopConditionedDiffusionTrainConfig.trace_steps,
+        help=(
+            "Deprecated compatibility option. "
+            "Reverse and forward process traces are both saved for all timesteps."
+        ),
     )
     return parser
 
@@ -1119,6 +1144,7 @@ def config_from_args(args: argparse.Namespace) -> LoopConditionedDiffusionTrainC
         sample_count=args.sample_count,
         save_process_traces=args.save_process_traces,
         trace_sample_count=args.trace_sample_count,
+        trace_steps=args.trace_steps,
         condition_step=args.condition_step,
         condition_round=args.condition_round,
         loop_count=args.loop_count,
@@ -1135,6 +1161,10 @@ def main() -> None:
         f"checkpoint={result['checkpoint']} "
         f"samples={result['sample_grid']}"
     )
+    print(f"sample_dir: {result['sample_dir']}")
+    print(f"sample_final_manifest: {result['sample_final_manifest']}")
+    print(f"sample_source_manifest: {result['sample_source_manifest']}")
+    print(f"sample_decode_comparison: {result['sample_decode_comparison']}")
     if result["process_traces"] is not None:
         print(f"process_traces: {result['process_traces']}")
 

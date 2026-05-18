@@ -18,8 +18,15 @@ class MainConfig:
     clean_flag: bool
     debug_flag: bool
     make_image_flag: bool
+    image_workers: int = 1
+
+    def __post_init__(self):
+        if self.image_workers < 1:
+            raise ValueError("image_workers must be greater than or equal to 1")
 
     def __getattribute__(self, name):
+        if name.startswith("__") and name.endswith("__"):
+            return super().__getattribute__(name)
         try:
             ret = super().__getattribute__(name)
         except AttributeError as exc:
@@ -37,6 +44,7 @@ class MainConfig:
             f"  clean_flag: {self.clean_flag},\n"
             f"  debug_flag: {self.debug_flag},\n"
             f"  make_image_flag: {self.make_image_flag},\n"
+            f"  image_workers: {self.image_workers},\n"
             )
 
     def reset_clean_flag(self):
@@ -55,7 +63,8 @@ class MainConfig:
             "  verbose_flag: Enable verbose output.\n"
             "  clean_flag: Perform cleaning operations (e.g., remove old outputs).\n"
             "  debug_flag: Enable debug mode with additional checks and logging.\n"
-            "  make_image_flag: Generate images during processing.\n")
+            "  make_image_flag: Generate PNG images and HDF5 tensors after hash logging.\n"
+            "  image_workers: Number of processes used for image/HDF5 conversion.\n")
 
 @dataclass(frozen=True)
 class MessageConfig:
@@ -90,6 +99,8 @@ class MessageConfig:
             object.__setattr__(self, "seed", 0 if self.input_seed is None else self.input_seed)
 
     def __getattribute__(self, name):
+        if name.startswith("__") and name.endswith("__"):
+            return super().__getattribute__(name)
         try:
             ret = super().__getattribute__(name)
         except AttributeError as exc:
@@ -165,6 +176,8 @@ class OutputConfig:
         object.__setattr__(self, "emnist_dir", resolved_root / "EMNIST")
 
     def __getattribute__(self, name):
+        if name.startswith("__") and name.endswith("__"):
+            return super().__getattribute__(name)
         try:
             ret = super().__getattribute__(name)
         except AttributeError as exc:

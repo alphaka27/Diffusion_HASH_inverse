@@ -35,6 +35,7 @@ from torch.utils.data import DataLoader, Dataset
 
 from diffusion_hash_inv.analyze import Analyze
 from diffusion_hash_inv.config import ImgConfig
+from diffusion_hash_inv.models.sample_decoding import write_decode_comparison
 from diffusion_hash_inv.scheduling import BetaScheduler
 
 ConditionMode = Literal[
@@ -467,11 +468,6 @@ def _fit_image(
     if fit_mode == "height-flatten":
         converted = image.convert("RGB")
         img_width, img_height = ImgConfig().img_size
-        if img_width != img_height:
-            raise ValueError(
-                "height-flatten fit mode requires square ImgConfig.img_size for square output; "
-                f"got {ImgConfig().img_size}"
-            )
         if converted.width % img_width != 0 or converted.height % img_height != 0:
             raise ValueError(
                 "height-flatten fit mode requires dimensions to be multiples of "
@@ -487,17 +483,14 @@ def _fit_image(
                 "height-flatten fit mode requires the number of ImgConfig-sized blocks "
                 f"to be a perfect square (got {block_count})"
             )
-        # Flatten by ImgConfig-sized blocks, then reshape block order into a square grid.
-        blocks = source.reshape(rows, img_height, cols, img_width, 3).transpose(0, 2, 1, 3, 4)
-        flattened_blocks = blocks.reshape(block_count, img_height, img_width, 3)
-        squared_blocks = flattened_blocks.reshape(
-            square_blocks, square_blocks, img_height, img_width, 3
+        # Flatten by ImgConfig-sized blocks, then reduce each block to one 1x1 pixel.
+        blocks = source.reshape(rows, img_height, cols, img_width, 3).transpose(
+            0, 2, 1, 3, 4
         )
-        reshaped = squared_blocks.transpose(0, 2, 1, 3, 4).reshape(
-            square_blocks * img_height,
-            square_blocks * img_width,
-            3,
-        )
+        center_y = img_height // 2
+        center_x = img_width // 2
+        flattened_pixels = blocks[:, :, center_y, center_x, :].reshape(block_count, 3)
+        reshaped = flattened_pixels.reshape(square_blocks, square_blocks, 3)
         return Image.fromarray(reshaped)
     if fit_mode != "pad":
         raise ValueError(f"Unsupported fit mode: {fit_mode}")
@@ -1234,7 +1227,8 @@ def _print_preprocess_summary(dataset: GeneratedImageDataset, fit_mode: FitMode)
         square_blocks = math.isqrt(block_count)
         print(
             f"[reshape] mode=height-flatten source={src_w}x{src_h} "
-            f"img_size={img_w}x{img_h} blocks={block_count} ({square_blocks}x{square_blocks}) "
+            f"img_size={img_w}x{img_h} blocks={block_count} "
+            f"block_size=1x1px output_blocks={square_blocks}x{square_blocks} "
             f"output={out_w}x{out_h} channels={out_c}"
         )
         return
@@ -1245,7 +1239,7 @@ def _print_preprocess_summary(dataset: GeneratedImageDataset, fit_mode: FitMode)
 
 
 def _denormalize_images(images: Tensor) -> Tensor:
-    return ((images.detach().cpu().clamp(-1.0, 1.0) + 1.0) * 127.5).to(torch.uint8)
+    return ((images.detach().cpu().clamp(-1.0, 1.0) + 1.0) * 127.5).round().to(torch.uint8)
 
 
 def _image_from_tensor(image_tensor: Tensor) -> Image.Image:
@@ -1256,6 +1250,22 @@ def _image_from_tensor(image_tensor: Tensor) -> Image.Image:
     return Image.fromarray(array.transpose(1, 2, 0))
 
 
+def _image_sheet_from_tensors(images: Tensor) -> tuple[Image.Image, int]:
+    pil_images = [_image_from_tensor(image_tensor) for image_tensor in images]
+    if not pil_images:
+        raise ValueError("images cannot be empty")
+    width, height = pil_images[0].size
+    mode = pil_images[0].mode
+    columns = max(1, math.ceil(math.sqrt(len(pil_images))))
+    rows = math.ceil(len(pil_images) / columns)
+    background = 255 if mode == "L" else (255, 255, 255)
+    sheet = Image.new(mode, (columns * width, rows * height), color=background)
+    for index, image in enumerate(pil_images):
+        row, col = divmod(index, columns)
+        sheet.paste(image, (col * width, row * height))
+    return sheet, columns
+
+
 def save_image_grid(
     images: Tensor,
     labels: Tensor,
@@ -1263,8 +1273,9 @@ def save_image_grid(
     path: Path,
     *,
     json_path: Path | None = None,
-) -> None:
-    """Save image outputs as individual PNG files (one per sample).
+    single_file: bool = False,
+) -> dict[str, Path | list[Path]]:
+    """Save image outputs as individual PNG files or one grid image.
 
     Args:
         path: Destination PNG path.
@@ -1276,16 +1287,26 @@ def save_image_grid(
     images = _denormalize_images(images)
     path.parent.mkdir(parents=True, exist_ok=True)
     saved_files: list[str] = []
+    saved_paths: list[Path] = []
     if images.shape[0] == 1:
         _image_from_tensor(images[0]).save(path)
         saved_files.append(path.name)
+        saved_paths.append(path)
+        columns = 1
+    elif single_file:
+        sheet, columns = _image_sheet_from_tensors(images)
+        sheet.save(path)
+        saved_files = [path.name for _ in range(int(images.shape[0]))]
+        saved_paths = [path]
     else:
+        columns = 1
         stem = path.stem
         suffix = path.suffix
         for idx, image_tensor in enumerate(images):
             file_path = path.with_name(f"{stem}_{idx:03d}{suffix}")
             _image_from_tensor(image_tensor).save(file_path)
             saved_files.append(file_path.name)
+            saved_paths.append(file_path)
 
     labels_path = json_path if json_path is not None else path.with_suffix(".labels.json")
     labels_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1298,6 +1319,11 @@ def save_image_grid(
                     "file": saved_files[idx],
                     "label": int(label),
                     "condition": condition_names[int(label)],
+                    **(
+                        {"row": idx // columns, "column": idx % columns}
+                        if single_file and images.shape[0] > 1
+                        else {}
+                    ),
                 }
                 for idx, label in enumerate(label_values)
             ],
@@ -1305,6 +1331,7 @@ def save_image_grid(
         ),
         encoding="utf-8",
     )
+    return {"manifest": labels_path, "files": saved_paths}
 
 
 def _reference_images_for_labels(dataset: GeneratedImageDataset, labels: Tensor) -> Tensor:
@@ -1371,6 +1398,63 @@ def save_source_generated_grid(
         ),
         encoding="utf-8",
     )
+
+
+def save_sample_artifacts(
+    source_images: Tensor,
+    generated_images: Tensor,
+    labels: Tensor,
+    condition_names: list[str],
+    output_dir: Path,
+) -> dict[str, Path | list[Path]]:
+    """Save source and final sample artifacts as one PNG per sample."""
+    if source_images.shape != generated_images.shape:
+        raise ValueError(
+            "source_images and generated_images must have the same shape, "
+            f"got {tuple(source_images.shape)} and {tuple(generated_images.shape)}"
+        )
+    output_dir.mkdir(parents=True, exist_ok=True)
+    source_dir = output_dir / "source"
+    final_dir = output_dir / "final"
+    source_path = source_dir / "source.png"
+    final_path = final_dir / "final.png"
+    stale_paths = [output_dir / "preview.png", output_dir / "preview.labels.json"]
+    stale_paths.extend([output_dir / "source.png", output_dir / "final.png"])
+    stale_paths.extend(output_dir.glob(f"{source_path.stem}_*{source_path.suffix}"))
+    stale_paths.extend(output_dir.glob(f"{final_path.stem}_*{final_path.suffix}"))
+    stale_paths.extend(source_dir.glob(f"{source_path.stem}_*{source_path.suffix}"))
+    stale_paths.extend(final_dir.glob(f"{final_path.stem}_*{final_path.suffix}"))
+    if source_images.shape[0] > 1:
+        stale_paths.extend([source_path, final_path])
+    for stale_path in stale_paths:
+        if stale_path.is_file():
+            stale_path.unlink()
+    source_result = save_image_grid(
+        source_images,
+        labels,
+        condition_names,
+        source_path,
+    )
+    final_result = save_image_grid(
+        generated_images,
+        labels,
+        condition_names,
+        final_path,
+    )
+    decode_comparison = write_decode_comparison(
+        source_result["files"],
+        final_result["files"],
+        output_dir / "decode_comparison.json",
+    )
+    return {
+        "source": source_result["manifest"],
+        "source_files": source_result["files"],
+        "final": final_result["manifest"],
+        "final_files": final_result["files"],
+        "source_dir": source_dir,
+        "final_dir": final_dir,
+        "decode_comparison": decode_comparison,
+    }
 
 
 def save_train_batch_grid(
@@ -1701,6 +1785,7 @@ def train_conditional_diffusion(
     beta_schedule_path = save_beta_schedule(scheduler, config)
 
     last_loss = math.nan
+    sample_dir = config.output_dir / "sample"
     print(
         f"dataset={len(dataset)} images conditions={dataset.num_conditions} "
         f"steps={effective_train_steps} epochs={config.epochs} "
@@ -1775,19 +1860,17 @@ def train_conditional_diffusion(
                 labels_for_sample,
                 loop_meta=loop_meta_for_sample,
             )
-            sample_path = config.output_dir / "samples" / f"step_{step:06d}.png"
-            save_image_grid(samples, labels_for_sample, dataset.condition_names, sample_path)
             reference_images = _reference_images_for_labels(dataset, labels_for_sample)
-            paired_sample_path = config.output_dir / "samples" / f"step_{step:06d}.with_source.png"
-            save_source_generated_grid(
+            sample_paths = save_sample_artifacts(
                 reference_images,
                 samples,
                 labels_for_sample,
                 dataset.condition_names,
-                paired_sample_path,
+                sample_dir / f"step_{step:06d}",
             )
-            print(f"saved samples: {sample_path}")
-            print(f"saved source+generated samples: {paired_sample_path}")
+            print(f"saved sample source manifest: {sample_paths['source']}")
+            print(f"saved sample final manifest: {sample_paths['final']}")
+            print(f"saved sample decode comparison: {sample_paths['decode_comparison']}")
             model.train()
 
     final_checkpoint = save_checkpoint(
@@ -1812,19 +1895,16 @@ def train_conditional_diffusion(
         labels_for_sample,
         loop_meta=loop_meta_for_sample,
     )
-    final_sample_path = config.output_dir / "samples" / "final.png"
-    save_image_grid(samples, labels_for_sample, dataset.condition_names, final_sample_path)
-    final_source_path = config.output_dir / "samples" / "final.source.png"
     reference_images = _reference_images_for_labels(dataset, labels_for_sample)
-    save_image_grid(reference_images, labels_for_sample, dataset.condition_names, final_source_path)
-    final_with_source_path = config.output_dir / "samples" / "final.with_source.png"
-    save_source_generated_grid(
+    final_sample_paths = save_sample_artifacts(
         reference_images,
         samples,
         labels_for_sample,
         dataset.condition_names,
-        final_with_source_path,
+        sample_dir,
     )
+    final_source_path = final_sample_paths["source"]
+    final_sample_path = final_sample_paths["final"]
     process_trace_paths: dict[str, list[Path]] | None = None
     if config.save_process_traces:
         process_trace_paths = save_process_traces(
@@ -1844,7 +1924,16 @@ def train_conditional_diffusion(
         "checkpoint": final_checkpoint,
         "sample_grid": final_sample_path,
         "sample_source_grid": final_source_path,
-        "sample_with_source_grid": final_with_source_path,
+        "sample_final_manifest": final_sample_path,
+        "sample_source_manifest": final_source_path,
+        "sample_dir": sample_dir,
+        "sample_final_dir": final_sample_paths["final_dir"],
+        "sample_source_dir": final_sample_paths["source_dir"],
+        "sample_decode_comparison": final_sample_paths["decode_comparison"],
+        "sample_preview_grid": None,
+        "sample_with_source_grid": None,
+        "sample_final_files": final_sample_paths["final_files"],
+        "sample_source_files": final_sample_paths["source_files"],
         "beta_schedule": beta_schedule_path,
         "train_batches": train_batch_dir,
         "process_traces": (
@@ -1903,7 +1992,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help=(
             "Image pre-processing mode. "
             "'reshape' flattens pixels and reshapes to an equal-area square."
-            " 'height-flatten' keeps the original height and flattens rows into width."
+            " 'height-flatten' flattens ImgConfig-sized blocks and emits one 1x1 pixel per block."
         ),
     )
     parser.add_argument(
@@ -2115,7 +2204,12 @@ def main() -> None:
         f"final_loss={result['final_loss']:.6f}"
     )
     print(f"checkpoint: {result['checkpoint']}")
-    print(f"sample_grid: {result['sample_grid']}")
+    print(f"sample_dir: {result['sample_dir']}")
+    print(f"sample_final_dir: {result['sample_final_dir']}")
+    print(f"sample_source_dir: {result['sample_source_dir']}")
+    print(f"sample_final_manifest: {result['sample_final_manifest']}")
+    print(f"sample_source_manifest: {result['sample_source_manifest']}")
+    print(f"sample_decode_comparison: {result['sample_decode_comparison']}")
     print(f"beta_schedule: {result['beta_schedule']}")
     if result["train_batches"] is not None:
         print(f"train_batches: {result['train_batches']}")

@@ -16,6 +16,69 @@ python hash_main.py
 # Full Workflow
 See `Docs/Workflow.md` for the end-to-end workflow from hash trace generation
 to RGB image dataset creation, analysis, and DDPM training.
+For HDF5 tensor shard generation and PyTorch loading, see
+`Docs/HDF5TensorDataset.md`.
+
+# Log to Image and HDF5 Output
+When `--make-image` is enabled, the hash run writes PNG images under
+`data/images/<log-stem>/` and HDF5 tensor shards under
+`data/tensor_datasets/hash_tensors/`.
+Each PNG is reopened immediately after it is written and decoded in the same
+writer worker to verify that it still maps back to the original log value.
+
+In the Python API, `MainEP.run()` can split the pipeline into separate stages:
+`run_hash_json=True` generates binary inputs and JSON traces, `run_png=True`
+generates PNG images from existing JSON traces, and `run_hdf5=True` generates
+HDF5 shards. To regenerate only PNG/HDF5 outputs from existing JSON, keep
+`clean_flag=False` and call:
+
+``` python
+entrypoint.run(run_hash_json=False, run_png=True, run_hdf5=True)
+```
+
+For one artifact type only, set the other artifact flag to `False`.
+
+`HDF5Maker` writes process-parallel tensor shards under
+`data/tensor_datasets/<name>/`. Each shard stores tensors as `C,H,W` arrays and
+`manifest.json` records shard counts. By default it writes every generated image
+tensor from each log as `uint8` values in the `[0, 255]` range; pass
+`include_paths=("message.png",)` to keep only message images. Shards also
+preserve the encoded log hierarchy under
+`logs/<source-log>/Message/Hex` and `logs/<source-log>/Logs/...`.
+
+Use `HDF5TensorDataset` or `create_hdf5_tensor_dataloader` to read those shards
+directly in PyTorch:
+
+``` python
+from diffusion_hash_inv.utils import create_hdf5_tensor_dataloader
+
+loader = create_hdf5_tensor_dataloader(
+    "data/tensor_datasets/hash_tensors",
+    batch_size=64,
+    num_workers=4,
+    include_paths=("message.png",),
+)
+```
+
+The HDF5 loader expects tensors in a batch to have the same shape. For training,
+prefer `include_paths=("message.png",)` or another single image type.
+
+CLI example:
+
+``` bash
+python -m diffusion_hash_inv.hash_main \
+  --iteration 1000 \
+  --make-image \
+  --image-workers 4
+```
+
+To generate artifacts from existing JSON logs in CLI mode, skip the hash/json
+stage and choose the artifact type:
+
+``` bash
+python -m diffusion_hash_inv.hash_main --skip-hash-json -l 128 --make-png
+python -m diffusion_hash_inv.hash_main --skip-hash-json -l 128 --make-hdf5
+```
 
 # MLX Conditional Diffusion Example
 ``` bash
@@ -34,9 +97,10 @@ The trainer uses only `data/images/<run-id>/message.png` files as input images.
 Condition labels are read from the matching JSON file under `output/json` and
 use the final hash value for each `<run-id>`.
 Default `fit_mode` is `reshape`: each `message.png` is flattened and reshaped
-to an equal-area square (e.g. `7168x28 -> 448x448`). `height-flatten` uses the
-`ImgConfig.img_size` height as the unit, flattens ImgConfig-sized blocks, and
-then reshapes to a square RGB image. The source dimensions must be multiples of
+to an equal-area square (e.g. `7168x28 -> 448x448`). `height-flatten` uses
+`ImgConfig.img_size` as the block unit, represents each block as one `1x1`
+pixel, and then reshapes those pixels to a square RGB image. The source
+dimensions must be multiples of
 `ImgConfig.img_size` (`28x28` by default). `pad` and `resize` are also available.
 
 ``` bash
@@ -76,7 +140,20 @@ python -m diffusion_hash_inv.models.conditional_diffusion \
 ```
 
 Artifacts are written to `output/conditional_diffusion`: `condition_to_idx.json`,
-`train_config.json`, `beta_schedule.json`, checkpoints, and sample grids.
+`train_config.json`, `beta_schedule.json`, checkpoints, and sample PNGs.
+MLX conditional training writes `config.json`, `label_map.json`, per-sample
+source/final PNGs, `beta_schedule.json`, process traces, and
+`checkpoints/step_*.{json,safetensors}` under its output directory. Samples are
+saved under `sample/`, split into `source/` and `final/` subdirectories as
+`source_*.png` and `final_*.png` with `source.labels.json` and
+`final.labels.json` manifests. `sample/decode_comparison.json` records the
+source/final RGB colors, Byte2RGB-decoded byte strings, and decoded-byte
+hamming distances.
+Use `--checkpoint-every N` to keep intermediate MLX checkpoints; the final MLX
+checkpoint is always saved. MLX supports the same `linear`, `file`,
+`hash-approach1`, and `hash-approach2` beta schedules as the PyTorch trainer.
+For `linear`, `--timesteps auto` syncs the linear schedule length to the hash
+approach schedule length.
 Use `--save-train-batches-every N` to save actual training input batches as
 PNG grids every `N` optimizer steps under `output/conditional_diffusion/train_batches`.
 Each saved step also includes `step_XXXXXX.batch.json` with the exact source
