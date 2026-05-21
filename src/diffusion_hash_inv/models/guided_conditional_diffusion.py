@@ -705,7 +705,7 @@ def train_guided_conditional_diffusion(
     for step in range(1, effective_train_steps + 1):
         images, labels, loop_meta, indices = next(loader_iter)
         images = images.to(device=device, non_blocking=True)
-        if config.fit_mode != "height-flatten":
+        if config.fit_mode not in {"height-flatten", "bch48-2x2"}:
             images = _ensure_square_batch(images)
         labels = labels.to(device=device, non_blocking=True)
         loop_meta = loop_meta.to(device=device, non_blocking=True)
@@ -800,6 +800,7 @@ def train_guided_conditional_diffusion(
                 sample_labels,
                 dataset.condition_names,
                 sample_dir / f"step_{step:06d}",
+                fit_mode=config.fit_mode,
             )
             print(f"saved sample source manifest: {sample_paths['source']}")
             print(f"saved sample final manifest: {sample_paths['final']}")
@@ -835,6 +836,7 @@ def train_guided_conditional_diffusion(
         sample_labels,
         dataset.condition_names,
         sample_dir,
+        fit_mode=config.fit_mode,
     )
     final_source_path = final_sample_paths["source"]
     final_sample_path = final_sample_paths["final"]
@@ -912,8 +914,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--fit-mode",
-        choices=("pad", "resize", "reshape", "height-flatten"),
-        default=GuidedConditionalDiffusionTrainConfig.fit_mode,
+        choices=("pad", "resize", "reshape", "height-flatten", "bch48-2x2"),
     )
     parser.add_argument(
         "--condition-mode",

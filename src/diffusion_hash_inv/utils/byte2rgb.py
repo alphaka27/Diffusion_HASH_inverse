@@ -13,10 +13,11 @@ import argparse
 from itertools import combinations
 from typing import Tuple, List
 
-from diffusion_hash_inv.core import RGB, RGBA
-from diffusion_hash_inv.core.rgb_type import Chunk1D
+from diffusion_hash_inv.core import RGB, RGBA, RGBBinning
+from diffusion_hash_inv.core.rgb_type import Chunk1D, RGBBin
 from diffusion_hash_inv.logger import Logs
 from diffusion_hash_inv.config import Byte2RGBConfig, HashConfig, MainConfig
+from diffusion_hash_inv.utils.ecc48 import DecodeResult, get_codec, SUPPORTED_METHODS
 
 
 class Byte2RGB:
@@ -43,10 +44,16 @@ class Byte2RGB:
             raise ValueError("fr_min and fr_max must be in the range [0, 255].")
         if rgb_config.fr_min >= rgb_config.fr_max:
             raise ValueError("fr_min must be less than fr_max.")
+        if rgb_config.encoding not in ("golay24", "legacy-bin", *SUPPORTED_METHODS):
+            raise ValueError(
+                f"encoding must be one of 'golay24', 'legacy-bin', "
+                f"{', '.join(repr(m) for m in SUPPORTED_METHODS)}, "
+                f"got '{rgb_config.encoding}'")
         self.channel_split = (rgb_config.fr_min + rgb_config.fr_max) // 2
         self.low_chunk = Chunk1D(start=rgb_config.fr_min, end=self.channel_split)
         self.high_chunk = Chunk1D(start=self.channel_split + 1, end=rgb_config.fr_max)
         self.encoding_map = self._build_bit_chunk_encoding_map()
+        self._legacy_bin_map: list[RGBBin] | None = None
 
     @staticmethod
     def _chunk_center(chunk: Chunk1D) -> int:
@@ -288,6 +295,127 @@ class Byte2RGB:
 
         raise NotImplementedError("RGBA encoding is not yet implemented.")
 
+    # ------------------------------------------------------------------
+    # Legacy bin encoding (encoding="legacy-bin"): 1 pixel per byte
+    # ------------------------------------------------------------------
+
+    @property
+    def pixels_per_byte(self) -> int:
+        """Pixels required to encode one byte.
+
+        - ``legacy-bin`` : 1
+        - ``golay24``    : 24
+        - ``golay24-dual``, ``rs48``, ``bch48`` : 2  (48-bit codecs)
+        """
+        enc = self.rgb_config.encoding
+        if enc == "legacy-bin":
+            return 1
+        if enc in SUPPORTED_METHODS:
+            return 2
+        return self.code_bits_per_byte  # "golay24"
+
+    @property
+    def legacy_bin_map(self) -> list[RGBBin]:
+        """Lazily-built ordered list of 256 RGBBin objects for legacy-bin encoding."""
+        if self._legacy_bin_map is None:
+            self._legacy_bin_map = self._build_legacy_bin_map()
+        return self._legacy_bin_map
+
+    def _build_legacy_bin_map(self) -> list[RGBBin]:
+        bins = RGBBinning().quantization()
+        if len(bins) != 256:
+            raise ValueError(
+                f"Legacy bin map requires exactly 256 included bins, got {len(bins)}. "
+                "Check RGBBinning bin_num/bin_width settings."
+            )
+        return bins
+
+    def _legacy_encode_byte(self, value: int) -> RGB:
+        """Map a byte value (0–255) to the centre RGB of its corresponding bin."""
+        assert 0 <= value <= 255, "Byte value must be in the range 0-255"
+        b = self.legacy_bin_map[value]
+        return RGB(
+            r=(b.r_chunk.start + b.r_chunk.end) // 2,
+            g=(b.g_chunk.start + b.g_chunk.end) // 2,
+            b=(b.b_chunk.start + b.b_chunk.end) // 2,
+        )
+
+    def _legacy_decode_rgb(self, rgb: RGB) -> int | None:
+        """Return the byte value (0–255) for an RGB pixel, or None if outside all bins."""
+        for byte_value, b in enumerate(self.legacy_bin_map):
+            if (b.r_chunk.is_in_chunk(rgb.r) and
+                    b.g_chunk.is_in_chunk(rgb.g) and
+                    b.b_chunk.is_in_chunk(rgb.b)):
+                return byte_value
+        return None
+
+    # ------------------------------------------------------------------
+    # 48-bit RGB pair helpers (encoding = golay24-dual | rs48 | bch48)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _pack_codeword_to_rgb_pair(codeword: bytes) -> tuple[RGB, RGB]:
+        """
+        Pack a 6-byte (48-bit) ECC codeword into two RGB pixels.
+
+        Layout (from ``Encoding Method.md``):
+            RGB_1 = (C0, C1, C2)
+            RGB_2 = (C3, C4, C5)
+        """
+        if len(codeword) != 6:
+            raise ValueError(f"Expected 6 bytes for 48-bit codeword, got {len(codeword)}")
+        return (
+            RGB(r=codeword[0], g=codeword[1], b=codeword[2]),
+            RGB(r=codeword[3], g=codeword[4], b=codeword[5]),
+        )
+
+    @staticmethod
+    def _unpack_rgb_pair_to_codeword(rgb1: RGB, rgb2: RGB) -> bytes:
+        """Reverse of :meth:`_pack_codeword_to_rgb_pair`."""
+        return bytes([rgb1.r, rgb1.g, rgb1.b, rgb2.r, rgb2.g, rgb2.b])
+
+    def decode_payload_with_confidence(self, rgb1: RGB, rgb2: RGB) -> DecodeResult:
+        """
+        Decode one RGB pixel pair into a payload byte + reliability metadata.
+
+        Only valid for 48-bit encoding modes (``'golay24-dual'``, ``'rs48'``,
+        ``'bch48'``).  Raises ``RuntimeError`` for ``'golay24'`` / ``'legacy-bin'``.
+
+        Parameters
+        ----------
+        rgb1, rgb2 : RGB
+            The two consecutive pixels that store one encoded byte.
+
+        Returns
+        -------
+        DecodeResult
+            Contains ``payload`` (int 0–255 or None), ``confidence`` (float),
+            ``errors_corrected``, ``method``, ``uncorrectable``, and ``detail``.
+        """
+        enc = self.rgb_config.encoding
+        if enc not in SUPPORTED_METHODS:
+            raise RuntimeError(
+                f"decode_payload_with_confidence() requires a 48-bit encoding, "
+                f"got '{enc}'.  Use one of: {list(SUPPORTED_METHODS)}")
+        codec = get_codec(enc)
+        codeword = self._unpack_rgb_pair_to_codeword(rgb1, rgb2)
+        return codec.decode(codeword)
+
+    def decode_rgb_pixel(self, rgb: RGB) -> int | None:
+        """
+        Decode one RGB pixel into its encoded integer value.
+
+        - ``legacy-bin``: returns the byte value (0–255).
+        - ``golay24``: returns the RGB octant index (0–7).
+        """
+        if self.rgb_config.encoding == "legacy-bin":
+            return self._legacy_decode_rgb(rgb)
+        return self.rgb_octant_decoder(rgb)
+
+    # ------------------------------------------------------------------
+    # Public encoder / decoder (dispatch by encoding mode)
+    # ------------------------------------------------------------------
+
     def rgb_encoder(self, hexstring: str | bytes, encoding: str = "RGB") \
             -> RGB | RGBA | Tuple[RGB, ...] | Tuple[RGBA, ...]:
         """
@@ -301,6 +429,27 @@ class Byte2RGB:
         Returns:
             RGB | RGBA | Tuple[RGB, ...] | Tuple[RGBA, ...]: The corresponding RGB or RGBA tuple(s).
         """
+        if self.rgb_config.encoding == "legacy-bin":
+            if encoding != "RGB":
+                raise ValueError("Legacy-bin encoding only supports RGB mode.")
+            bytes_value = Logs.str_to_bytes(hexstring) if isinstance(hexstring, str) else hexstring
+            int_values = Logs.bytes_to_int(bytes_value, byteorder=self.hash_cfg.byteorder)
+            encoded = [self._legacy_encode_byte(v) for v in int_values]
+            return encoded[0] if len(encoded) == 1 else tuple(encoded)
+
+        if self.rgb_config.encoding in SUPPORTED_METHODS:
+            if encoding != "RGB":
+                raise ValueError("48-bit ECC encodings only support RGB mode.")
+            bytes_value = Logs.str_to_bytes(hexstring) if isinstance(hexstring, str) else hexstring
+            int_values = Logs.bytes_to_int(bytes_value, byteorder=self.hash_cfg.byteorder)
+            codec = get_codec(self.rgb_config.encoding)
+            rgb_pairs: list[RGB] = []
+            for v in int_values:
+                codeword = codec.encode(v)
+                rgb1, rgb2 = self._pack_codeword_to_rgb_pair(codeword)
+                rgb_pairs.extend([rgb1, rgb2])
+            return rgb_pairs[0] if len(rgb_pairs) == 1 else tuple(rgb_pairs)
+
         if encoding == "RGB":
             ret = self._rgb_encoding(hexstring, self.hash_cfg.byteorder)
         elif encoding == "RGBA":
@@ -324,6 +473,29 @@ class Byte2RGB:
         rgb_values = (rgb,) if isinstance(rgb, RGB) else rgb
         if not isinstance(rgb_values, tuple) or not all(isinstance(item, RGB) for item in rgb_values):
             raise TypeError("Input must be an RGB instance or a tuple of RGB instances.")
+
+        if self.rgb_config.encoding == "legacy-bin":
+            byte_values = [
+                v for _rgb in rgb_values
+                if (v := self._legacy_decode_rgb(_rgb)) is not None
+            ]
+            decode_bytes = Logs.iter_to_bytes(byte_values, byteorder=self.hash_cfg.byteorder)
+            if self.main_cfg.verbose_flag:
+                print(f"Decoded RGB: {rgb} to byte value: {decode_bytes}")
+            return decode_bytes
+
+        if self.rgb_config.encoding in SUPPORTED_METHODS:
+            codec = get_codec(self.rgb_config.encoding)
+            byte_values = []
+            pairs = list(rgb_values)
+            for i in range(0, len(pairs) - 1, 2):
+                result = self.decode_payload_with_confidence(pairs[i], pairs[i + 1])
+                if result.valid and result.payload is not None:
+                    byte_values.append(result.payload)
+            decode_bytes = Logs.iter_to_bytes(byte_values, byteorder=self.hash_cfg.byteorder)
+            if self.main_cfg.verbose_flag:
+                print(f"Decoded RGB: {rgb} to byte value: {decode_bytes}")
+            return decode_bytes
 
         decode_octants: List[int] = []
         for _rgb in rgb_values:

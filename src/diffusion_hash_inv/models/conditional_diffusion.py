@@ -46,7 +46,7 @@ ConditionMode = Literal[
     "top-level",
     "filename",
 ]
-FitMode = Literal["pad", "resize", "reshape", "height-flatten"]
+FitMode = Literal["pad", "resize", "reshape", "height-flatten", "bch48-2x2"]
 BetaScheduleMode = Literal["linear", "file", "hash-approach1", "hash-approach2"]
 LabelSource = Literal["final-hash"]
 
@@ -492,6 +492,44 @@ def _fit_image(
         flattened_pixels = blocks[:, :, center_y, center_x, :].reshape(block_count, 3)
         reshaped = flattened_pixels.reshape(square_blocks, square_blocks, 3)
         return Image.fromarray(reshaped)
+    if fit_mode == "bch48-2x2":
+        # Each BCH48 block (28×28) is represented as a 2×2 patch using both colors:
+        #   RGB1 (background): top-left corner pixel (0, 0) of the block
+        #   RGB2 (foreground): center pixel (img_height//2, img_width//2) of the block
+        # Layout of each 2×2 patch:
+        #   [ RGB1, RGB2 ]
+        #   [ RGB1, RGB2 ]
+        # For a 448×28 BCH48 message.png (16 blocks → 4×4 grid):
+        #   output is (2·4)×(2·4) = 8×8 RGB.
+        converted = image.convert("RGB")
+        img_width, img_height = ImgConfig().img_size
+        if converted.width % img_width != 0 or converted.height % img_height != 0:
+            raise ValueError(
+                "bch48-2x2 fit mode requires dimensions to be multiples of "
+                f"ImgConfig.img_size={ImgConfig().img_size}; got {converted.width}x{converted.height}"
+            )
+        source = np.asarray(converted, dtype=np.uint8)
+        rows = converted.height // img_height
+        cols = converted.width // img_width
+        block_count = rows * cols
+        square_blocks = math.isqrt(block_count)
+        if square_blocks * square_blocks != block_count:
+            raise ValueError(
+                "bch48-2x2 fit mode requires the number of ImgConfig-sized blocks "
+                f"to be a perfect square (got {block_count})"
+            )
+        blocks = source.reshape(rows, img_height, cols, img_width, 3).transpose(0, 2, 1, 3, 4)
+        center_y = img_height // 2
+        center_x = img_width // 2
+        rgb1 = blocks[:, :, 0, 0, :].reshape(square_blocks, square_blocks, 3)
+        rgb2 = blocks[:, :, center_y, center_x, :].reshape(square_blocks, square_blocks, 3)
+        out_size = square_blocks * 2
+        out = np.empty((out_size, out_size, 3), dtype=np.uint8)
+        out[0::2, 0::2] = rgb1
+        out[0::2, 1::2] = rgb2
+        out[1::2, 0::2] = rgb2
+        out[1::2, 1::2] = rgb1
+        return Image.fromarray(out)
     if fit_mode != "pad":
         raise ValueError(f"Unsupported fit mode: {fit_mode}")
 
@@ -1221,15 +1259,19 @@ def _print_preprocess_summary(dataset: GeneratedImageDataset, fit_mode: FitMode)
     with Image.open(sample_path) as sample_image:
         src_w, src_h = sample_image.width, sample_image.height
     out_c, out_h, out_w = (int(v) for v in dataset[0][0].shape)
-    if fit_mode == "height-flatten":
+    if fit_mode in {"height-flatten", "bch48-2x2"}:
         img_w, img_h = ImgConfig().img_size
         block_count = (src_w // img_w) * (src_h // img_h)
         square_blocks = math.isqrt(block_count)
+        patch_size = 1 if fit_mode == "height-flatten" else 2
+        out_side = square_blocks * patch_size
+        pixels_per_block = "1×1 (RGB2 center only)" if fit_mode == "height-flatten" else "2×2 (RGB1 corner + RGB2 center)"
         print(
-            f"[reshape] mode=height-flatten source={src_w}x{src_h} "
+            f"[reshape] mode={fit_mode} source={src_w}x{src_h} "
             f"img_size={img_w}x{img_h} blocks={block_count} "
-            f"block_size=1x1px output_blocks={square_blocks}x{square_blocks} "
-            f"output={out_w}x{out_h} channels={out_c}"
+            f"block_size={patch_size}x{patch_size}px ({pixels_per_block}) "
+            f"output_blocks={square_blocks}x{square_blocks} "
+            f"output={out_side}x{out_side} channels={out_c}"
         )
         return
     print(
@@ -1406,6 +1448,8 @@ def save_sample_artifacts(
     labels: Tensor,
     condition_names: list[str],
     output_dir: Path,
+    *,
+    fit_mode: str = "reshape",
 ) -> dict[str, Path | list[Path]]:
     """Save source and final sample artifacts as one PNG per sample."""
     if source_images.shape != generated_images.shape:
@@ -1445,6 +1489,7 @@ def save_sample_artifacts(
         source_result["files"],
         final_result["files"],
         output_dir / "decode_comparison.json",
+        fit_mode=fit_mode,
     )
     return {
         "source": source_result["manifest"],
@@ -1799,7 +1844,7 @@ def train_conditional_diffusion(
     for step in range(1, effective_train_steps + 1):
         images, labels, loop_meta, indices = next(loader_iter)
         images = images.to(device=device, non_blocking=True)
-        if config.fit_mode != "height-flatten":
+        if config.fit_mode not in {"height-flatten", "bch48-2x2"}:
             images = _ensure_square_batch(images)
         labels = labels.to(device=device, non_blocking=True)
         loop_meta = loop_meta.to(device=device, non_blocking=True)
@@ -1867,6 +1912,7 @@ def train_conditional_diffusion(
                 labels_for_sample,
                 dataset.condition_names,
                 sample_dir / f"step_{step:06d}",
+                fit_mode=config.fit_mode,
             )
             print(f"saved sample source manifest: {sample_paths['source']}")
             print(f"saved sample final manifest: {sample_paths['final']}")
@@ -1902,6 +1948,7 @@ def train_conditional_diffusion(
         labels_for_sample,
         dataset.condition_names,
         sample_dir,
+        fit_mode=config.fit_mode,
     )
     final_source_path = final_sample_paths["source"]
     final_sample_path = final_sample_paths["final"]
@@ -1987,12 +2034,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--fit-mode",
-        choices=("pad", "resize", "reshape", "height-flatten"),
+        choices=("pad", "resize", "reshape", "height-flatten", "bch48-2x2"),
         default=ConditionalDiffusionTrainConfig.fit_mode,
         help=(
             "Image pre-processing mode. "
             "'reshape' flattens pixels and reshapes to an equal-area square."
-            " 'height-flatten' flattens ImgConfig-sized blocks and emits one 1x1 pixel per block."
+            " 'height-flatten' flattens ImgConfig-sized blocks and emits one 1x1 pixel (RGB2) per block."
+            " 'bch48-2x2' emits a 2x2 patch per block using RGB1 (background corner) and RGB2 (foreground center)."
         ),
     )
     parser.add_argument(

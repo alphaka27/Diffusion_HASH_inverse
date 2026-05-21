@@ -22,6 +22,7 @@ from diffusion_hash_inv.core import RGB, RGBA
 from diffusion_hash_inv.logger import Logs
 from diffusion_hash_inv.validation.encoding_validation import encoding_validate
 from diffusion_hash_inv.utils.byte2rgb import Byte2RGB
+from diffusion_hash_inv.utils.ecc48 import SUPPORTED_METHODS
 from diffusion_hash_inv.utils.file_io import FileIO
 from diffusion_hash_inv.utils.progress import progress
 from diffusion_hash_inv.main.context import RuntimeConfig
@@ -231,6 +232,60 @@ class RGBImgMaker:
         return self._image_concater(frames, direction="horizontal")
 
 
+    def _image_formatter_bg_fg(
+        self,
+        bg: RGB | RGBA,
+        fg: RGB | RGBA,
+        image_size: Tuple[int, int],
+        center_size: Tuple[int, int],
+    ) -> Image.Image:
+        """
+        Create one image block with *bg* filling the background and *fg* filling the
+        center block.  Used by 48-bit encoding modes (``golay24-dual``, ``rs48``,
+        ``bch48``) so that the 1st encoded RGB becomes the background and the 2nd
+        becomes the foreground.
+        """
+        assert center_size[0] < image_size[0] or center_size[1] < image_size[1], (
+            "center_size must be smaller than image_size so the background is visible. "
+            f"Got center_size={center_size}, image_size={image_size}."
+        )
+        center_x = (image_size[0] - center_size[0]) // 2
+        center_y = (image_size[1] - center_size[1]) // 2
+        canvas = np.zeros((image_size[1], image_size[0], 4), dtype=np.uint8)
+        canvas[:, :] = (bg.r, bg.g, bg.b, 255) if isinstance(bg, RGB) else \
+            (bg.r, bg.g, bg.b, bg.a)
+        canvas[center_y:center_y + center_size[1], center_x:center_x + center_size[0]] = \
+            (fg.r, fg.g, fg.b, 255) if isinstance(fg, RGB) else (fg.r, fg.g, fg.b, fg.a)
+        return Image.fromarray(canvas)
+
+    def _image_formatter_48bit(
+        self,
+        rgb_list: Tuple[RGB | RGBA, ...],
+        image_size: Tuple[int, int],
+    ) -> Image.Image:
+        """
+        Render a 48-bit encoded RGB list as composite background+foreground blocks.
+
+        Each consecutive (RGB1, RGB2) pair produces one ``image_size`` block:
+        - RGB1 → background fill
+        - RGB2 → center foreground block (half of ``image_size`` in each dimension)
+
+        Multiple pairs are concatenated horizontally.
+        """
+        if len(rgb_list) % 2 != 0:
+            raise ValueError(
+                f"48-bit encoding requires an even number of RGB values, got {len(rgb_list)}."
+            )
+        center_size = (image_size[0] // 2, image_size[1] // 2)
+        frames: List[Image.Image] = []
+        for i in range(0, len(rgb_list), 2):
+            frames.append(
+                self._image_formatter_bg_fg(rgb_list[i], rgb_list[i + 1], image_size, center_size)
+            )
+        if len(frames) == 1:
+            return frames[0]
+        return self._image_concater(frames, direction="horizontal")
+
     def image_formatter(self, \
                         rgb_data: Tuple[RGB] | List[Tuple[RGB]] | Tuple[RGBA] | List[Tuple[RGBA]]) \
                         -> Image.Image:
@@ -240,9 +295,12 @@ class RGBImgMaker:
         assert len(rgb_data) > 0, "RGB data cannot be empty."
         img_size = (ImgConfig().img_size[0], ImgConfig().img_size[1])  # Width, Height
         center_size = (ImgConfig().center_size[0], ImgConfig().center_size[1])  # Width, Height
+        enc = self.byte2rgb.rgb_config.encoding
 
         if isinstance(rgb_data, Tuple):
             if isinstance(rgb_data[0], (RGB, RGBA)):
+                if enc in SUPPORTED_METHODS:
+                    return self._image_formatter_48bit(rgb_data, img_size)
                 return self._image_formatter(rgb_data, img_size, center_size)
 
             if isinstance(rgb_data[0], Tuple):
@@ -252,7 +310,10 @@ class RGBImgMaker:
                         raise ValueError(
                             "All items in rgb_data tuple must be of type Tuple[RGB] or Tuple[RGBA]"
                             )
-                    img = self._image_formatter(data, img_size, center_size)
+                    if enc in SUPPORTED_METHODS:
+                        img = self._image_formatter_48bit(data, img_size)
+                    else:
+                        img = self._image_formatter(data, img_size, center_size)
                     if ret is None:
                         ret = img
                     else:
@@ -386,8 +447,20 @@ class RGBImgMaker:
             / self.io_controller._sanitize_relative_path(output_relative_path)
         )
 
-    @staticmethod
-    def _sample_image_rgb_rows(image: Image.Image) -> List[Tuple[RGB, ...]]:
+    def _sample_image_rgb_rows(self, image: Image.Image) -> List[Tuple[RGB, ...]]:
+        """
+        Sample RGB values from a saved PNG image, one row per ``ImgConfig.img_size``
+        block row.
+
+        For 48-bit encoding modes (``golay24-dual``, ``rs48``, ``bch48``), each block
+        encodes one byte as a background+foreground pair.  Two pixels are sampled per
+        block in interleaved order — ``(bg_pixel, fg_pixel)`` — so that the flat pixel
+        list feeds directly into :meth:`~Byte2RGB.rgb_decoder`.
+
+        For all other encodings, the center pixel of each block is sampled (legacy
+        behaviour).
+        """
+        enc = self.byte2rgb.rgb_config.encoding
         block_width, block_height = ImgConfig().img_size
         width, height = image.size
         if width % block_width != 0 or height % block_height != 0:
@@ -399,13 +472,32 @@ class RGBImgMaker:
         rgb_image = image.convert("RGB")
         try:
             rows: List[Tuple[RGB, ...]] = []
-            for y_idx in range(height // block_height):
-                row: List[RGB] = []
-                y = y_idx * block_height + block_height // 2
-                for x_idx in range(width // block_width):
-                    x = x_idx * block_width + block_width // 2
-                    row.append(RGB.from_tuple(rgb_image.getpixel((x, y))))
-                rows.append(tuple(row))
+            if enc in SUPPORTED_METHODS:
+                # bg+fg layout: sample corner (background = RGB1) and center (foreground = RGB2)
+                # Background pixel is at offset (1, 1) from block top-left, which is always
+                # within the border area (center starts at block_width//4, block_height//4).
+                bg_x_off = 1
+                bg_y_off = 1
+                fg_x_off = block_width // 2
+                fg_y_off = block_height // 2
+                for y_idx in range(height // block_height):
+                    row: List[RGB] = []
+                    y_bg = y_idx * block_height + bg_y_off
+                    y_fg = y_idx * block_height + fg_y_off
+                    for x_idx in range(width // block_width):
+                        x_bg = x_idx * block_width + bg_x_off
+                        x_fg = x_idx * block_width + fg_x_off
+                        row.append(RGB.from_tuple(rgb_image.getpixel((x_bg, y_bg))))  # RGB1 (bg)
+                        row.append(RGB.from_tuple(rgb_image.getpixel((x_fg, y_fg))))  # RGB2 (fg)
+                    rows.append(tuple(row))
+            else:
+                for y_idx in range(height // block_height):
+                    row = []
+                    y = y_idx * block_height + block_height // 2
+                    for x_idx in range(width // block_width):
+                        x = x_idx * block_width + block_width // 2
+                        row.append(RGB.from_tuple(rgb_image.getpixel((x, y))))
+                    rows.append(tuple(row))
             return rows
         finally:
             rgb_image.close()

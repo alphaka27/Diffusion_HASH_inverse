@@ -762,6 +762,7 @@ def save_sample_artifacts_mlx(
     idx_to_condition: dict[int, str],
     source_name: str = "source.png",
     final_name: str = "final.png",
+    fit_mode: str = "reshape",
 ) -> dict[str, Path | list[Path]]:
     mx.eval(source_samples, generated_samples)
     if source_samples.shape != generated_samples.shape:
@@ -813,6 +814,7 @@ def save_sample_artifacts_mlx(
         source_result["files"],
         final_result["files"],
         output_dir / "decode_comparison.json",
+        fit_mode=fit_mode,
     )
     return {
         "source": source_manifest,
@@ -1152,6 +1154,7 @@ def train_conditional_diffusion_mlx(config: MLXConditionalDiffusionTrainConfig) 
                 channels=config.channels,
                 columns=config.columns,
                 idx_to_condition=dataset.idx_to_condition,
+                fit_mode=config.fit_mode,
             )
             print(f"saved sample source manifest: {sample_paths['source']}")
             print(f"saved sample final manifest: {sample_paths['final']}")
@@ -1185,6 +1188,7 @@ def train_conditional_diffusion_mlx(config: MLXConditionalDiffusionTrainConfig) 
         idx_to_condition=dataset.idx_to_condition,
         source_name=config.source_name,
         final_name=config.sample_name,
+        fit_mode=config.fit_mode,
     )
     output_path = final_sample_paths["final"]
     if config.save_process_traces:

@@ -838,7 +838,7 @@ def train_loop_conditioned_diffusion(
     for step in range(1, effective_train_steps + 1):
         images, conditions, _indices = next(loader_iter)
         images = images.to(device=device, non_blocking=True)
-        if config.fit_mode != "height-flatten":
+        if config.fit_mode not in {"height-flatten", "bch48-2x2"}:
             images = _ensure_square_batch(images)
         conditions = conditions.to(device=device, non_blocking=True)
         timesteps = torch.randint(0, scheduler.timesteps, (images.shape[0],), device=device)
@@ -882,6 +882,7 @@ def train_loop_conditioned_diffusion(
                 source_indices,
                 _source_condition_names(dataset),
                 sample_dir / f"step_{step:06d}",
+                fit_mode=config.fit_mode,
             )
             print(f"saved sample source manifest: {sample_paths['source']}")
             print(f"saved sample final manifest: {sample_paths['final']}")
@@ -918,6 +919,7 @@ def train_loop_conditioned_diffusion(
         source_indices,
         _source_condition_names(dataset),
         sample_dir,
+        fit_mode=config.fit_mode,
     )
     final_source_path = final_sample_paths["source"]
     final_sample_path = final_sample_paths["final"]
@@ -991,8 +993,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--fit-mode",
-        choices=("pad", "resize", "reshape", "height-flatten"),
-        default=LoopConditionedDiffusionTrainConfig.fit_mode,
+        choices=("pad", "resize", "reshape", "height-flatten", "bch48-2x2"),
     )
     parser.add_argument(
         "--condition-step",

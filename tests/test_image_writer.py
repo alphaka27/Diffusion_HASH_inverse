@@ -189,7 +189,7 @@ def test_hdf5_maker_writes_tensor_shards_in_parallel(tmp_path: Path) -> None:
         assert h5_file.attrs["log_count"] == 1
         assert h5_file.attrs["tensor_count"] == 1
         tensor = h5_file["records"]["00000000"]["tensor"]
-        assert tensor.shape == (3, 28, 2688)
+        assert tensor.shape == (3, 28, 112)
         assert tensor.dtype == np.dtype("float32")
         path_value = h5_file["paths"][0]
         if isinstance(path_value, bytes):
@@ -253,8 +253,8 @@ def test_hdf5_maker_preserves_log_hierarchy(tmp_path: Path) -> None:
         source_group = h5_file["logs"][log_path.stem]
         message_tensor = source_group["Message"]["Hex"]["tensor"]
         log_tensor = source_group["Logs"]["Only Step"]["tensor"]
-        assert message_tensor.shape == (3, 28, 2688)
-        assert log_tensor.shape == (3, 28, 2688)
+        assert message_tensor.shape == (3, 28, 112)
+        assert log_tensor.shape == (3, 28, 112)
         assert source_group["Message"]["Hex"].attrs["path"] == "message.png"
         assert source_group["Logs"]["Only Step"].attrs["path"] == "Only Step.png"
         assert message_tensor.id == h5_file["records"]["00000000"]["tensor"].id
@@ -294,9 +294,9 @@ def test_hdf5_tensor_dataset_reads_shards(tmp_path: Path) -> None:
     )
     try:
         assert len(dataset) == 2
-        assert dataset.tensor_shape == (3, 28, 2688)
+        assert dataset.tensor_shape == (3, 28, 112)
         tensor, index = dataset[0]
-        assert tensor.shape == (3, 28, 2688)
+        assert tensor.shape == (3, 28, 112)
         assert tensor.dtype == torch.float32
         assert int(index) == 0
         assert dataset.metadata(0)["path"] == "message.png"
@@ -338,5 +338,5 @@ def test_hdf5_tensor_dataloader_batches_shards(tmp_path: Path) -> None:
         include_paths=("message.png",),
     )
     batch, indices = next(iter(dataloader))
-    assert batch.shape == (2, 3, 28, 2688)
+    assert batch.shape == (2, 3, 28, 112)
     assert indices.tolist() == [0, 1]

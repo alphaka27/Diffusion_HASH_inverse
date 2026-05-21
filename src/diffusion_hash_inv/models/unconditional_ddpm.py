@@ -604,7 +604,7 @@ def train_unconditional_ddpm(
     for step in range(1, effective_train_steps + 1):
         images, indices = next(loader_iter)
         images = images.to(device=device, non_blocking=True)
-        if config.fit_mode != "height-flatten":
+        if config.fit_mode not in {"height-flatten", "bch48-2x2"}:
             images = _ensure_square_batch(images)
         indices = indices.to(device=device, non_blocking=True)
 
@@ -651,6 +651,7 @@ def train_unconditional_ddpm(
                 sample_indices,
                 _source_condition_names(dataset),
                 sample_dir / f"step_{step:06d}",
+                fit_mode=config.fit_mode,
             )
             print(f"saved sample source manifest: {sample_paths['source']}")
             print(f"saved sample final manifest: {sample_paths['final']}")
@@ -671,6 +672,7 @@ def train_unconditional_ddpm(
         final_indices,
         _source_condition_names(dataset),
         sample_dir,
+        fit_mode=config.fit_mode,
     )
     final_source_path = final_sample_paths["source"]
     final_sample_path = final_sample_paths["final"]
@@ -725,8 +727,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--fit-mode",
-        choices=("pad", "resize", "reshape", "height-flatten"),
-        default=UnconditionalDDPMTrainConfig.fit_mode,
+        choices=("pad", "resize", "reshape", "height-flatten", "bch48-2x2"),
     )
     parser.add_argument("--max-images", type=int, default=None)
     parser.add_argument("--batch-size", type=int, default=UnconditionalDDPMTrainConfig.batch_size)
