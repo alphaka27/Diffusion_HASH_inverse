@@ -1,6 +1,8 @@
 # Diffusion Hash Inverse Workflow
 
-이 문서는 레포의 전체 실행 흐름을 기준으로, 해시 중간 로그 생성부터 RGB 이미지 데이터셋 생성, 분석, DDPM 학습, 산출물 확인까지의 워크플로우를 정리한다.
+이 문서는 레포의 전체 실행 흐름을 기준으로, hash 입력 생성부터 JSON trace logging, RGB/PNG 이미지 데이터셋 생성, HDF5 tensor shard 생성, 분석, DDPM 학습, 산출물 확인까지의 workflow를 정리한다.
+
+기준 진입점은 `diffusion_hash_inv.main.MainEP`이며, CLI는 `python -m diffusion_hash_inv.hash_main ...` 또는 `diffhash hash ...` 형태로 같은 runtime workflow를 호출한다.
 
 ## 1. Environment
 
@@ -25,20 +27,66 @@ pip install -e ".[mlx]"
 
 `diffhash` 콘솔 스크립트는 `diffusion_hash_inv.cli:main`을 통해 실행된다. Python API로 세부 설정을 명시하거나, CLI에서는 `diffhash hash ...` 또는 `python -m diffusion_hash_inv.hash_main ...` 형태를 사용한다.
 
-## 2. End-to-End Data Flow
+## 2. End-to-End Workflow
 
-```text
-RuntimeConfig
-  -> MainEP
-  -> NBitsGenerator
-  -> hashing.MD5.digest
-  -> validate(..., hashlib.md5)
-  -> FileIO writes binary input and JSON trace logs
-  -> RGBImgMaker converts latest JSON traces to PNG image data
-  -> Analyze / BetaScheduleAnalyzer can stream JSON traces
-  -> DDPM trainers read data/images plus output/json
-  -> output/<training-run> receives configs, checkpoints, samples, traces
+```mermaid
+flowchart TD
+    A["CLI / Python API<br/>RuntimeConfig"] --> B["MainEP.run()"]
+    B --> C{"clean_flag"}
+    C -- true --> C1["FileIO.file_clean()<br/>data/, output/ 정리"]
+    C -- false --> D{"run_hash_json"}
+    C1 --> D
+
+    D -- true --> E["Hash JSON 생성 루프"]
+    D -- false --> I["기존 최신 JSON 선택<br/>FileIO.get_latest_files_by_date()"]
+
+    subgraph HashGen [Hash 생성 + Trace Logging]
+        E --> F["_loop_preprocess()<br/>Metadata, BaseLogs, StepLogs, MD5"]
+        F --> G["NBitsGenerator<br/>random 또는 sequential bytes"]
+        G --> G1["data/binary/*.bin"]
+        G --> H["MD5.digest()"]
+        H --> H1["Step 1<br/>padding"]
+        H1 --> H2["Step 2<br/>length append + block split"]
+        H2 --> H3["Step 3<br/>initial buffer"]
+        H3 --> H4["Step 4<br/>64-loop compression trace"]
+        H4 --> H5["Step 5<br/>digest bytes"]
+        H5 --> J["validate(..., hashlib.md5)"]
+        J --> K["output/json/&lt;run-start&gt;/*.json"]
+    end
+
+    K --> L{"run_png"}
+    I --> L
+    L -- true --> M["RGBImgMaker"]
+    M --> N["Logs.log_parser()<br/>Message + StepLogs"]
+    N --> O["Byte2RGB.rgb_encoder()"]
+    O --> P["PNG 저장 + 즉시 decode 검증"]
+    P --> Q["data/images/&lt;json-stem&gt;/*.png"]
+    L -- false --> R["PNG 생성 skip"]
+
+    Q --> S{"run_hdf5"}
+    R --> S
+    S -- true --> T["HDF5Maker"]
+    T --> U["C,H,W tensor shard 생성"]
+    U --> V["data/tensor_datasets/hash_tensors/*.h5<br/>manifest.json"]
+    S -- false --> W["HDF5 생성 skip"]
+
+    Q --> X["Analysis / Training 입력"]
+    V --> X
+    W --> X
+    X --> Y["Analyze / BetaScheduleAnalyzer"]
+    X --> Z["DDPM trainers<br/>unconditional / conditional / guided / loop-conditioned"]
+    Z --> AA["output/&lt;training-run&gt;/<br/>configs, checkpoints, samples, traces"]
 ```
+
+Stage flag는 `MainEP.run()`에서 workflow를 분리 실행할 때 사용한다.
+
+| Flag | Stage | Main output |
+| --- | --- | --- |
+| `run_hash_json=True` | input bytes 생성, hash 계산, JSON trace 생성 | `data/binary/*.bin`, `output/json/<run-start>/*.json` |
+| `run_png=True` | 기존 JSON trace를 PNG 이미지로 변환 | `data/images/<json-stem>/*.png` |
+| `run_hdf5=True` | 기존 JSON trace를 HDF5 tensor shard로 변환 | `data/tensor_datasets/hash_tensors/*.h5`, `manifest.json` |
+| `run_image_hdf5` | `run_png`/`run_hdf5`의 backward-compatible combined default | PNG + HDF5 |
+| `MainConfig.make_image_flag=True` | artifact stage 기본값 활성화 | PNG + HDF5 |
 
 주요 산출물은 다음 경로에 생긴다.
 
@@ -53,6 +101,29 @@ RuntimeConfig
 ## 3. Generate Hash Logs
 
 권장 실행 방식은 Python API로 `RuntimeConfig`를 명시하는 것이다. 아래 예시는 128-bit 입력을 순차 값으로 만들고 MD5 trace JSON을 생성한다.
+
+```mermaid
+sequenceDiagram
+    participant Caller as CLI / Python API
+    participant MainEP
+    participant Generator as NBitsGenerator
+    participant MD5
+    participant Validator as validate()
+    participant FileIO
+
+    Caller->>MainEP: run(iteration, run_hash_json=True)
+    MainEP->>MainEP: _loop_preprocess()
+    loop each iteration index
+        MainEP->>Generator: main(value=index or random)
+        Generator->>FileIO: write data/binary/*.bin
+        Generator-->>MainEP: input bytes
+        MainEP->>MD5: digest(input bytes)
+        MD5-->>MainEP: digest bytes + StepLogs
+        MainEP->>Validator: compare with hashlib.md5
+        Validator-->>MainEP: valid, right_hash
+        MainEP->>FileIO: write output/json/&lt;run-start&gt;/*.json
+    end
+```
 
 ```python
 from diffusion_hash_inv.config import (
