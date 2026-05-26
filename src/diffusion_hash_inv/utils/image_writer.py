@@ -241,9 +241,9 @@ class RGBImgMaker:
     ) -> Image.Image:
         """
         Create one image block with *bg* filling the background and *fg* filling the
-        center block.  Used by 48-bit encoding modes (``golay24-dual``, ``rs48``,
-        ``bch48``) so that the 1st encoded RGB becomes the background and the 2nd
-        becomes the foreground.
+        center block.  Used by 48-bit encoding modes (``linear48``,
+        ``golay24-dual``, ``rs48``, ``bch48``) so that the 1st encoded RGB becomes
+        the background and the 2nd becomes the foreground.
         """
         assert center_size[0] < image_size[0] or center_size[1] < image_size[1], (
             "center_size must be smaller than image_size so the background is visible. "
@@ -452,10 +452,11 @@ class RGBImgMaker:
         Sample RGB values from a saved PNG image, one row per ``ImgConfig.img_size``
         block row.
 
-        For 48-bit encoding modes (``golay24-dual``, ``rs48``, ``bch48``), each block
-        encodes one byte as a background+foreground pair.  Two pixels are sampled per
-        block in interleaved order — ``(bg_pixel, fg_pixel)`` — so that the flat pixel
-        list feeds directly into :meth:`~Byte2RGB.rgb_decoder`.
+        For 48-bit encoding modes (``linear48``, ``golay24-dual``, ``rs48``,
+        ``bch48``), each block encodes one byte as a background+foreground pair.
+        Two pixels are sampled per block in interleaved order — ``(bg_pixel,
+        fg_pixel)`` — so that the flat pixel list feeds directly into
+        :meth:`~Byte2RGB.rgb_decoder`.
 
         For all other encodings, the center pixel of each block is sampled (legacy
         behaviour).

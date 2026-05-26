@@ -18,6 +18,7 @@ import pytest
 
 from diffusion_hash_inv.utils.ecc48 import (
     DecodeResult,
+    Linear48Codec,
     Golay24DualCodec,
     RS48Codec,
     BCH48Codec,
@@ -41,6 +42,7 @@ _MAIN_CFG = MainConfig(
 _HASH_CFG = HashConfig(hash_alg="md5", length=16)
 
 ALL_CODECS = [
+    ("linear48", Linear48Codec),
     ("golay24-dual", Golay24DualCodec),
     ("rs48", RS48Codec),
     ("bch48", BCH48Codec),
@@ -76,7 +78,7 @@ def _corrupt_byte(data: bytes, byte_index: int) -> bytes:
 
 class TestFactory:
     def test_supported_methods_tuple(self):
-        assert set(SUPPORTED_METHODS) == {"golay24-dual", "rs48", "bch48"}
+        assert set(SUPPORTED_METHODS) == {"linear48", "golay24-dual", "rs48", "bch48"}
 
     @pytest.mark.parametrize("method,cls", ALL_CODECS)
     def test_get_codec_returns_correct_class(self, method, cls):
@@ -111,6 +113,52 @@ class TestDecodeResultFields:
             cw = cls.encode(byte_val)
             r = cls.decode(cw)
             assert 0.0 <= r.confidence <= 1.0, f"{method}: byte={byte_val}"
+
+
+# ===========================================================================
+# Linear48
+# ===========================================================================
+
+class TestLinear48:
+    """Binary linear [48,8,17] codec."""
+
+    codec = Linear48Codec
+
+    def test_round_trip_all_bytes(self):
+        for v in range(256):
+            cw = self.codec.encode(v)
+            r = self.codec.decode(cw)
+            assert r.valid and r.payload == v, f"Failed on byte {v}"
+
+    def test_codeword_length(self):
+        cw = self.codec.encode(0)
+        assert len(cw) == 6
+
+    def test_minimum_distance_is_17(self):
+        assert self.codec.minimum_distance() == 17
+
+    @pytest.mark.parametrize("byte_val", [0, 1, 127, 200, 255])
+    @pytest.mark.parametrize(
+        "bit_indices",
+        [
+            [0],
+            [0, 7, 8, 15],
+            [0, 5, 11, 17, 23, 29, 35, 47],
+        ],
+    )
+    def test_corrects_up_to_eight_bit_errors(self, byte_val, bit_indices):
+        cw = self.codec.encode(byte_val)
+        corrupted = _flip_bits(cw, bit_indices)
+        r = self.codec.decode(corrupted)
+        assert r.valid and r.payload == byte_val
+        assert r.errors_corrected == len(bit_indices)
+
+    def test_nine_errors_are_outside_guarantee(self):
+        cw = self.codec.encode(0)
+        corrupted = _flip_bits(cw, list(range(9)))
+        r = self.codec.decode(corrupted)
+        assert r.uncorrectable
+        assert not r.valid
 
 
 # ===========================================================================
@@ -341,6 +389,42 @@ class TestByte2RGBIntegration:
             assert result.confidence == pytest.approx(1.0)
             assert result.errors_corrected == 0
             assert result.method == method
+
+    def test_linear48_rgb_path_corrects_eight_bit_errors(self):
+        b2rgb = self._make_b2rgb("linear48")
+        rgb_pair = b2rgb.rgb_encoder(bytes([42]))
+        codeword = b2rgb._unpack_rgb_pair_to_codeword(rgb_pair[0], rgb_pair[1])
+        corrupted = _flip_bits(codeword, [0, 5, 11, 17, 23, 29, 35, 47])
+        corrupted_pair = b2rgb._pack_codeword_to_rgb_pair(corrupted)
+
+        assert b2rgb.rgb_decoder(corrupted_pair) == bytes([42])
+        result = b2rgb.decode_payload_with_confidence(corrupted_pair[0], corrupted_pair[1])
+        assert result.valid
+        assert result.errors_corrected == 8
+
+    def test_method1_2x2_patch_layout(self):
+        b2rgb = self._make_b2rgb("linear48")
+        rgb_pair = b2rgb.rgb_encoder(bytes([42]))
+        patch = b2rgb.rgb_pair_to_2x2_patch(rgb_pair[0], rgb_pair[1])
+
+        assert patch == ((rgb_pair[0], rgb_pair[1]), (rgb_pair[1], rgb_pair[0]))
+        assert b2rgb.rgb_pair_from_2x2_patch(patch) == rgb_pair
+
+    def test_cube_id_formula_matches_encoding_method_2(self):
+        b2rgb = self._make_b2rgb("cube-id")
+
+        assert b2rgb.pixels_per_byte == 1
+        assert b2rgb.rgb_to_cube_id(RGB(r=31, g=31, b=63)) == 0
+        assert b2rgb.rgb_to_cube_id(RGB(r=32, g=32, b=64)) == 73
+        assert b2rgb.rgb_to_cube_id(RGB(r=255, g=255, b=255)) == 255
+
+    def test_cube_id_round_trip_multi_byte(self):
+        b2rgb = self._make_b2rgb("cube-id")
+        payload = bytes([0, 1, 73, 255])
+        encoded = b2rgb.rgb_encoder(payload)
+
+        assert encoded[2] == RGB(r=48, g=48, b=96)
+        assert b2rgb.rgb_decoder(encoded) == payload
 
     def test_decode_with_confidence_requires_48bit_mode(self):
         b2rgb = self._make_b2rgb("golay24-dual")

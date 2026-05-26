@@ -705,7 +705,7 @@ def train_guided_conditional_diffusion(
     for step in range(1, effective_train_steps + 1):
         images, labels, loop_meta, indices = next(loader_iter)
         images = images.to(device=device, non_blocking=True)
-        if config.fit_mode not in {"height-flatten", "bch48-2x2"}:
+        if config.fit_mode not in {"height-flatten", "cube-id-grid", "bch48-2x2"}:
             images = _ensure_square_batch(images)
         labels = labels.to(device=device, non_blocking=True)
         loop_meta = loop_meta.to(device=device, non_blocking=True)
@@ -914,7 +914,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--fit-mode",
-        choices=("pad", "resize", "reshape", "height-flatten", "bch48-2x2"),
+        choices=("pad", "resize", "reshape", "height-flatten", "cube-id-grid", "bch48-2x2"),
+        default=GuidedConditionalDiffusionTrainConfig.fit_mode,
     )
     parser.add_argument(
         "--condition-mode",

@@ -72,6 +72,17 @@ python -m diffusion_hash_inv.hash_main \
   --image-workers 4
 ```
 
+To generate PNG images with the cube-id RGB encoding:
+
+``` bash
+python -m diffusion_hash_inv.hash_main \
+  --iteration 1000 \
+  --length 128 \
+  --hash-alg md5 \
+  --rgb-encoding cube-id \
+  --make-png
+```
+
 To generate artifacts from existing JSON logs in CLI mode, skip the hash/json
 stage and choose the artifact type:
 
@@ -101,7 +112,10 @@ to an equal-area square (e.g. `7168x28 -> 448x448`). `height-flatten` uses
 `ImgConfig.img_size` as the block unit, represents each block as one `1x1`
 pixel, and then reshapes those pixels to a square RGB image. The source
 dimensions must be multiples of
-`ImgConfig.img_size` (`28x28` by default). `pad` and `resize` are also available.
+`ImgConfig.img_size` (`28x28` by default). For images generated with
+`--rgb-encoding cube-id`, use `--fit-mode cube-id-grid --channels 3`; this keeps
+one center RGB pixel per cube-id block and makes sample decode comparisons use
+the cube-id decoder. `pad` and `resize` are also available.
 
 ``` bash
 pip install -e ".[train]"
@@ -137,6 +151,19 @@ python -m diffusion_hash_inv.models.conditional_diffusion \
   --beta-schedule linear \
   --save-train-batches-every 5 \
   --device cpu
+```
+
+Cube-id encoded PNGs can be generated and trained with:
+
+``` bash
+python -m diffusion_hash_inv.hash_main -i 10000 -l 128 --hash-alg md5 --rgb-encoding cube-id --make-png
+python -m diffusion_hash_inv.models.conditional_diffusion \
+  --data-root data/images \
+  --json-root output/json \
+  --output-dir output/conditional_diffusion_cube_id \
+  --fit-mode cube-id-grid \
+  --channels 3 \
+  --label-source final-hash
 ```
 
 Artifacts are written to `output/conditional_diffusion`: `condition_to_idx.json`,

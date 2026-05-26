@@ -17,6 +17,7 @@ from diffusion_hash_inv.utils.ecc48 import DecodeResult
 
 
 DEFAULT_SAMPLE_DECODING_ENCODING = "legacy-bin"
+DIRECT_BYTE_ENCODINGS = {"legacy-bin", "cube-id"}
 
 _MAIN_CONFIG_SILENT = MainConfig(
     verbose_flag=False,
@@ -43,6 +44,10 @@ def _bch48_decoder() -> Byte2RGB:
     return _byte2rgb_decoder(encoding="bch48")
 
 
+def _cube_id_decoder() -> Byte2RGB:
+    return _byte2rgb_decoder(encoding="cube-id")
+
+
 def _bytes_to_bits(value: bytes) -> str:
     return "".join(f"{byte:08b}" for byte in value)
 
@@ -61,6 +66,13 @@ def _hamming_distance_bytes(left: bytes, right: bytes) -> int | None:
 
 def _decode_rgb_pixel(rgb: RGB, decoder: Byte2RGB) -> int | None:
     return decoder.decode_rgb_pixel(rgb)
+
+
+def _is_direct_byte_decoder(decoder: Byte2RGB | None) -> bool:
+    return (
+        decoder is not None
+        and getattr(decoder.rgb_config, "encoding", "golay24") in DIRECT_BYTE_ENCODINGS
+    )
 
 
 def _rgb_color_records(
@@ -82,11 +94,8 @@ def _rgb_color_records(
                 if decoder is not None
                 else None
             )
-            is_legacy = (
-                decoder is not None
-                and getattr(decoder.rgb_config, "encoding", "golay24") == "legacy-bin"
-            )
-            bit_span = None if is_legacy else (
+            is_direct_byte = _is_direct_byte_decoder(decoder)
+            bit_span = None if is_direct_byte else (
                 decoder.data_bits_per_byte
                 if decoder is not None
                 else Byte2RGB.data_bits_per_byte
@@ -94,7 +103,7 @@ def _rgb_color_records(
             bit_position = None if bit_span is None else index % bit_span
             decoded_bit = (
                 None
-                if decoded_value is None or is_legacy or bit_position is None
+                if decoded_value is None or is_direct_byte or bit_position is None
                 else int(decoded_value == bit_position)
             )
             if decoded_value is not None:
@@ -107,14 +116,15 @@ def _rgb_color_records(
                 "bit_position": bit_position,
                 "decoded_bit": decoded_bit,
                 "decoded_bits": None if decoded_bit is None else str(decoded_bit),
-                "decoded_rgb_space": None if is_legacy else decoded_value,
+                "decoded_rgb_space": None if is_direct_byte else decoded_value,
                 "decoded_rgb_space_bits": (
-                    None if decoded_value is None or is_legacy else f"{decoded_value:03b}"
+                    None if decoded_value is None or is_direct_byte else f"{decoded_value:03b}"
                 ),
-                "decoded_bit_chunk": None if is_legacy else decoded_value,
-                "decoded_byte": decoded_value if is_legacy else None,
+                "decoded_bit_chunk": None if is_direct_byte else decoded_value,
+                "decoded_byte": decoded_value if is_direct_byte else None,
                 "decoded_byte_hex": (
-                    None if decoded_value is None or not is_legacy else f"0x{decoded_value:02x}"
+                    None if decoded_value is None or not is_direct_byte
+                    else f"0x{decoded_value:02x}"
                 ),
             }
             records.append(record)
@@ -273,6 +283,8 @@ def decode_sample_image_bch48_2x2(
 def decode_sample_image(
     path: Path, decoder: Byte2RGB | None = None, *, fit_mode: str = "reshape"
 ) -> dict[str, Any]:
+    if fit_mode == "cube-id-grid" and decoder is None:
+        decoder = _cube_id_decoder()
     if fit_mode == "bch48-2x2":
         bch48_dec = (
             decoder
@@ -310,7 +322,8 @@ def decode_sample_image(
     decoded_rgb_space_count = len(decoded_values)
     invalid_pixel_count = len(pixel_records) - decoded_rgb_space_count
 
-    if getattr(decoder.rgb_config, "encoding", "golay24") == "legacy-bin":
+    decoder_encoding = getattr(decoder.rgb_config, "encoding", "golay24")
+    if decoder_encoding in DIRECT_BYTE_ENCODINGS:
         # Each decoded_value is already a byte (0–255); no ECC processing needed.
         decoded_byte_values = decoded_values
         ecc_records: list[dict[str, Any]] = []
@@ -318,7 +331,7 @@ def decode_sample_image(
         uncorrectable_codeword_count = 0
         corrected_codeword_count = 0
         complete = invalid_pixel_count == 0
-        encoding_label = "rgb-bin-legacy"
+        encoding_label = "rgb-bin-legacy" if decoder_encoding == "legacy-bin" else "rgb-cube-id"
         ecc_block: dict[str, Any] = {
             "code": "none",
             "data_bits_per_byte": decoder.data_bits_per_byte,
@@ -492,7 +505,9 @@ def write_decode_comparison(
             f"got {len(source_files)} and {len(final_files)}"
         )
 
-    if fit_mode != "bch48-2x2":
+    if fit_mode == "cube-id-grid" and decoder is None:
+        decoder = _cube_id_decoder()
+    elif fit_mode != "bch48-2x2":
         decoder = decoder or _byte2rgb_decoder()
     records: list[dict[str, Any]] = []
     for index, (source_path, final_path) in enumerate(zip(source_files, final_files)):

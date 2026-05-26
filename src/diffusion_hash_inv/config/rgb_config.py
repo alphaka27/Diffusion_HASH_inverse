@@ -11,14 +11,16 @@ class Byte2RGBConfig:
     Configuration for byte-to-RGB conversion.
 
     The current encoder splits each RGB channel into two halves and stores
-    bytes as extended Golay-protected bit-position RGB pixels.  ``fr_min`` and
-    ``fr_max`` define the channel range to split.  ``bin_width`` and
-    ``bin_num`` are retained for legacy config compatibility but are not used
-    by the Golay encoder.
+    bytes as error-corrected 48-bit RGB pairs by default.  ``fr_min`` and
+    ``fr_max`` define the channel range for the legacy Golay bit-position
+    encoder.  ``bin_width`` and ``bin_num`` are retained for legacy config
+    compatibility but are not used by the 48-bit pair encoders.
 
     ``encoding`` selects the active encoder:
+    - ``"linear48"``: Binary linear [48,8,17] ECC — **2 pixels per byte**, 8-bit error correction.
     - ``"golay24"``: Extended Golay(24,12) ECC — 24 pixels per byte, 3-bit error correction.
     - ``"legacy-bin"``: Direct RGB bin mapping — 1 pixel per byte, no error correction.
+    - ``"cube-id"``: RGB cube-id mapping from Encoding Method 2 — 1 pixel per byte, no error correction.
     - ``"golay24-dual"``: 2× Extended Golay(24,12) — **2 pixels per byte**, 6-bit error correction.
     - ``"rs48"``: Reed-Solomon RS(6,1)/GF(2^8) — **2 pixels per byte**, 2 byte-error correction.
     - ``"bch48"``: Shortened BCH[63,24,15] — **2 pixels per byte**, 7-bit error correction.
@@ -26,7 +28,7 @@ class Byte2RGBConfig:
 
     fr_min: int = 0
     fr_max: int = 255
-    encoding: str = "bch48"
+    encoding: str = "linear48"
     bin_width: int = 36
     bin_num: int = 7
     seed_flag: bool = True
@@ -61,8 +63,10 @@ class Byte2RGBConfig:
             "  fr_min: Minimum RGB channel value (inclusive) for Golay conversion.\n"
             "  fr_max: Maximum RGB channel value (inclusive) for Golay conversion.\n"
             "  encoding: Encoder type:\n"
+            "    'linear48'     —  2px/byte, 8-bit error correction (binary [48,8,17])\n"
             "    'golay24'      — 24px/byte, 3-bit error correction (Extended Golay)\n"
             "    'legacy-bin'   —  1px/byte, no error correction\n"
+            "    'cube-id'      —  1px/byte, Encoding Method 2 RGB cube-id mapping\n"
             "    'golay24-dual' —  2px/byte, 6-bit error correction (2× Golay, 48-bit)\n"
             "    'rs48'         —  2px/byte, 2-byte error correction (RS(6,1)/GF(2^8))\n"
             "    'bch48'        —  2px/byte, 7-bit error correction (BCH[63,24,15] shortened)\n"

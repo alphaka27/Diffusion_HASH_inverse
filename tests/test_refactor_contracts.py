@@ -48,6 +48,8 @@ def test_hash_main_config_from_args_uses_cli_values() -> None:
             "--make-image",
             "--image-workers",
             "2",
+            "--rgb-encoding",
+            "cube-id",
             "-i",
             "2",
         ]
@@ -62,6 +64,7 @@ def test_hash_main_config_from_args_uses_cli_values() -> None:
     assert config.message.random_flag is False
     assert config.main.make_image_flag is True
     assert config.main.image_workers == 2
+    assert config.rgb.encoding == "cube-id"
 
 
 def test_hash_main_artifact_flags_can_skip_hash_json(monkeypatch) -> None:

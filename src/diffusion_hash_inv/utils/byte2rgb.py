@@ -1,10 +1,9 @@
 """
 Defines RGB color space subcubes and provides utilities to convert bytes to RGB tuples.
 
-The active encoder is bit-oriented with error correction: each RGB channel is
-split into low/high halves, producing eight RGB octants.  Each byte is expanded
-to a 24-bit extended Golay codeword, so one byte is stored in 24 RGB pixels.
-The code can correct up to three bit/pixel classification errors per byte.
+The default encoder stores each byte as a 48-bit error-correcting codeword
+packed into two RGB pixels.  Legacy and cube-id encoders are kept for direct
+one-pixel-per-byte mappings.
 """
 
 from __future__ import annotations
@@ -22,7 +21,7 @@ from diffusion_hash_inv.utils.ecc48 import DecodeResult, get_codec, SUPPORTED_ME
 
 class Byte2RGB:
     """
-    Convert byte values to RGB tuples using bit-position RGB octants plus Golay ECC.
+    Convert byte values to RGB tuples using the configured RGB encoding method.
     """
 
     data_bits_per_byte = 8
@@ -44,9 +43,9 @@ class Byte2RGB:
             raise ValueError("fr_min and fr_max must be in the range [0, 255].")
         if rgb_config.fr_min >= rgb_config.fr_max:
             raise ValueError("fr_min must be less than fr_max.")
-        if rgb_config.encoding not in ("golay24", "legacy-bin", *SUPPORTED_METHODS):
+        if rgb_config.encoding not in ("golay24", "legacy-bin", "cube-id", *SUPPORTED_METHODS):
             raise ValueError(
-                f"encoding must be one of 'golay24', 'legacy-bin', "
+                f"encoding must be one of 'golay24', 'legacy-bin', 'cube-id', "
                 f"{', '.join(repr(m) for m in SUPPORTED_METHODS)}, "
                 f"got '{rgb_config.encoding}'")
         self.channel_split = (rgb_config.fr_min + rgb_config.fr_max) // 2
@@ -304,11 +303,12 @@ class Byte2RGB:
         """Pixels required to encode one byte.
 
         - ``legacy-bin`` : 1
+        - ``cube-id``    : 1
         - ``golay24``    : 24
-        - ``golay24-dual``, ``rs48``, ``bch48`` : 2  (48-bit codecs)
+        - ``linear48``, ``golay24-dual``, ``rs48``, ``bch48`` : 2  (48-bit codecs)
         """
         enc = self.rgb_config.encoding
-        if enc == "legacy-bin":
+        if enc in ("legacy-bin", "cube-id"):
             return 1
         if enc in SUPPORTED_METHODS:
             return 2
@@ -350,7 +350,47 @@ class Byte2RGB:
         return None
 
     # ------------------------------------------------------------------
-    # 48-bit RGB pair helpers (encoding = golay24-dual | rs48 | bch48)
+    # Encoding Method 2: RGB cube-id mapping (encoding="cube-id")
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def cube_id_to_rgb(cube_id: int) -> RGB:
+        """
+        Convert an 8-bit cube id to the center RGB value of its quantization cube.
+
+        Inverse of the formula from ``Encoding Method.md``:
+
+            cube_id = floor(B / 64) * 64 + floor(G / 32) * 8 + floor(R / 32)
+        """
+        assert 0 <= cube_id <= 255, "Cube ID must be in the range 0-255"
+        r_idx = cube_id & 0b111
+        g_idx = (cube_id >> 3) & 0b111
+        b_idx = (cube_id >> 6) & 0b11
+        return RGB(
+            r=r_idx * 32 + 16,
+            g=g_idx * 32 + 16,
+            b=b_idx * 64 + 32,
+        )
+
+    @staticmethod
+    def rgb_to_cube_id(rgb: RGB) -> int | None:
+        """
+        Convert an RGB value to the cube id defined in ``Encoding Method.md``.
+        """
+        if not (0 <= rgb.r <= 255 and 0 <= rgb.g <= 255 and 0 <= rgb.b <= 255):
+            return None
+        return (rgb.b // 64) * 64 + (rgb.g // 32) * 8 + (rgb.r // 32)
+
+    def _cube_id_encode_byte(self, value: int) -> RGB:
+        """Map a byte value (0–255) to the center RGB of its Method 2 cube."""
+        return self.cube_id_to_rgb(value)
+
+    def _cube_id_decode_rgb(self, rgb: RGB) -> int | None:
+        """Return the Method 2 cube id for one RGB pixel."""
+        return self.rgb_to_cube_id(rgb)
+
+    # ------------------------------------------------------------------
+    # 48-bit RGB pair helpers (encoding = linear48 | golay24-dual | rs48 | bch48)
     # ------------------------------------------------------------------
 
     @staticmethod
@@ -374,12 +414,43 @@ class Byte2RGB:
         """Reverse of :meth:`_pack_codeword_to_rgb_pair`."""
         return bytes([rgb1.r, rgb1.g, rgb1.b, rgb2.r, rgb2.g, rgb2.b])
 
+    @staticmethod
+    def rgb_pair_to_2x2_patch(rgb1: RGB, rgb2: RGB) -> tuple[tuple[RGB, RGB], tuple[RGB, RGB]]:
+        """
+        Return the 2×2 image layout defined in ``Encoding Method.md``.
+
+        Layout:
+
+            RGB1 RGB2
+            RGB2 RGB1
+        """
+        return ((rgb1, rgb2), (rgb2, rgb1))
+
+    @staticmethod
+    def rgb_pair_from_2x2_patch(
+        patch: tuple[tuple[RGB, RGB], tuple[RGB, RGB]]
+    ) -> tuple[RGB, RGB]:
+        """
+        Recover ``(RGB1, RGB2)`` from a Method 1 2×2 anti-diagonal patch.
+        """
+        if (
+            len(patch) != 2
+            or any(len(row) != 2 for row in patch)
+            or any(not isinstance(pixel, RGB) for row in patch for pixel in row)
+        ):
+            raise ValueError("patch must be a 2x2 tuple of RGB values")
+        rgb1, rgb2 = patch[0]
+        if patch[1][0] != rgb2 or patch[1][1] != rgb1:
+            raise ValueError("patch does not match the RGB1/RGB2 anti-diagonal layout")
+        return rgb1, rgb2
+
     def decode_payload_with_confidence(self, rgb1: RGB, rgb2: RGB) -> DecodeResult:
         """
         Decode one RGB pixel pair into a payload byte + reliability metadata.
 
-        Only valid for 48-bit encoding modes (``'golay24-dual'``, ``'rs48'``,
-        ``'bch48'``).  Raises ``RuntimeError`` for ``'golay24'`` / ``'legacy-bin'``.
+        Only valid for 48-bit encoding modes (``'linear48'``, ``'golay24-dual'``,
+        ``'rs48'``, ``'bch48'``).  Raises ``RuntimeError`` for one-pixel and
+        legacy ``'golay24'`` encodings.
 
         Parameters
         ----------
@@ -406,10 +477,13 @@ class Byte2RGB:
         Decode one RGB pixel into its encoded integer value.
 
         - ``legacy-bin``: returns the byte value (0–255).
+        - ``cube-id``: returns the Method 2 cube id (0–255).
         - ``golay24``: returns the RGB octant index (0–7).
         """
         if self.rgb_config.encoding == "legacy-bin":
             return self._legacy_decode_rgb(rgb)
+        if self.rgb_config.encoding == "cube-id":
+            return self._cube_id_decode_rgb(rgb)
         return self.rgb_octant_decoder(rgb)
 
     # ------------------------------------------------------------------
@@ -435,6 +509,14 @@ class Byte2RGB:
             bytes_value = Logs.str_to_bytes(hexstring) if isinstance(hexstring, str) else hexstring
             int_values = Logs.bytes_to_int(bytes_value, byteorder=self.hash_cfg.byteorder)
             encoded = [self._legacy_encode_byte(v) for v in int_values]
+            return encoded[0] if len(encoded) == 1 else tuple(encoded)
+
+        if self.rgb_config.encoding == "cube-id":
+            if encoding != "RGB":
+                raise ValueError("Cube-id encoding only supports RGB mode.")
+            bytes_value = Logs.str_to_bytes(hexstring) if isinstance(hexstring, str) else hexstring
+            int_values = Logs.bytes_to_int(bytes_value, byteorder=self.hash_cfg.byteorder)
+            encoded = [self._cube_id_encode_byte(v) for v in int_values]
             return encoded[0] if len(encoded) == 1 else tuple(encoded)
 
         if self.rgb_config.encoding in SUPPORTED_METHODS:
@@ -478,6 +560,16 @@ class Byte2RGB:
             byte_values = [
                 v for _rgb in rgb_values
                 if (v := self._legacy_decode_rgb(_rgb)) is not None
+            ]
+            decode_bytes = Logs.iter_to_bytes(byte_values, byteorder=self.hash_cfg.byteorder)
+            if self.main_cfg.verbose_flag:
+                print(f"Decoded RGB: {rgb} to byte value: {decode_bytes}")
+            return decode_bytes
+
+        if self.rgb_config.encoding == "cube-id":
+            byte_values = [
+                v for _rgb in rgb_values
+                if (v := self._cube_id_decode_rgb(_rgb)) is not None
             ]
             decode_bytes = Logs.iter_to_bytes(byte_values, byteorder=self.hash_cfg.byteorder)
             if self.main_cfg.verbose_flag:

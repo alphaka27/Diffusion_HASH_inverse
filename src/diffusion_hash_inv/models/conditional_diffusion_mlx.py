@@ -50,7 +50,7 @@ import mlx.optimizers as optim  # noqa: E402
 from mlx.utils import tree_flatten  # noqa: E402
 
 
-FitMode = Literal["resize", "pad", "height-flatten"]
+FitMode = Literal["resize", "pad", "height-flatten", "cube-id-grid"]
 LabelSource = Literal["final-hash"]
 BetaScheduleMode = Literal["linear", "file", "hash-approach1", "hash-approach2"]
 
@@ -341,6 +341,8 @@ def _fit_image(
         raise ValueError("image_size must be positive")
     if channels not in (1, 3):
         raise ValueError("channels must be 1 or 3")
+    if fit_mode == "cube-id-grid" and channels != 3:
+        raise ValueError("cube-id-grid fit mode requires channels=3 to preserve RGB CubeID values")
 
     converted = image.convert("L" if channels == 1 else "RGB")
     size = (image_size, image_size)
@@ -349,11 +351,11 @@ def _fit_image(
     if fit_mode == "pad":
         color = 0 if channels == 1 else (0, 0, 0)
         return ImageOps.pad(converted, size, method=Image.Resampling.BICUBIC, color=color)
-    if fit_mode == "height-flatten":
+    if fit_mode in {"height-flatten", "cube-id-grid"}:
         img_width, img_height = ImgConfig().img_size
         if converted.width % img_width != 0 or converted.height % img_height != 0:
             raise ValueError(
-                "height-flatten fit mode requires dimensions to be multiples of "
+                f"{fit_mode} fit mode requires dimensions to be multiples of "
                 f"ImgConfig.img_size={ImgConfig().img_size}; "
                 f"got {converted.width}x{converted.height}"
             )
@@ -366,7 +368,7 @@ def _fit_image(
         square_blocks = math.isqrt(block_count)
         if square_blocks * square_blocks != block_count:
             raise ValueError(
-                "height-flatten fit mode requires the number of ImgConfig-sized blocks "
+                f"{fit_mode} fit mode requires the number of ImgConfig-sized blocks "
                 f"to be a perfect square (got {block_count})"
             )
         blocks = source.reshape(rows, img_height, cols, img_width, channels).transpose(
@@ -762,7 +764,7 @@ def save_sample_artifacts_mlx(
     idx_to_condition: dict[int, str],
     source_name: str = "source.png",
     final_name: str = "final.png",
-    fit_mode: str = "reshape",
+    fit_mode: str = "pad",
 ) -> dict[str, Path | list[Path]]:
     mx.eval(source_samples, generated_samples)
     if source_samples.shape != generated_samples.shape:
@@ -1229,7 +1231,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--fit-mode",
-        choices=("resize", "pad", "height-flatten"),
+        choices=("resize", "pad", "height-flatten", "cube-id-grid"),
         default=MLXConditionalDiffusionTrainConfig.fit_mode,
     )
     parser.add_argument("--max-images", type=int, default=None)

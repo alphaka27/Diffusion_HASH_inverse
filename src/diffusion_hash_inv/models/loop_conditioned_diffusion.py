@@ -838,7 +838,7 @@ def train_loop_conditioned_diffusion(
     for step in range(1, effective_train_steps + 1):
         images, conditions, _indices = next(loader_iter)
         images = images.to(device=device, non_blocking=True)
-        if config.fit_mode not in {"height-flatten", "bch48-2x2"}:
+        if config.fit_mode not in {"height-flatten", "cube-id-grid", "bch48-2x2"}:
             images = _ensure_square_batch(images)
         conditions = conditions.to(device=device, non_blocking=True)
         timesteps = torch.randint(0, scheduler.timesteps, (images.shape[0],), device=device)
@@ -993,7 +993,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--fit-mode",
-        choices=("pad", "resize", "reshape", "height-flatten", "bch48-2x2"),
+        choices=("pad", "resize", "reshape", "height-flatten", "cube-id-grid", "bch48-2x2"),
+        default=LoopConditionedDiffusionTrainConfig.fit_mode,
     )
     parser.add_argument(
         "--condition-step",

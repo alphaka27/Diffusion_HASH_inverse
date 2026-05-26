@@ -16,6 +16,7 @@ Codec comparison
 +------------------+----------+------------------+----------------------------+
 | Codec            | Code     | Max correctable  | Notes                      |
 +==================+==========+==================+============================+
+| Linear48         | [48,8]   | 8 bit-errors     | Binary linear d=17 code    |
 | Golay24Dual      | [48,8]   | 6 bit-errors     | 2× Extended Golay(24,12)   |
 | RS48             | [48,8]   | 2 byte-errors    | RS(6,1)/GF(2^8), ≤16 bits  |
 | BCH48            | [48,8]   | 7 bit-errors     | BCH[63,24,15] shortened    |
@@ -50,10 +51,10 @@ class DecodeResult:
     """Reliability estimate in [0.0, 1.0].  1.0 = no errors detected."""
 
     errors_corrected: int
-    """Number of bit-errors (Golay24Dual, BCH48) or byte-errors (RS48) corrected."""
+    """Bit-errors corrected (Linear48, Golay24Dual, BCH48) or byte-errors corrected (RS48)."""
 
     method: str
-    """One of ``'golay24-dual'``, ``'rs48'``, ``'bch48'``."""
+    """One of ``'linear48'``, ``'golay24-dual'``, ``'rs48'``, ``'bch48'``."""
 
     uncorrectable: bool
     """True when the error pattern exceeds the codec's correction capability."""
@@ -237,7 +238,118 @@ def _berlekamp_massey(syndromes: list[int], gf_mul, gf_inv) -> list[int]:
 
 
 # ===========================================================================
-# Codec 1: Golay24Dual
+# Codec 1: Linear48  —  Binary linear [48,8,17] code
+# ===========================================================================
+
+class Linear48Codec:
+    """
+    Binary linear [48,8,17] codec with guaranteed 8-bit error correction.
+
+    The payload byte is multiplied by six fixed non-zero GF(2^8) elements.
+    Interpreting the resulting six GF(2^8) symbols as 48 binary coordinates
+    gives a linear code whose minimum binary Hamming distance is 17:
+
+        codeword(m) = [m, 37m, 195m, 26m, 160m, 206m]
+
+    Since ``floor((17 - 1) / 2) == 8``, nearest-codeword decoding corrects
+    any pattern with at most 8 bit-errors in the 48-bit codeword.
+
+    Decode confidence
+    -----------------
+    - 0 errors      : 1.00
+    - e errors ≤ 8  : 1.00 − e / 9
+    - uncorrectable : 0.00
+    """
+
+    METHOD = "linear48"
+    CODEWORD_BITS = 48
+    PIXELS_PER_BYTE = 2
+    DATA_BITS = 8
+    T_BITS = 8
+    MIN_DISTANCE = 17
+    _MULTIPLIERS = (1, 37, 195, 26, 160, 206)
+    _codebook_cache: list[bytes] | None = None
+    _minimum_distance_cache: int | None = None
+
+    @staticmethod
+    def _bit_distance(left: bytes, right: bytes) -> int:
+        return sum((a ^ b).bit_count() for a, b in zip(left, right))
+
+    @classmethod
+    def encode(cls, byte_val: int) -> bytes:
+        """Encode one byte → 6-byte (48-bit) codeword."""
+        assert 0 <= byte_val <= 255
+        return bytes(_GF256.mul(byte_val, multiplier) for multiplier in cls._MULTIPLIERS)
+
+    @classmethod
+    def _codebook(cls) -> list[bytes]:
+        if cls._codebook_cache is None:
+            cls._codebook_cache = [cls.encode(value) for value in range(256)]
+        return cls._codebook_cache
+
+    @classmethod
+    def minimum_distance(cls) -> int:
+        """Return the binary Hamming minimum distance of the linear code."""
+        if cls._minimum_distance_cache is not None:
+            return cls._minimum_distance_cache
+        zero = cls.encode(0)
+        cls._minimum_distance_cache = min(
+            cls._bit_distance(zero, cls.encode(value))
+            for value in range(1, 256)
+        )
+        return cls._minimum_distance_cache
+
+    @classmethod
+    def decode(cls, codeword: bytes) -> DecodeResult:
+        """Decode 6-byte (48-bit) codeword → DecodeResult."""
+        if len(codeword) != 6:
+            raise ValueError(f"Expected 6 bytes, got {len(codeword)}")
+
+        best_payload: int | None = None
+        best_distance = cls.CODEWORD_BITS + 1
+        tied = False
+        for payload, candidate in enumerate(cls._codebook()):
+            distance = cls._bit_distance(codeword, candidate)
+            if distance < best_distance:
+                best_payload = payload
+                best_distance = distance
+                tied = False
+            elif distance == best_distance:
+                tied = True
+
+        if best_payload is not None and best_distance <= cls.T_BITS and not tied:
+            confidence = max(0.0, 1.0 - best_distance / (cls.T_BITS + 1))
+            return DecodeResult(
+                valid=True,
+                payload=best_payload,
+                confidence=confidence,
+                errors_corrected=best_distance,
+                method=cls.METHOD,
+                uncorrectable=False,
+                detail={
+                    "nearest_distance": best_distance,
+                    "minimum_distance": cls.MIN_DISTANCE,
+                    "tied": False,
+                },
+            )
+
+        return DecodeResult(
+            valid=False,
+            payload=None,
+            confidence=0.0,
+            errors_corrected=0,
+            method=cls.METHOD,
+            uncorrectable=True,
+            detail={
+                "nearest_distance": best_distance,
+                "minimum_distance": cls.MIN_DISTANCE,
+                "tied": tied,
+            },
+        )
+
+
+# ===========================================================================
+# Codec 2: Golay24Dual
 # ===========================================================================
 
 class Golay24DualCodec:
@@ -404,7 +516,7 @@ class Golay24DualCodec:
 
 
 # ===========================================================================
-# Codec 2: RS48  —  Reed-Solomon RS(6,1) over GF(2^8)
+# Codec 3: RS48  —  Reed-Solomon RS(6,1) over GF(2^8)
 # ===========================================================================
 
 class RS48Codec:
@@ -581,7 +693,7 @@ class RS48Codec:
 
 
 # ===========================================================================
-# Codec 3: BCH48  —  Shortened BCH[63,24,15] + appended parity bit
+# Codec 4: BCH48  —  Shortened BCH[63,24,15] + appended parity bit
 # ===========================================================================
 
 class BCH48Codec:
@@ -837,6 +949,7 @@ class BCH48Codec:
 # ===========================================================================
 
 _CODEC_MAP: dict[str, type] = {
+    "linear48": Linear48Codec,
     "golay24-dual": Golay24DualCodec,
     "rs48": RS48Codec,
     "bch48": BCH48Codec,
@@ -852,12 +965,13 @@ def get_codec(method: str) -> type:
     Parameters
     ----------
     method : str
-        One of ``'golay24-dual'``, ``'rs48'``, ``'bch48'``.
+        One of ``'linear48'``, ``'golay24-dual'``, ``'rs48'``, ``'bch48'``.
 
     Returns
     -------
     type
-        The codec class (``Golay24DualCodec``, ``RS48Codec``, or ``BCH48Codec``).
+        The codec class (``Linear48Codec``, ``Golay24DualCodec``, ``RS48Codec``,
+        or ``BCH48Codec``).
     """
     if method not in _CODEC_MAP:
         raise ValueError(

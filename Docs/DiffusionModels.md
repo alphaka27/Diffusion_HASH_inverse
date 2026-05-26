@@ -20,6 +20,8 @@
 
 `conditional_diffusion.py`는 생성된 이미지와 JSON 로그를 매칭해 최종 해시 값을 조건 라벨로 사용한다. 기본 모델은 U-Net 계열 denoiser이고, DDPM noise scheduler를 사용한다.
 
+cube-id로 생성한 `message.png`를 학습할 때는 `--fit-mode cube-id-grid --channels 3`을 사용한다. 이 모드는 각 `28x28` cube-id 블록의 중앙 RGB 값을 `1x1` 픽셀로 축약해 diffusion 입력으로 만들고, 샘플 비교 JSON은 cube-id decoder로 byte를 복원한다.
+
 지원하는 temporal conditioning:
 
 | 모드 | 의미 |
@@ -81,6 +83,8 @@ output/json/**/<run-id>.json
 라벨:
 
 JSON의 `Generated hash`, `Correct   hash`, `Correct hash` 중 먼저 발견되는 값을 최종 해시 라벨로 사용한다.
+
+cube-id PNG는 PyTorch와 동일하게 `--fit-mode cube-id-grid --channels 3`으로 입력 RGB 값을 보존한다.
 
 실행:
 

@@ -15,9 +15,11 @@ from diffusion_hash_inv.config import (
     OutputConfig,
 )
 from diffusion_hash_inv.main import MainEP, RuntimeConfig
+from diffusion_hash_inv.utils.ecc48 import SUPPORTED_METHODS
 
 
 DEFAULT_LENGTH = 256
+RGB_ENCODINGS = ("golay24", "legacy-bin", "cube-id", *SUPPORTED_METHODS)
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -136,6 +138,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=1,
         help="Number of processes used for PNG/HDF5 conversion (default: 1)",
     )
+    parser.add_argument(
+        "--rgb-encoding",
+        choices=RGB_ENCODINGS,
+        default=Byte2RGBConfig.encoding,
+        help=f"Byte-to-RGB encoding mode (default: {Byte2RGBConfig.encoding})",
+    )
     return parser
 
 
@@ -195,7 +203,7 @@ def config_from_args(args: argparse.Namespace) -> RuntimeConfig:
             length=length,
         ),
         output=OutputConfig(),
-        rgb=Byte2RGBConfig(),
+        rgb=Byte2RGBConfig(encoding=args.rgb_encoding),
     )
 
 

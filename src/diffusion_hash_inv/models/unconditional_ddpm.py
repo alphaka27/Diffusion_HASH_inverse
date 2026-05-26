@@ -604,7 +604,7 @@ def train_unconditional_ddpm(
     for step in range(1, effective_train_steps + 1):
         images, indices = next(loader_iter)
         images = images.to(device=device, non_blocking=True)
-        if config.fit_mode not in {"height-flatten", "bch48-2x2"}:
+        if config.fit_mode not in {"height-flatten", "cube-id-grid", "bch48-2x2"}:
             images = _ensure_square_batch(images)
         indices = indices.to(device=device, non_blocking=True)
 
@@ -727,7 +727,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--fit-mode",
-        choices=("pad", "resize", "reshape", "height-flatten", "bch48-2x2"),
+        choices=("pad", "resize", "reshape", "height-flatten", "cube-id-grid", "bch48-2x2"),
+        default=UnconditionalDDPMTrainConfig.fit_mode,
     )
     parser.add_argument("--max-images", type=int, default=None)
     parser.add_argument("--batch-size", type=int, default=UnconditionalDDPMTrainConfig.batch_size)

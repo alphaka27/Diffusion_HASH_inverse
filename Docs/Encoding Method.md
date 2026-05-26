@@ -7,7 +7,7 @@
 ### Codeword Size
 48 bits 
 
-## Encoding
+## Encoding Method 1
 Error Correction을 수행하여 생성된 48bits의 codeword를 이용해 2개의 RGB값을 생성  
 C0 = C[0:8]  
 C1 = C[8:16]  
@@ -36,3 +36,17 @@ Encoding 과정을 통해 계산한 2개의 RGB값을 사용하여 $2\times 2$ �
 1st 2nd  
 2nd 1st
 
+
+## Encoding Method 2
+\boxed{
+\text{CubeID}
+=
+\left\lfloor \frac{B}{64} \right\rfloor \cdot 64
++
+\left\lfloor \frac{G}{32} \right\rfloor \cdot 8
++
+\left\lfloor \frac{R}{32} \right\rfloor
+}
+
+## Decoding 
+주어진 RGB 값을 기반으로 Encoding 과정의 역변환 진행

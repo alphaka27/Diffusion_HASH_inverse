@@ -380,6 +380,7 @@ python -m diffusion_hash_inv.models.conditional_diffusion \
 
 - `--fit-mode reshape`: 이미지를 flatten한 뒤 같은 면적의 정사각형으로 재배열한다.
 - `--fit-mode height-flatten`: `ImgConfig.img_size` 단위 블록을 `1x1` 픽셀로 축약한 뒤 정사각형 배열로 재배치한다.
+- `--fit-mode cube-id-grid`: cube-id 인코딩 PNG용 모드. `--channels 3`과 함께 사용하며 각 `ImgConfig.img_size` 블록의 중앙 RGB 픽셀을 보존해 diffusion 입력으로 사용한다.
 - `--beta-schedule linear`: 일반 DDPM linear beta schedule.
 - `--beta-schedule file`: 외부 JSON/TXT/CSV/NPY/NPZ beta 값을 사용한다.
 - `--beta-schedule hash-approach1` 또는 `hash-approach2`: hash trace 기반 schedule을 사용한다.

@@ -22,6 +22,7 @@ from diffusion_hash_inv.models.conditional_diffusion_mlx import (
     discover_generated_image_samples_mlx,
     train_conditional_diffusion_mlx,
 )
+from diffusion_hash_inv.models.sample_decoding import _byte2rgb_decoder
 
 
 def _write_png(path: Path, size: tuple[int, int], color: int) -> None:
@@ -107,6 +108,51 @@ def test_mlx_dataset_supports_height_flatten_one_pixel_blocks(tmp_path: Path) ->
     assert image.shape == (4,)
     expected = [(value / 127.5) - 1.0 for value in block_values]
     assert image.tolist() == pytest.approx(expected, abs=1e-6)
+
+
+def test_mlx_dataset_supports_cube_id_grid_rgb_blocks(tmp_path: Path) -> None:
+    image_root = tmp_path / "data" / "images"
+    json_root = tmp_path / "output" / "json"
+    run_id = "RUN_0001"
+    image_path = image_root / run_id / "message.png"
+    image_path.parent.mkdir(parents=True, exist_ok=True)
+
+    decoder = _byte2rgb_decoder("cube-id")
+    payload = b"\x00\x7f\x80\xff"
+    encoded = decoder.rgb_encoder(payload)
+    pixels = encoded if isinstance(encoded, tuple) else (encoded,)
+    block_colors = [pixel.as_tuple for pixel in pixels]
+    source = Image.new("RGB", (112, 28))
+    for index, color in enumerate(block_colors):
+        source.paste(Image.new("RGB", (28, 28), color), (index * 28, 0))
+    source.save(image_path)
+    _write_json(json_root, run_id, "0xaaa")
+
+    dataset = MLXGeneratedImageDataset(
+        image_root,
+        json_root=json_root,
+        image_size=8,
+        channels=3,
+        fit_mode="cube-id-grid",
+    )
+    image, label = dataset[0]
+
+    assert label == 0
+    assert dataset.output_image_size == 2
+    assert dataset.image_dim == 12
+    assert image.shape == (12,)
+    expected = np.asarray(block_colors, dtype=np.float32).reshape(2, 2, 3)
+    expected = (expected / 127.5 - 1.0).transpose(2, 0, 1).reshape(-1)
+    assert image.tolist() == pytest.approx(expected.tolist(), abs=1e-6)
+
+    with pytest.raises(ValueError, match="cube-id-grid fit mode requires channels=3"):
+        MLXGeneratedImageDataset(
+            image_root,
+            json_root=json_root,
+            image_size=8,
+            channels=1,
+            fit_mode="cube-id-grid",
+        )
 
 
 def test_mlx_image_from_vector_rounds_normalized_uint8_values() -> None:

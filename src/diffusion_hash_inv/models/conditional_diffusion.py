@@ -46,7 +46,7 @@ ConditionMode = Literal[
     "top-level",
     "filename",
 ]
-FitMode = Literal["pad", "resize", "reshape", "height-flatten", "bch48-2x2"]
+FitMode = Literal["pad", "resize", "reshape", "height-flatten", "cube-id-grid", "bch48-2x2"]
 BetaScheduleMode = Literal["linear", "file", "hash-approach1", "hash-approach2"]
 LabelSource = Literal["final-hash"]
 
@@ -447,6 +447,8 @@ def _fit_image(
 ) -> Image.Image:
     if image_size <= 0:
         raise ValueError("image_size must be positive")
+    if fit_mode == "cube-id-grid" and channels != 3:
+        raise ValueError("cube-id-grid fit mode requires channels=3 to preserve RGB CubeID values")
     background_mode = "L" if channels == 1 else "RGBA" if channels == 4 else "RGB"
     if fit_mode == "resize":
         return image.resize((image_size, image_size), Image.Resampling.BILINEAR).convert(background_mode)
@@ -465,12 +467,12 @@ def _fit_image(
         if channels == 1:
             return Image.fromarray(reshaped[:, :, 0])
         return Image.fromarray(reshaped)
-    if fit_mode == "height-flatten":
+    if fit_mode in {"height-flatten", "cube-id-grid"}:
         converted = image.convert("RGB")
         img_width, img_height = ImgConfig().img_size
         if converted.width % img_width != 0 or converted.height % img_height != 0:
             raise ValueError(
-                "height-flatten fit mode requires dimensions to be multiples of "
+                f"{fit_mode} fit mode requires dimensions to be multiples of "
                 f"ImgConfig.img_size={ImgConfig().img_size}; got {converted.width}x{converted.height}"
             )
         source = np.asarray(converted, dtype=np.uint8)
@@ -480,10 +482,11 @@ def _fit_image(
         square_blocks = math.isqrt(block_count)
         if square_blocks * square_blocks != block_count:
             raise ValueError(
-                "height-flatten fit mode requires the number of ImgConfig-sized blocks "
+                f"{fit_mode} fit mode requires the number of ImgConfig-sized blocks "
                 f"to be a perfect square (got {block_count})"
             )
         # Flatten by ImgConfig-sized blocks, then reduce each block to one 1x1 pixel.
+        # ``cube-id-grid`` is the explicit cube-id alias for this transformation.
         blocks = source.reshape(rows, img_height, cols, img_width, 3).transpose(
             0, 2, 1, 3, 4
         )
@@ -1259,13 +1262,18 @@ def _print_preprocess_summary(dataset: GeneratedImageDataset, fit_mode: FitMode)
     with Image.open(sample_path) as sample_image:
         src_w, src_h = sample_image.width, sample_image.height
     out_c, out_h, out_w = (int(v) for v in dataset[0][0].shape)
-    if fit_mode in {"height-flatten", "bch48-2x2"}:
+    if fit_mode in {"height-flatten", "cube-id-grid", "bch48-2x2"}:
         img_w, img_h = ImgConfig().img_size
         block_count = (src_w // img_w) * (src_h // img_h)
         square_blocks = math.isqrt(block_count)
-        patch_size = 1 if fit_mode == "height-flatten" else 2
+        patch_size = 2 if fit_mode == "bch48-2x2" else 1
         out_side = square_blocks * patch_size
-        pixels_per_block = "1×1 (RGB2 center only)" if fit_mode == "height-flatten" else "2×2 (RGB1 corner + RGB2 center)"
+        if fit_mode == "bch48-2x2":
+            pixels_per_block = "2×2 (RGB1 corner + RGB2 center)"
+        elif fit_mode == "cube-id-grid":
+            pixels_per_block = "1×1 (cube-id center RGB)"
+        else:
+            pixels_per_block = "1×1 (center RGB only)"
         print(
             f"[reshape] mode={fit_mode} source={src_w}x{src_h} "
             f"img_size={img_w}x{img_h} blocks={block_count} "
@@ -1844,7 +1852,7 @@ def train_conditional_diffusion(
     for step in range(1, effective_train_steps + 1):
         images, labels, loop_meta, indices = next(loader_iter)
         images = images.to(device=device, non_blocking=True)
-        if config.fit_mode not in {"height-flatten", "bch48-2x2"}:
+        if config.fit_mode not in {"height-flatten", "cube-id-grid", "bch48-2x2"}:
             images = _ensure_square_batch(images)
         labels = labels.to(device=device, non_blocking=True)
         loop_meta = loop_meta.to(device=device, non_blocking=True)
@@ -2034,12 +2042,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--fit-mode",
-        choices=("pad", "resize", "reshape", "height-flatten", "bch48-2x2"),
+        choices=("pad", "resize", "reshape", "height-flatten", "cube-id-grid", "bch48-2x2"),
         default=ConditionalDiffusionTrainConfig.fit_mode,
         help=(
             "Image pre-processing mode. "
             "'reshape' flattens pixels and reshapes to an equal-area square."
-            " 'height-flatten' flattens ImgConfig-sized blocks and emits one 1x1 pixel (RGB2) per block."
+            " 'height-flatten' flattens ImgConfig-sized blocks and emits one 1x1 center pixel per block."
+            " 'cube-id-grid' is the cube-id alias for height-flatten and decodes samples with cube-id."
             " 'bch48-2x2' emits a 2x2 patch per block using RGB1 (background corner) and RGB2 (foreground center)."
         ),
     )

@@ -26,6 +26,7 @@ from diffusion_hash_inv.models.conditional_diffusion import (
     trace_timesteps,
     train_conditional_diffusion,
 )
+from diffusion_hash_inv.models.sample_decoding import _byte2rgb_decoder
 
 
 def _write_png(path: Path, size: tuple[int, int], color: tuple[int, int, int, int]) -> None:
@@ -246,6 +247,62 @@ def test_generated_image_dataset_supports_height_flatten_mode(tmp_path: Path) ->
     expected = torch.tensor(block_colors, dtype=torch.float32)[:, :3]
     expected = (expected / 127.5 - 1.0).reshape(2, 2, 3).permute(2, 0, 1)
     torch.testing.assert_close(image, expected)
+
+
+def test_generated_image_dataset_supports_cube_id_grid_mode(tmp_path: Path) -> None:
+    image_root = tmp_path / "images"
+    json_root = tmp_path / "output" / "json"
+    run_id = "RUN_0001"
+    image_path = image_root / run_id / "message.png"
+    image_path.parent.mkdir(parents=True, exist_ok=True)
+
+    decoder = _byte2rgb_decoder("cube-id")
+    payload = b"\x00\x7f\x80\xff"
+    encoded = decoder.rgb_encoder(payload)
+    pixels = encoded if isinstance(encoded, tuple) else (encoded,)
+    block_colors = [pixel.as_tuple for pixel in pixels]
+    source = Image.new("RGB", (112, 28))
+    for index, color in enumerate(block_colors):
+        source.paste(Image.new("RGB", (28, 28), color), (index * 28, 0))
+    source.save(image_path)
+
+    json_path = json_root / "2026-05-09 14-13-27" / f"{run_id}.json"
+    json_path.parent.mkdir(parents=True, exist_ok=True)
+    json_path.write_text(
+        json.dumps(
+            {
+                "Message": {"Hex": "0xmessage"},
+                "Logs": {"4th Step": "0xstep4"},
+                "Generated hash": "0xfinal",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    dataset = GeneratedImageDataset(
+        image_root,
+        json_root=json_root,
+        image_size=32,
+        channels=3,
+        fit_mode="cube-id-grid",
+    )
+    image, _, _loop_meta = dataset[0]
+
+    assert dataset.channels == 3
+    assert image.shape == (3, 2, 2)
+    expected = torch.tensor(block_colors, dtype=torch.float32)
+    expected = (expected / 127.5 - 1.0).reshape(2, 2, 3).permute(2, 0, 1)
+    torch.testing.assert_close(image, expected)
+
+    grayscale_dataset = GeneratedImageDataset(
+        image_root,
+        json_root=json_root,
+        image_size=32,
+        channels=1,
+        fit_mode="cube-id-grid",
+    )
+    with pytest.raises(ValueError, match="cube-id-grid fit mode requires channels=3"):
+        grayscale_dataset[0]
 
 
 def test_denormalize_images_rounds_normalized_uint8_values() -> None:

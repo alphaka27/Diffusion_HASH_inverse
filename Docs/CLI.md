@@ -52,6 +52,7 @@ diffhash hash [options]
 | `--make-hdf5` | JSON 로그에서 HDF5 tensor shard만 생성 | 꺼짐 |
 | `--skip-hash-json`, `--artifacts-only` | 해시/JSON 생성을 건너뛰고 기존 JSON 로그에서 artifact 생성 | 꺼짐 |
 | `--image-workers` | PNG/HDF5 변환 process 수 | `1` |
+| `--rgb-encoding` | Byte-to-RGB 인코딩 방식 (`linear48`, `cube-id`, `bch48` 등) | `linear48` |
 
 `-l`과 `-e`는 동시에 사용할 수 없다. `--sequential`을 사용해도 `-i` 기본값은 `0`이므로 실제 생성하려면 반복 횟수를 명시한다.
 `--skip-hash-json`은 기존 JSON 로그를 입력으로 쓰므로 `--clear`와 함께 사용할 수 없다.
@@ -86,6 +87,17 @@ python -m diffusion_hash_inv.hash_main -c -i 10 -l 128 --hash-alg md5
 
 ```bash
 python -m diffusion_hash_inv.hash_main -i 10 -l 128 --hash-alg md5 --make-image
+```
+
+해시 로그 생성 후 cube-id 방식으로 PNG 이미지를 생성한다.
+
+```bash
+python -m diffusion_hash_inv.hash_main \
+  -i 10 \
+  -l 128 \
+  --hash-alg md5 \
+  --rgb-encoding cube-id \
+  --make-png
 ```
 
 변환 process 수를 지정한다.
@@ -262,3 +274,5 @@ PNG인 `source_*.png`, `final_*.png`로 저장되고, 각 목록은
 생성하지 않는다. `sample/decode_comparison.json`에는 source/final을
 Byte2RGB로 디코딩한 byte string, RGB 색상 목록, decoded byte 기준
 해밍 거리가 기록된다.
+cube-id PNG를 학습할 때는 PyTorch/MLX conditional diffusion 모두
+`--fit-mode cube-id-grid --channels 3`을 지정한다.
