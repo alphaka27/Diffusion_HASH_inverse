@@ -3,16 +3,16 @@ Entry point for the diffusion hash inversion process.
 This module initializes the necessary components.
 This module starts the hash inversion process based on the provided configurations.
 """
-from typing import Optional, Any
+from typing import Optional
 
 from tqdm import tqdm
 
 from diffusion_hash_inv.logger import Logs, Metadata, BaseLogs, StepLogs
 from diffusion_hash_inv.config \
-    import (MainConfig, MessageConfig, HashConfig, OutputConfig, Byte2RGBConfig)
+    import (MainConfig, MessageConfig, HashConfig, OutputConfig)
 from diffusion_hash_inv.generator import NBitsGenerator
-from diffusion_hash_inv.main.context import RuntimeState, RuntimeConfig
-from diffusion_hash_inv.utils import FileIO, RGBImgMaker
+from diffusion_hash_inv.config import RuntimeState, RuntimeConfig
+from diffusion_hash_inv.utils import FileIO
 from diffusion_hash_inv.validation import validate
 from diffusion_hash_inv import hashing
 
@@ -28,7 +28,6 @@ class MainEP:
         self.runtime_cfg: RuntimeConfig = runtime_config
         self.main_cfg: MainConfig = runtime_config.main
         self.output_cfg: OutputConfig = runtime_config.output
-        self.rgb_cfg: Byte2RGBConfig = runtime_config.rgb
         print("Main Entry Point Initialized.")
         print(f"Program Start Time: {self.program_start_time}")
         print(f"Hash Algorithm: {self.runtime_cfg.hash.hash_alg_upper}")

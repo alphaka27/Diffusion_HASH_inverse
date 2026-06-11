@@ -4,8 +4,9 @@ Configuration for hash algorithm parameters.
 
 from dataclasses import dataclass, field
 import sys
-from typing import Optional, Tuple, Dict
+from typing import Optional, Tuple, Dict, List
 import inspect
+import string
 
 @dataclass(frozen=True)
 class MD5Constants:
@@ -74,6 +75,7 @@ class HashConfig:
     Configuration for hash generation and validation.
     """
     hash_alg: Optional[str] = None
+
     length: Optional[int] = None
 
     constants: MD5Constants | SHA256Constants = \
@@ -86,16 +88,7 @@ class HashConfig:
         if self.length is None:
             raise ValueError("length must be specified")
 
-        hash_alg_lower = self.hash_alg.lower()
-
-        if hash_alg_lower == "md5":
-            object.__setattr__(self, "constants", MD5Constants()) # bypass frozen
-
-        elif hash_alg_lower == "sha256":
-            object.__setattr__(self, "constants", SHA256Constants()) # bypass frozen
-
-        else:
-            raise ValueError(f"Unsupported hash algorithm: {self.hash_alg}")
+        self.select_hash_constant()
 
         if self.length <= 0 or self.length % 8 != 0:
             raise ValueError("length must be a positive multiple of 8")
@@ -113,6 +106,21 @@ class HashConfig:
             f"  block_size: {self.bs_bits},\n"
             f"  mask: 0x{self.mask:X},\n"
             f"  hierarchy: {self.hierarchy}\n")
+
+    def select_hash_constant(self):
+        """
+        Select the appropriate hash constants based on the specified hash algorithm.
+        """
+        hash_alg_lower = self.hash_alg.lower()
+
+        if hash_alg_lower == "md5":
+            object.__setattr__(self, "constants", MD5Constants()) # bypass frozen
+
+        elif hash_alg_lower == "sha256":
+            object.__setattr__(self, "constants", SHA256Constants()) # bypass frozen
+
+        else:
+            raise ValueError(f"Unsupported hash algorithm: {self.hash_alg}")
 
     @property
     def byteorder(self) -> str:
@@ -208,6 +216,15 @@ class HashConfig:
         if self.hash_alg is None:
             raise ValueError("hash_alg is not set.")
         return self.hash_alg.upper()
+
+    @property
+    def hash_alg_lower(self) -> str:
+        """
+        Get the hash algorithm name in lowercase.
+        """
+        if self.hash_alg is None:
+            raise ValueError("hash_alg is not set.")
+        return self.hash_alg.lower()
 
     def __getattribute__(self, name):
         try:

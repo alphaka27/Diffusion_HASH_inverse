@@ -3,8 +3,8 @@ Configuration package for Diffusion Hash Inversion project.
 """
 
 from .main_config import MainConfig, OutputConfig, HeaderConstants, MessageConfig
-from .rgb_config import Byte2RGBConfig, ImgConfig
 from .hash_config import HashConfig
+from .context import RuntimeConfig, RuntimeState
 
 __all__ = [
     "HashConfig",
@@ -12,6 +12,6 @@ __all__ = [
     "MessageConfig",
     "OutputConfig",
     "HeaderConstants",
-    "Byte2RGBConfig",
-    "ImgConfig",
+    "RuntimeConfig",
+    "RuntimeState",
 ]

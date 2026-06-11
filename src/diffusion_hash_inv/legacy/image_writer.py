@@ -15,10 +15,10 @@ from diffusion_hash_inv.config import ImgConfig
 from diffusion_hash_inv.config import Byte2RGBConfig
 from diffusion_hash_inv.core import RGB, RGBA
 from diffusion_hash_inv.logger import Logs
-from diffusion_hash_inv.validation.encoding_validation import encoding_validate
-from diffusion_hash_inv.utils.byte2rgb import Byte2RGB
+from diffusion_hash_inv.legacy.deprecated.encoding_validation import encoding_validate
+from diffusion_hash_inv.legacy.deprecated.byte2rgb import Byte2RGB
 from diffusion_hash_inv.utils.file_io import FileIO
-from diffusion_hash_inv.main.context import RuntimeConfig
+from diffusion_hash_inv.config import RuntimeConfig
 
 class RGBImgMaker:
     """

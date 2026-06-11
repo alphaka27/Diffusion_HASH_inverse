@@ -9,7 +9,7 @@ from diffusion_hash_inv.core import RGB
 from diffusion_hash_inv.logger import Logs
 
 if TYPE_CHECKING:
-    from diffusion_hash_inv.utils.byte2rgb import Byte2RGB
+    from diffusion_hash_inv.legacy.deprecated.byte2rgb import Byte2RGB
 
 def encoding_validate(
     byte_data: bytes | str,

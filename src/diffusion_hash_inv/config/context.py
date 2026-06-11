@@ -9,7 +9,7 @@ from typing import Any, Optional, List
 
 from diffusion_hash_inv.logger import Metadata, BaseLogs, StepLogs
 from diffusion_hash_inv.config import \
-    (MainConfig, HashConfig, MessageConfig, OutputConfig, Byte2RGBConfig)
+    (MainConfig, HashConfig, MessageConfig, OutputConfig)
 from diffusion_hash_inv.validation import config_validate
 
 @dataclass
@@ -61,7 +61,6 @@ class RuntimeConfig:
     message: MessageConfig
     hash: HashConfig
     output: OutputConfig
-    rgb: Byte2RGBConfig
     checklist: List[str] = field(init=False, \
                                 default_factory=lambda: ["length"])
 
@@ -87,7 +86,6 @@ class RuntimeConfig:
             indent_block(self.message),
             indent_block(self.hash),
             indent_block(self.output),
-            indent_block(self.rgb),
         ))
 
     @classmethod
@@ -104,8 +102,7 @@ class RuntimeConfig:
             ),
             message=MessageConfig(length=128),
             hash=HashConfig(hash_alg="MD5", length=128),
-            output=OutputConfig(),
-            rgb=Byte2RGBConfig()
+            output=OutputConfig()
         )
 
     def main_update(self, main_config: MainConfig) -> RuntimeConfig:

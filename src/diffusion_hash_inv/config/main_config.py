@@ -4,8 +4,9 @@ Configuration module for diffusion_hash_inv core components.
 
 from __future__ import annotations
 
+import string
 from dataclasses import dataclass, field, replace
-from typing import Optional
+from typing import Optional, List
 import secrets
 from pathlib import Path
 
@@ -77,8 +78,8 @@ class MessageConfig:
     # Seed value if seed_flag is False
     input_seed: Optional[int] = field(default=None)
 
-    # Random seed value if seed_flag is True, set in __post_init__
-    seed: Optional[int] = field(default=None)
+    # Character candidate type (e.g., "digit", "lower", "upper", "ascii", "alphanumeric", "all")
+    candidate: Optional[str] = field(default=None)
 
     def __post_init__(self):
         if self.length <= 0 or self.length % 8 != 0:
@@ -89,6 +90,11 @@ class MessageConfig:
             assert self.input_seed is not None, "input_seed must be provided if seed_flag is False"
             object.__setattr__(self, "seed", 0 if self.input_seed is None else self.input_seed)
 
+        if self.candidate is None:
+            raise ValueError("Character candidate must be specified")
+        if self.message_flag:
+            self.select_candidate_list()
+
     def __getattribute__(self, name):
         try:
             ret = super().__getattribute__(name)
@@ -96,7 +102,7 @@ class MessageConfig:
             raise ValueError(f"MessageConfig has no attribute '{name}'.") from exc
 
         fields = object.__getattribute__(self, "__dataclass_fields__")
-        _allowed_uninitialized = {"input_seed", "seed"} # seed 관련 필드는 상황에 따라 None일 수 있음
+        _allowed_uninitialized = {"input_seed", "candidate"}
         if name in fields and ret is None and name not in _allowed_uninitialized:
             raise ValueError(f"MessageConfig attribute '{name}' is not initialized.")
         return ret
@@ -109,7 +115,9 @@ class MessageConfig:
             f"  random_flag: {self.random_flag},\n"
             f"  seed_flag: {self.seed_flag},\n"
             f"  input_seed: {self.input_seed if self.input_seed is not None else 'None'},\n"
-            f"  seed: {self.seed}\n")
+            f"  seed: {self.seed},\n"
+            f"  candidate: {self.candidate},\n"
+            f"  candidate_list: {self.candidate_list}\n")
 
     @staticmethod
     def help() -> str:
@@ -123,7 +131,9 @@ class MessageConfig:
             "  random_flag: True to generate random message/bits, False to use input_seed.\n"
             "  seed_flag: True to set random seed, False to use input_seed.\n"
             "  input_seed: Seed value if seed_flag is False (currently unavailable).\n"
-            "  seed: Random seed value if seed_flag is True, set in __post_init__.\n")
+            "  seed: Random seed value if seed_flag is True, set in __post_init__.\n"
+            "  candidate: Character candidate type.\n"
+            "  candidate_list: List of characters based on the specified candidate type.\n")
 
     def update(self, **kwargs) -> MessageConfig:
         """
@@ -131,6 +141,38 @@ class MessageConfig:
         """
         updated = replace(self, **kwargs)
         return updated
+
+    def select_candidate_list(self) -> List[str]:
+        """
+        Get the candidate list based on the specified candidate type.
+        """
+
+        if self.candidate is None:
+            raise ValueError("candidate is not set.")
+
+        candidate_lower = self.candidate.lower()
+        if candidate_lower == "digit": # 0-9
+            object.__setattr__(self, "candidate_list", \
+                            list(string.digits)) # bypass frozen
+        elif candidate_lower == "lower": # a-z
+            object.__setattr__(self, "candidate_list", \
+                            list(string.ascii_lowercase)) # bypass frozen
+        elif candidate_lower == "upper": # A-Z
+            object.__setattr__(self, "candidate_list", \
+                            list(string.ascii_uppercase)) # bypass frozen
+        elif candidate_lower == "ascii": # 0-9a-zA-Z
+            object.__setattr__(self, "candidate_list", \
+                            list(string.ascii_letters)) # bypass frozen
+        elif candidate_lower == "alphanumeric": # 0-9a-zA-Z
+            object.__setattr__(self, "candidate_list", \
+                            list(string.ascii_letters + string.digits)) # bypass frozen
+        elif candidate_lower == "all": # 0-9a-zA-Z and punctuation
+            object.__setattr__(self, "candidate_list", \
+                            list(string.printable.strip())) # bypass frozen
+        else:
+            raise ValueError(f"Unsupported candidate type: {self.candidate}."
+                            "Use 'digit', 'lower', 'upper', 'ascii', 'alphanumeric', or 'all'.")
+
 
 @dataclass(frozen=True)
 class HeaderConstants:

@@ -12,7 +12,7 @@ import torch
 from diffusion_hash_inv.config import ImgConfig
 from diffusion_hash_inv.logger import Logs
 from diffusion_hash_inv.utils.file_io import FileIO
-from diffusion_hash_inv.main.context import RuntimeConfig
+from diffusion_hash_inv.config import RuntimeConfig
 
 class Byte2EMNIST:
     """

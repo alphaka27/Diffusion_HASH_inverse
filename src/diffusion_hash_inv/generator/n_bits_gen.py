@@ -7,11 +7,11 @@ from secrets import randbits
 import math
 from typing import Optional, TYPE_CHECKING
 
-from diffusion_hash_inv.config import MessageConfig, HashConfig
+from diffusion_hash_inv.config import RuntimeConfig
 from diffusion_hash_inv.logger import Logs
 from diffusion_hash_inv.utils.file_io import FileIO
 if TYPE_CHECKING:
-    from diffusion_hash_inv.main.context import RuntimeConfig
+    from diffusion_hash_inv.config import MessageConfig, HashConfig
 
 class NBitsGenerator:
     """
@@ -19,7 +19,7 @@ class NBitsGenerator:
     """
 
     def __init__(self, runtime_config: RuntimeConfig,
-                io_controller: FileIO, program_start_time:str) -> None:
+                io_controller: FileIO, program_start_time: str) -> None:
         self.runtime_config = runtime_config
         self.msg_cfg: MessageConfig = runtime_config.message
         self.hash_cfg: HashConfig = runtime_config.hash
@@ -94,6 +94,10 @@ class NBitsGenerator:
     def generate(self, value: Optional[int] = None) -> bytes:
         """
         Generate n bits data and print its hexadecimal and binary representations.
+
+        Args:
+            value (Optional[int]): 
+                If random_flag is False, this value will be used to generate the data.
         """
         gen_bytes = None
         temp_bytes = None

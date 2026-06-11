@@ -17,6 +17,13 @@ from diffusion_hash_inv.logger import Logs
 
 
 class BetaScheduler:
+    """
+    BetaScheduler for calculating beta schedules based on the mean SN values obtained from the logs. 
+    It provides two approaches for scheduling: 
+        1. Rescaling the mean SN values to the original beta range using min-max normalization.
+        2. Using a linear equation to map SN to beta.
+
+    """
     def __init__(self, beta_min, beta_max, sn_array):
         self.sn_array = sn_array
         self.beta_min = beta_min
