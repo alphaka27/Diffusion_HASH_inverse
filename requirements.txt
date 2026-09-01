@@ -10,7 +10,6 @@ coverage==7.13.5
 cycler==0.12.1
 debugpy==1.8.16
 decorator==5.2.1
--e git+https://github.com/andy0000-droid/Diffusion_HASH_inverse.git@5bc22ba63208fc0ad476ef4d4f50f51515930c43#egg=diffusion_hash_inverse
 et_xmlfile==2.0.0
 executing==2.2.1
 filelock==3.19.1

@@ -9,7 +9,7 @@ from typing import Any, Optional, List
 
 from diffusion_hash_inv.logger import Metadata, BaseLogs, StepLogs
 from diffusion_hash_inv.config import \
-    (MainConfig, HashConfig, MessageConfig, OutputConfig)
+    (MainConfig, HashConfig, MessageConfig, OutputConfig, ImageConfig)
 from diffusion_hash_inv.validation import config_validate
 
 @dataclass
@@ -61,6 +61,7 @@ class RuntimeConfig:
     message: MessageConfig
     hash: HashConfig
     output: OutputConfig
+    image: ImageConfig
     checklist: List[str] = field(init=False, \
                                 default_factory=lambda: ["length"])
 
@@ -86,6 +87,7 @@ class RuntimeConfig:
             indent_block(self.message),
             indent_block(self.hash),
             indent_block(self.output),
+            indent_block(self.image),
         ))
 
     @classmethod
@@ -102,7 +104,8 @@ class RuntimeConfig:
             ),
             message=MessageConfig(length=128),
             hash=HashConfig(hash_alg="MD5", length=128),
-            output=OutputConfig()
+            output=OutputConfig(),
+            image=ImageConfig(grid_size=[10, 10], grid=[2, 2], encoding_method="grid")
         )
 
     def main_update(self, main_config: MainConfig) -> RuntimeConfig:
@@ -137,7 +140,9 @@ class RuntimeConfig:
         self,
         main_config: Optional[MainConfig] = None,
         message_config: Optional[MessageConfig] = None,
-        hash_config: Optional[HashConfig] = None) -> RuntimeConfig:
+        hash_config: Optional[HashConfig] = None,
+        image_config: Optional[ImageConfig] = None
+        ) -> RuntimeConfig:
         """
         Update the configuration context with new configurations
         """
@@ -147,6 +152,8 @@ class RuntimeConfig:
             object.__setattr__(self, "message", message_config)
         if hash_config is not None:
             object.__setattr__(self, "hash", hash_config)
+        if image_config is not None:
+            object.__setattr__(self, "image", image_config)
 
         config_validate(self.message, self.hash,
                 key=self.checklist)

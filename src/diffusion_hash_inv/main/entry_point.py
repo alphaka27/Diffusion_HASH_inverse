@@ -7,7 +7,7 @@ from typing import Optional
 
 from tqdm import tqdm
 
-from diffusion_hash_inv.logger import Logs, Metadata, BaseLogs, StepLogs
+from diffusion_hash_inv.logger import Logs, Metadata, BaseLogs, StepLogs, TimeHelper
 from diffusion_hash_inv.config \
     import (MainConfig, MessageConfig, HashConfig, OutputConfig)
 from diffusion_hash_inv.generator import NBitsGenerator
@@ -23,7 +23,7 @@ class MainEP:
     """
 
     def __init__(self, runtime_config: RuntimeConfig, file_controller: Optional[FileIO] = None):
-        self.program_start_time = Logs.get_current_timestamp()
+        self.program_start_time = TimeHelper.get_current_timestamp()
 
         self.runtime_cfg: RuntimeConfig = runtime_config
         self.main_cfg: MainConfig = runtime_config.main

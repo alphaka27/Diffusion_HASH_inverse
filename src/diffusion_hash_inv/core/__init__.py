@@ -6,14 +6,10 @@ Common classes and utilities for diffusion_hash_inv.
 """
 
 from .base_calc import BaseCalc
-from .rgb_type import RGB, RGBA, RGBBinning
 from .fix_class_var import FreezeClassVar
 
 __all__ = [
     "BaseCalc",
-    "RGB",
-    "RGBA",
-    "RGBBinning",
     "FreezeClassVar",
 ]
 # EOF

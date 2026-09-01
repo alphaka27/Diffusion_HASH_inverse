@@ -8,7 +8,7 @@ from importlib.metadata import version, PackageNotFoundError
 from diffusion_hash_inv.core import BaseCalc
 from diffusion_hash_inv.logger import Logs
 
-from diffusion_hash_inv.main import RuntimeState, RuntimeConfig
+from diffusion_hash_inv.config import RuntimeState, RuntimeConfig
 from diffusion_hash_inv.main import MainEP
 
 __all__ = [

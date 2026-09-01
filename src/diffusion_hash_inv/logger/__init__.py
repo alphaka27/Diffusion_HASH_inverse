@@ -11,13 +11,15 @@ Provides classes and functions for logging hash computation steps and metadata.
 
 """
 
-from .logger import BaseLogs, StepLogs, Metadata, Logs
+from .logger import BaseLogs, StepLogs, Metadata, Logs, TimeHelper
 from .md5_logger import MD5RoundTrace, MD5Step4Trace, MD5Logger
+
 __all__ = [
     "BaseLogs",
     "StepLogs",
     "Metadata",
     "Logs",
+    "TimeHelper",
     "MD5RoundTrace",
     "MD5Step4Trace",
     "MD5Logger",
