@@ -1,9 +1,9 @@
-"""
-해싱 구현 (SHA-256 등)
-"""
+"""Hash implementations and execution-trace entry points."""
 
-from .md5 import MD5
+from .trace import HashTracer, register_hash_function, trace_hash
 
 __all__ = [
-    "MD5"
+    "HashTracer",
+    "register_hash_function",
+    "trace_hash",
 ]
