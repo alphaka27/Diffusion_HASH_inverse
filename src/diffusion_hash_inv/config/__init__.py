@@ -1,17 +1,5 @@
-"""
-Configuration package for Diffusion Hash Inversion project.
-"""
+"""Application configuration modules."""
 
-from .main_config import MainConfig, OutputConfig, HeaderConstants, MessageConfig
-from .rgb_config import Byte2RGBConfig, ImgConfig
-from .hash_config import HashConfig
+from .configuration import CHARACTER_GROUPS, select_characters
 
-__all__ = [
-    "HashConfig",
-    "MainConfig",
-    "MessageConfig",
-    "OutputConfig",
-    "HeaderConstants",
-    "Byte2RGBConfig",
-    "ImgConfig",
-]
+__all__ = ["CHARACTER_GROUPS", "select_characters"]
