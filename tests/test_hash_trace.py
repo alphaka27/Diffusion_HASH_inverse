@@ -128,6 +128,7 @@ class HashTraceTests(unittest.TestCase):
                 trace = json.load(trace_file)
 
         self.assertEqual(exit_code, 0)
+        self.assertEqual(trace["algorithm"], "md5")
         self.assertEqual(
             bytes.fromhex(trace["input"]["hex"]).decode(),
             generate_message(24, select_characters("lowercase", "digits"), seed="test-seed"),

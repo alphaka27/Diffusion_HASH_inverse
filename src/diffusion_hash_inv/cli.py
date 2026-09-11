@@ -28,9 +28,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--algorithm",
         "-a",
-        default="sha256",
+        default="md5",
         choices=("md5", "sha256", "sha-256"),
-        help="hash algorithm to use (default: sha256)",
+        help="hash algorithm to use (default: md5)",
     )
     input_group = parser.add_mutually_exclusive_group(required=True)
     input_group.add_argument(
