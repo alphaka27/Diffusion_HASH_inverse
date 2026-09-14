@@ -1,8 +1,8 @@
 # Diffusion Model을 이용한 Hash 역상 탐색 실험 계획
 
-- 문서 상태: 계획 수립 완료, 모델·인코더·평가 파이프라인 미구현
+- 문서 상태: BGV 인코더·디코더 구현 완료, 모델·데이터셋·평가 파이프라인 미구현
 - 작성일: 2026-09-04
-- 최종 수정일: 2026-09-11
+- 최종 수정일: 2026-09-14
 - 주 실험: E1·E2 — hash caption 조건부 이미지 diffusion
 - 길이 정보 추가 실험: E1-L·E2-L — hash와 원본 byte 길이를 caption으로 제공
 - 표현 방식 비교 실험: E3·E4 — digest bit 조건부 Bit Diffusion
@@ -66,7 +66,7 @@ E1-L·E2-L은 대응하는 E1·E2와의 성능 차이와, 같은 길이 정보�
 
 `임의 길이`는 무한 길이가 아니라 사전에 정한 범위 안의 가변 길이를 뜻한다. 1~2 byte 입력은 작은 도메인을 전수 조사하는 sanity check에서 별도로 사용한다.
 
-유효한 후보는 length header가 1~31인 record로 decode되는 byte sequence이다. printable 실험에서 후보가 위의 94개 문자(공백 제외)에 속하는지는 `InDomainPreimageSuccess@K`로도 따로 기록한다. zero padding은 메시지에 포함하지 않으며 canonical image/record 일치 지표에서 별도로 평가한다.
+유효한 후보는 BGV length glyph가 4~31로 decode되고 validity mask가 header·payload와 일치하는 byte sequence이다. printable 실험에서 후보가 위의 94개 문자(공백 제외)에 속하는지는 `InDomainPreimageSuccess@K`로도 따로 기록한다. padding은 glyph 값이 아니라 validity mask로만 구분하며, payload의 `0x00`은 유효한 값이다.
 
 ### 3.2 해시와 난이도 단계
 
@@ -88,14 +88,9 @@ MD5의 알려진 collision 약점과 fixed-target preimage 탐색은 서로 다�
 
 ### 3.3 가역 이미지 인코딩 $E$
 
-이미지 실험은 OCR이나 JPEG 손실을 측정하지 않도록 다음의 단순한 canonical encoding을 사용한다.
+이미지 실험은 Byte Glyph Visualization (BGV)을 canonical encoding으로 사용한다. `[LEN][B00]...[B30]`의 32 slot을 4x8로 고정 배치하고, 각 byte는 MSB-first 2x4 glyph를 4x4 pixel block으로 확장한다. 따라서 glyph channel은 32x128이며, slot 전체가 1인 validity-mask channel을 함께 사용해 payload `0x00`과 padding을 구분한다. 모델 입력·출력은 `[2, 32, 128]`이고, 확산 모델이 `[-1, 1]` convention이면 BGV의 `[0, 1]` 값만 `image * 2 - 1`로 변환한다. 저장이 필요하면 lossless PNG만 사용한다.
 
-1. `uint8(payload_length) || payload || zero_padding`으로 32-byte record를 만든다. payload의 최대 길이는 31 bytes이다.
-2. 256-bit record를 MSB-first bit sequence로 변환한다.
-3. bit를 16x16 binary raster에 row-major로 배치한다.
-4. 저장이 필요하면 lossless PNG만 사용한다.
-
-학습 전에 printable과 bytes 각각에 대해 `decode(E(x)) == x`가 전 표본에서 성립해야 한다. 생성 이미지는 pixel을 0.5에서 threshold한 뒤 decode한다. 따라서 raw floating-point pixel equality가 아니라 threshold 후 canonical image equality를 측정한다.
+학습 전에 printable과 bytes 각각에 대해 `decode(E(x)) == x`가 전 표본에서 성립해야 한다. 생성 이미지는 glyph block과 mask cell 평균을 0.5에서 threshold하고, length 범위와 mask 일관성을 검증해 decode한다. 따라서 raw floating-point pixel equality가 아니라 threshold 후 canonical image equality를 측정한다.
 
 ### 3.4 데이터 생성과 분할
 
@@ -128,7 +123,7 @@ $K=1{,}000$은 본 확정 실험에 포함하지 않는다. $K=100$에서 3개 m
 
 ### 3.5 모델 원칙
 
-- 주 실험 E1·E2: 작은 pixel-space conditional diffusion을 사용한다. 정확 복원을 방해하는 lossy VAE/latent compression은 사용하지 않는다.
+- 주 실험 E1·E2: `[2, 32, 128]` BGV tensor를 입출력하는 작은 pixel-space conditional diffusion을 사용한다. 정확 복원을 방해하는 lossy VAE/latent compression은 사용하지 않는다.
 - 추가 실험 E1-L·E2-L: 대응하는 E1·E2의 모델 구조·크기·optimizer update 수·sampling 설정을 사용하고, 학습·validation·test의 caption에 길이를 추가한다. 각 model seed에서 대응 모델과 같은 초기 가중치로 시작해 별도로 학습하며, 학습된 E1·E2에 추론 시에만 길이 문자열을 붙이지 않는다.
 - 비교 실험 E3·E4: payload record의 bit를 `{-1, +1}` 연속값으로 확산한 뒤 0에서 threshold하는 conditional Bit Diffusion을 우선 사용한다.
 - 모델 크기, optimizer update 수, sampling step 수는 validation split에서 한 번 정한 뒤 같은 모델 계열(이미지: E1·E2·E1-L·E2-L, 이진: E3·E4)과 test 평가 동안 고정한다.
@@ -166,7 +161,7 @@ E1·E2만 실패하고 대응하는 E3·E4가 성공할 때에만, image 모델�
 - Caption은 `<algorithm>-<q>:<hex digest>|len_bytes=<L>`로 고정한다. $L$은 앞자리 0이 없는 십진수로 표기한다. 예를 들어 4-byte payload의 full MD5 caption은 `md5-128:<32자리 hex digest>|len_bytes=4`이다.
 - 실제 원본 길이를 학습·validation·test에서 모두 제공한다. 별도의 길이 추정기는 사용하지 않으며, 원본 bytes나 해시 내부 trace는 제공하지 않는다.
 - 대응 모델 쌍은 길이 필드에 필요한 문자까지 포함한 같은 고정 character vocabulary, caption 최대 길이, padding·mask 규칙, encoder 구조를 사용한다. E1·E2의 caption에는 길이 값을 넣지 않는다. 모델·학습 설정은 대응 쌍에 공통으로 고정하고, 같은 seed의 데이터 순서와 평가 noise seed 목록을 맞춘다.
-- 출력은 기존의 length header를 포함한 32-byte record의 16x16 이미지이며, threshold와 decoder도 동일하게 사용한다. 제공된 $L$로 header를 덮어쓰거나 payload를 잘라내거나 padding을 강제하지 않는다.
+- 출력은 length glyph와 validity mask를 포함한 `[2, 32, 128]` BGV 이미지이며, threshold와 decoder도 동일하게 사용한다. 제공된 $L$로 length glyph를 덮어쓰거나 payload를 잘라내거나 mask를 강제하지 않는다.
 - 길이가 맞지 않는 후보도 한 번의 생성 시도로 계산한다. 유효하게 decode되고 목표 해시가 같으면 공통 `PreimageSuccess@K`에는 성공으로 세되, 제공 길이까지 일치해야 하는 `LengthMatchedPreimageSuccess@K`에는 실패로 센다. 길이 불일치·invalid decode를 이유로 추가 표집하지 않는다.
 
 길이 정보의 효과는 같은 target·대표 원본·$K$에서 `E1-L − E1`, `E2-L − E2`의 `PreimageSuccess@K` 차이로 보고한다. 길이 일치 지표도 양쪽 모델의 후보에 같은 $L_i$로 계산한다. 다만 hash-only 모델의 검증에 쓰는 $L_i$는 모델 입력으로 전달하지 않는다.
