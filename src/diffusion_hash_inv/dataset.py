@@ -1,0 +1,176 @@
+"""Deterministic source data, digest targets, and leakage-safe splits."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import random
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import Literal, Mapping, Sequence
+
+from .encoding.cgge import PRINTABLE94
+
+
+SourceDistribution = Literal["printable", "random_bytes"]
+
+
+def normalize_algorithm(algorithm: str) -> str:
+    """Return the two experiment algorithms in hashlib's canonical spelling."""
+    normalized = algorithm.lower().replace("-", "").replace("_", "")
+    if normalized not in {"md5", "sha256"}:
+        raise ValueError("algorithm must be md5 or sha256")
+    return normalized
+
+
+def digest_prefix_hex(digest: bytes, q: int) -> str:
+    """Return exactly the first q bits as a zero-padded hexadecimal key."""
+    if not 1 <= q <= len(digest) * 8:
+        raise ValueError("q must be within the digest length")
+    byte_count = (q + 7) // 8
+    value = int.from_bytes(digest[:byte_count], "big") >> (byte_count * 8 - q)
+    return f"{value:0{(q + 3) // 4}x}"
+
+
+def hash_caption(algorithm: str, q: int, digest: bytes, *, length: int | None = None) -> str:
+    """Build the fixed text condition used by image experiments."""
+    caption = f"{normalize_algorithm(algorithm)}-{q}:{digest_prefix_hex(digest, q)}"
+    return caption if length is None else f"{caption}|len_bytes={length}"
+
+
+@dataclass(frozen=True)
+class SourceSpec:
+    distribution: SourceDistribution
+    size: int
+    seed: int = 0
+    min_length: int = 4
+    max_length: int = 31
+
+    def __post_init__(self) -> None:
+        if self.distribution not in {"printable", "random_bytes"}:
+            raise ValueError("unsupported source distribution")
+        if self.size < 1 or self.min_length < 0 or self.min_length > self.max_length:
+            raise ValueError("invalid source size or length range")
+
+
+@dataclass(frozen=True)
+class DigestRecord:
+    id: int
+    source: SourceDistribution
+    message: bytes
+    algorithm: str
+    q: int
+    digest: bytes
+
+    @property
+    def prefix(self) -> str:
+        return digest_prefix_hex(self.digest, self.q)
+
+    @property
+    def caption(self) -> str:
+        return hash_caption(self.algorithm, self.q, self.digest)
+
+    def to_json(self, split: str) -> dict[str, object]:
+        return {
+            "id": self.id,
+            "split": split,
+            "source": self.source,
+            "message_hex": self.message.hex(),
+            "length": len(self.message),
+            "algorithm": self.algorithm,
+            "q": self.q,
+            "full_digest": self.digest.hex(),
+            "prefix": self.prefix,
+            "caption": self.caption,
+        }
+
+
+def generate_source_messages(spec: SourceSpec) -> tuple[bytes, ...]:
+    """Generate a unique, deterministic source corpus without storing RNG state."""
+    rng = random.Random(spec.seed)
+    messages: set[bytes] = set()
+    alphabet = PRINTABLE94.encode("ascii")
+    while len(messages) < spec.size:
+        length = rng.randint(spec.min_length, spec.max_length)
+        if spec.distribution == "printable":
+            message = bytes(alphabet[rng.randrange(len(alphabet))] for _ in range(length))
+        else:
+            message = rng.randbytes(length)
+        messages.add(message)
+    return tuple(sorted(messages))
+
+
+def build_digest_records(
+    messages: Sequence[bytes], *, source: SourceDistribution, algorithm: str, q: int
+) -> tuple[DigestRecord, ...]:
+    """Attach one full digest and q-bit condition to each source message."""
+    algorithm = normalize_algorithm(algorithm)
+    digest_prefix_hex(hashlib.new(algorithm).digest(), q)
+    records = []
+    for identifier, message in enumerate(messages):
+        digest = hashlib.new(algorithm, message).digest()
+        records.append(DigestRecord(identifier, source, message, algorithm, q, digest))
+    return tuple(records)
+
+
+def split_digest_groups(
+    records: Sequence[DigestRecord], *, seed: int, ratios: tuple[float, float, float] = (0.8, 0.1, 0.1)
+) -> Mapping[str, tuple[DigestRecord, ...]]:
+    """Split whole truncated-digest groups so a condition never crosses splits."""
+    if len(ratios) != 3 or any(ratio <= 0 for ratio in ratios) or abs(sum(ratios) - 1) > 1e-9:
+        raise ValueError("ratios must be three positive values summing to one")
+    groups: dict[str, list[DigestRecord]] = {}
+    for record in records:
+        groups.setdefault(record.prefix, []).append(record)
+    if records and any((record.algorithm, record.q) != (records[0].algorithm, records[0].q) for record in records):
+        raise ValueError("all records in one split must share algorithm and q")
+    names = ("train", "validation", "test")
+    targets = [len(records) * ratio for ratio in ratios]
+    counts = [0, 0, 0]
+    items = list(groups.items())
+    random.Random(seed).shuffle(items)
+    result: dict[str, list[DigestRecord]] = {name: [] for name in names}
+    for _, group in items:
+        index = max(range(3), key=lambda candidate: (targets[candidate] - counts[candidate], -candidate))
+        result[names[index]].extend(group)
+        counts[index] += len(group)
+    return {name: tuple(result[name]) for name in names}
+
+
+def write_split(
+    split: Mapping[str, Sequence[DigestRecord]], output_dir: str | Path, *, source_spec: SourceSpec, split_seed: int
+) -> None:
+    """Persist one JSONL data artifact and its minimal reproducibility manifest."""
+    target = Path(output_dir)
+    target.mkdir(parents=True, exist_ok=True)
+    with (target / "records.jsonl").open("w", encoding="utf-8") as output:
+        for name in ("train", "validation", "test"):
+            for record in split.get(name, ()):
+                output.write(json.dumps(record.to_json(name), sort_keys=True) + "\n")
+    first = next((record for records in split.values() for record in records), None)
+    if first is None:
+        raise ValueError("split must contain at least one record")
+    if any((record.algorithm, record.q) != (first.algorithm, first.q) for records in split.values() for record in records):
+        raise ValueError("all records in one artifact must share algorithm and q")
+    manifest = {
+        "source": asdict(source_spec),
+        "split_seed": split_seed,
+        "algorithm": first.algorithm,
+        "q": first.q,
+        "counts": {name: len(records) for name, records in split.items()},
+        "caption_format": "<algorithm>-<q>:<hex digest>",
+    }
+    (target / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+__all__ = [
+    "DigestRecord",
+    "SourceSpec",
+    "build_digest_records",
+    "digest_prefix_hex",
+    "generate_source_messages",
+    "hash_caption",
+    "normalize_algorithm",
+    "split_digest_groups",
+    "write_split",
+]
