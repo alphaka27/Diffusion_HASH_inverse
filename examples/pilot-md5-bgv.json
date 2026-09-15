@@ -1,0 +1,21 @@
+{
+  "representation": "bgv",
+  "source": "printable",
+  "algorithm": "md5",
+  "q": 8,
+  "dataset_size": 12000,
+  "data_seed": 0,
+  "split_seed": 0,
+  "model_seed": 0,
+  "k": 1,
+  "method": "diffusion",
+  "condition_mode": "hash",
+  "training_steps": 1000,
+  "batch_size": 64,
+  "learning_rate": 0.001,
+  "diffusion_steps": 100,
+  "sampling_steps": 100,
+  "width": 32,
+  "condition_dim": 256,
+  "device": "cpu"
+}

@@ -6,6 +6,7 @@ import hashlib
 import json
 import random
 from dataclasses import asdict, dataclass
+from itertools import combinations
 from pathlib import Path
 from typing import Literal, Mapping, Sequence
 
@@ -137,6 +138,42 @@ def split_digest_groups(
     return {name: tuple(result[name]) for name in names}
 
 
+def select_digest_representatives(records: Sequence[DigestRecord]) -> tuple[DigestRecord, ...]:
+    """Choose one deterministic source record for every q-bit digest target."""
+    representatives: dict[str, DigestRecord] = {}
+    for record in records:
+        current = representatives.get(record.prefix)
+        if current is None or record.id < current.id:
+            representatives[record.prefix] = record
+    return tuple(representatives[prefix] for prefix in sorted(representatives))
+
+
+def split_validation_report(split: Mapping[str, Sequence[DigestRecord]]) -> dict[str, object]:
+    """Return the G0 overlap audit for a one-algorithm, one-q split."""
+    names = ("train", "validation", "test")
+    partitions = {name: tuple(split.get(name, ())) for name in names}
+    pairs = {}
+    passed = True
+    for left, right in combinations(names, 2):
+        messages = {record.message for record in partitions[left]} & {record.message for record in partitions[right]}
+        digests = {record.prefix for record in partitions[left]} & {record.prefix for record in partitions[right]}
+        passed &= not messages and not digests
+        pairs[f"{left}_{right}"] = {
+            "message_overlap_count": len(messages),
+            "message_examples_hex": [message.hex() for message in sorted(messages)[:3]],
+            "digest_overlap_count": len(digests),
+            "digest_examples": sorted(digests)[:3],
+        }
+    settings = {(record.algorithm, record.q) for records in partitions.values() for record in records}
+    return {
+        "passed": passed and len(settings) <= 1,
+        "algorithm_q_consistent": len(settings) <= 1,
+        "pairwise": pairs,
+        "record_counts": {name: len(records) for name, records in partitions.items()},
+        "unique_digest_counts": {name: len({record.prefix for record in records}) for name, records in partitions.items()},
+    }
+
+
 def write_split(
     split: Mapping[str, Sequence[DigestRecord]], output_dir: str | Path, *, source_spec: SourceSpec, split_seed: int
 ) -> None:
@@ -171,6 +208,8 @@ __all__ = [
     "generate_source_messages",
     "hash_caption",
     "normalize_algorithm",
+    "select_digest_representatives",
+    "split_validation_report",
     "split_digest_groups",
     "write_split",
 ]
