@@ -21,6 +21,7 @@ from .cgge import (
     glyph_for_character,
     glyph_table_checksum,
 )
+from .bits import DirectBitsConfig, DirectBitsDecoder, DirectBitsEncoder
 
 __all__ = [
     "BGVConfig",
@@ -40,4 +41,7 @@ __all__ = [
     "PRINTABLE94",
     "glyph_for_character",
     "glyph_table_checksum",
+    "DirectBitsConfig",
+    "DirectBitsDecoder",
+    "DirectBitsEncoder",
 ]

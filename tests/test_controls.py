@@ -15,7 +15,7 @@ def _targets() -> tuple:
 
 def test_reversible_controls_use_the_real_bgv_and_cgge_decoders() -> None:
     targets = _targets()
-    for representation in ("bgv", "cgge"):
+    for representation in ("bgv", "cgge", "bits"):
         result = score_attempts(targets, representation_control(targets, representation=representation, kind="reversible", k=2), k=2)
         assert result.preimage_success_at_k == result.exact_source_recovery_at_k == 1.0
         assert result.hash_verification_count == len(targets) * 2

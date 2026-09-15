@@ -49,4 +49,25 @@ def source_prior_random_search(
     return tuple(attempts)
 
 
-__all__ = ["source_prior_random_search"]
+def nearest_training_digest(
+    targets: Sequence[DigestRecord], training_records: Sequence[DigestRecord], *, k: int
+) -> tuple[tuple[CandidateAttempt, ...], ...]:
+    """Return the closest q-bit training digest record as a leakage diagnostic."""
+    if k < 1 or not training_records:
+        raise ValueError("candidate budget must be positive and training records non-empty")
+    if targets and any(
+        (record.algorithm, record.q) != (targets[0].algorithm, targets[0].q) for record in training_records
+    ):
+        raise ValueError("targets and training records must share algorithm and q")
+    attempts = []
+    for target in targets:
+        target_prefix = int(target.prefix, 16)
+        closest = min(
+            training_records,
+            key=lambda record: ((int(record.prefix, 16) ^ target_prefix).bit_count(), record.id),
+        )
+        attempts.append(tuple(CandidateAttempt(closest.message, True) for _ in range(k)))
+    return tuple(attempts)
+
+
+__all__ = ["nearest_training_digest", "source_prior_random_search"]

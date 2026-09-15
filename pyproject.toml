@@ -8,10 +8,15 @@ version = "0.1.0"
 description = "JSON-serialisable MD5 and SHA-256 execution traces"
 requires-python = ">=3.10"
 authors = [{ name = "Choi SoonWook" }]
-dependencies = ["torch>=2.0"]
+dependencies = [
+    "numpy>=2.2.6",
+    "torch>=2.0",
+]
 
 [project.scripts]
 hash-trace = "diffusion_hash_inv.cli:main"
+hash-inverse-experiment = "diffusion_hash_inv.experiment_cli:main"
+hash-inverse-validate = "diffusion_hash_inv.validation_cli:main"
 
 [dependency-groups]
 dev = ["pytest>=8"]

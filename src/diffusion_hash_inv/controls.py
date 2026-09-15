@@ -6,11 +6,11 @@ import random
 from typing import Literal, Sequence
 
 from .dataset import DigestRecord
-from .encoding import BGVDecoder, BGVEncoder, CGGEDecoder, CGGEEncoder
+from .encoding import BGVDecoder, BGVEncoder, CGGEDecoder, CGGEEncoder, DirectBitsDecoder, DirectBitsEncoder
 from .evaluation import CandidateAttempt
 
 
-Representation = Literal["bgv", "cgge"]
+Representation = Literal["bgv", "cgge", "bits"]
 
 
 def _round_trip(message: bytes, representation: Representation) -> CandidateAttempt:
@@ -18,8 +18,10 @@ def _round_trip(message: bytes, representation: Representation) -> CandidateAtte
         decoded = BGVDecoder().decode(BGVEncoder().encode(message))
     elif representation == "cgge":
         decoded = CGGEDecoder().decode(CGGEEncoder().encode(message))
+    elif representation == "bits":
+        decoded = DirectBitsDecoder().decode(DirectBitsEncoder().encode(message))
     else:  # pragma: no cover - Literal plus public input validation
-        raise ValueError("representation must be bgv or cgge")
+        raise ValueError("representation must be bgv, cgge, or bits")
     return CandidateAttempt(decoded.message, decoded.valid, decoded.reason)
 
 
