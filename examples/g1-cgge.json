@@ -1,0 +1,16 @@
+{
+  "representation": "cgge",
+  "source": "printable",
+  "seed": 0,
+  "training_steps": 1500,
+  "batch_size": 16,
+  "learning_rate": 0.001,
+  "diffusion_steps": 50,
+  "sampling_steps": 50,
+  "beta_end": 0.4,
+  "prediction_type": "sample",
+  "width": 8,
+  "evaluation_interval": 500,
+  "sampling_seeds": [0, 1, 2],
+  "device": "cpu"
+}
