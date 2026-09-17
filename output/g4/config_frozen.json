@@ -1,0 +1,47 @@
+{
+  "K": [
+    1,
+    10,
+    100
+  ],
+  "alphabet": "ABCD",
+  "baseline_seed": 4200,
+  "bootstrap_seed": 4300,
+  "condition": "8 digest bits only; no message, length, target index or oracle lookup in generator. Dense existing hash BitDenoiser, width32 (internal128).",
+  "criterion": "Independent oracle/evaluator agreement for every domain candidate/target prefix; no train/test message or digest overlap; correct prefix ordering; generated prefix match equals in-domain oracle membership; at least one valid held-out preimage at K=100. Zero preimages => FAIL, without config changes.",
+  "distribution": "Uniform over 256 enumerated messages, digest-group split; toy only; does not replace main Printable94 distribution.",
+  "domain_size": 256,
+  "experiment": {
+    "algorithm": "md5",
+    "batch_size": 16,
+    "beta_end": 0.4,
+    "condition_dim": 8,
+    "condition_mode": "hash",
+    "data_seed": 4000,
+    "dataset_size": 256,
+    "device": "cpu",
+    "diffusion_steps": 50,
+    "k": 100,
+    "learning_rate": 0.001,
+    "length_conditioning": false,
+    "method": "diffusion",
+    "model_seed": 0,
+    "prediction_type": "sample",
+    "q": 8,
+    "representation": "bits",
+    "sampling_steps": 50,
+    "source": "printable",
+    "split_seed": 4001,
+    "test_limit": null,
+    "training_steps": 1500,
+    "width": 32
+  },
+  "length": 4,
+  "model_seeds": [
+    0
+  ],
+  "sampling_seed": 4100,
+  "smoke": "Train seed0 once, evaluate first three validation targets with K=10; integrity only, no efficacy adaptation.",
+  "split_seed": 4001,
+  "validity": "Codec valid AND exactly four bytes from ABCD; invalid and duplicates consume one attempt. No repair."
+}

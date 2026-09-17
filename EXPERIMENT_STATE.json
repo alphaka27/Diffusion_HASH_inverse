@@ -1,5 +1,5 @@
 {
-  "active_config": "output/g3/config_frozen.json",
+  "active_config": "output/g4/config_frozen.json",
   "active_model_seed": 0,
   "active_sampling_seed": 2,
   "completed_actions": [
@@ -139,16 +139,52 @@
     "G3 bits seed0 sampling0 complete",
     "G3 bits seed0 sampling1 complete",
     "G3 bits seed0 sampling2 complete",
-    "G3 bits seed0 PASS"
+    "G3 bits seed0 PASS",
+    "G3 bgv seed0 sampling0 complete",
+    "G3 bgv seed0 sampling1 complete",
+    "G3 bgv seed0 sampling2 complete",
+    "G3 bgv seed0 PASS",
+    "G3 cgge seed0 sampling0 complete",
+    "G3 cgge seed0 sampling1 complete",
+    "G3 cgge seed0 sampling2 complete",
+    "G3 cgge seed0 PASS",
+    "G3 bits seed1 sampling0 complete",
+    "G3 bits seed1 sampling1 complete",
+    "G3 bits seed1 sampling2 complete",
+    "G3 bits seed1 PASS",
+    "G3 bgv seed1 sampling0 complete",
+    "G3 bgv seed1 sampling1 complete",
+    "G3 bgv seed1 sampling2 complete",
+    "G3 bgv seed1 PASS",
+    "G3 cgge seed1 sampling0 complete",
+    "G3 cgge seed1 sampling1 complete",
+    "G3 cgge seed1 sampling2 complete",
+    "G3 cgge seed1 PASS",
+    "G3 bits seed2 sampling0 complete",
+    "G3 bits seed2 sampling1 complete",
+    "G3 bits seed2 sampling2 complete",
+    "G3 bits seed2 PASS",
+    "G3 bgv seed2 sampling0 complete",
+    "G3 bgv seed2 sampling1 complete",
+    "G3 bgv seed2 sampling2 complete",
+    "G3 bgv seed2 PASS",
+    "G3 cgge seed2 sampling0 complete",
+    "G3 cgge seed2 sampling1 complete",
+    "G3 cgge seed2 sampling2 complete",
+    "G3 cgge seed2 PASS",
+    "G3 PASS: All representations/seeds meet the frozen full/partial/L0 criteria.",
+    "G3 PASS; G4 toy setting frozen",
+    "G4 oracle implementation and full regression PASS",
+    "G4 exhaustive oracle and split audit PASS"
   ],
-  "current_gate": "G3",
+  "current_gate": "G4",
   "current_stage": "VALIDATE",
   "failure_boundary": null,
   "gates": {
     "G0": "PASS",
     "G1": "PASS",
     "G2": "PASS",
-    "G3": "NOT_RUN",
+    "G3": "PASS",
     "G4": "NOT_RUN",
     "G5": "NOT_RUN",
     "G6": "NOT_RUN"
@@ -156,15 +192,15 @@
   "last_failed_command": null,
   "last_successful_command": ".venv/bin/python -m diffusion_hash_inv.information_ladder --all",
   "latest_artifacts": [
-    "output/g3/bits/seed-0/metrics.json"
+    "output/g4/oracle/audit.json"
   ],
-  "latest_test_result": "58 passed; independent encoding 2 passed",
+  "latest_test_result": "61 passed; independent encoding 2 passed",
   "pending_actions": [
-    "Implement and freeze G3 information ladder before evaluation."
+    "Implement and freeze G4 toy hash oracle and pipeline."
   ],
   "project": "diffusion-hash",
-  "resume_instruction": ".venv/bin/python -m diffusion_hash_inv.information_ladder --all",
+  "resume_instruction": ".venv/bin/python -m diffusion_hash_inv.toy_hash",
   "schema_version": 1,
-  "status": "READY",
-  "updated_at": "2026-09-17T14:05:45.292608+09:00"
+  "status": "RUNNING",
+  "updated_at": "2026-09-17T14:11:14.122383+09:00"
 }

@@ -1,0 +1,33 @@
+{
+  "criterion": "all representations/seeds: full exact >=.99; partial payload bit accuracy > L0; partial payload MSE < L0; partial output differs from L0; no side inputs/leakage",
+  "evaluation_split": "same 16 unseen G1 messages; full model inputs are x_T, timestep and masked condition only",
+  "gate": "G3",
+  "levels": [
+    1,
+    0.75,
+    0.5,
+    0.25,
+    0.125,
+    0
+  ],
+  "mask": "nested fixed permutation of 31 payload byte/glyph cells; floor(31*f) cells; same mask for every target; save effective fraction",
+  "mask_seed": 3100,
+  "metadata": "At partial levels remove ALL header/validity/reserved inputs; at L0 entire condition is zero. At 100% exact original condition.",
+  "model_seeds": [
+    0,
+    1,
+    2
+  ],
+  "primary_partial_level": 0.5,
+  "representations": [
+    "bits",
+    "bgv",
+    "cgge"
+  ],
+  "sampling_seeds": [
+    0,
+    1,
+    2
+  ],
+  "scientific_scope": "Partial reconstruction, including revealed content; does not test recovery of hidden bits beyond source prior or hash efficacy."
+}

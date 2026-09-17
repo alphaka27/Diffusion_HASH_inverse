@@ -1,0 +1,5 @@
+{
+  "gate": "G2",
+  "reason": "All three representations and three model seeds satisfy the frozen causal criteria.",
+  "status": "PASS"
+}

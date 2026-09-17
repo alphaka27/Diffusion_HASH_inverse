@@ -3666,3 +3666,1106 @@ Decision: READY
 
 Next exact action:
 - .venv/bin/python -m diffusion_hash_inv.information_ladder --all
+
+## 2026-09-17T14:06:05.845016+09:00
+
+Gate: G3
+Stage: RUN_SMALL
+
+Completed:
+- Stage started
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 58 passed; independent encoding 2 passed
+
+Artifacts:
+- 
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.information_ladder --all
+
+## 2026-09-17T14:06:17.605033+09:00
+
+Gate: G3
+Stage: VALIDATE
+
+Completed:
+- G3 bgv seed0 sampling0 complete
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 58 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g3/bgv/seed-0/sampling-0.json
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.information_ladder --all
+
+## 2026-09-17T14:06:29.149976+09:00
+
+Gate: G3
+Stage: VALIDATE
+
+Completed:
+- G3 bgv seed0 sampling1 complete
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 58 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g3/bgv/seed-0/sampling-1.json
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.information_ladder --all
+
+## 2026-09-17T14:06:36.234972+09:00
+
+Gate: G3
+Stage: VALIDATE
+
+Completed:
+- G3 bgv seed0 sampling2 complete
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 58 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g3/bgv/seed-0/sampling-2.json
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.information_ladder --all
+
+## 2026-09-17T14:06:36.245860+09:00
+
+Gate: G3
+Stage: VALIDATE
+
+Completed:
+- G3 bgv seed0 PASS
+
+Results:
+- Status: READY
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 58 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g3/bgv/seed-0/metrics.json
+
+Decision: READY
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.information_ladder --all
+
+## 2026-09-17T14:06:36.262815+09:00
+
+Gate: G3
+Stage: RUN_SMALL
+
+Completed:
+- Stage started
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 58 passed; independent encoding 2 passed
+
+Artifacts:
+- 
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.information_ladder --all
+
+## 2026-09-17T14:06:38.415226+09:00
+
+Gate: G3
+Stage: VALIDATE
+
+Completed:
+- G3 cgge seed0 sampling0 complete
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 58 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g3/cgge/seed-0/sampling-0.json
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.information_ladder --all
+
+## 2026-09-17T14:06:40.553167+09:00
+
+Gate: G3
+Stage: VALIDATE
+
+Completed:
+- G3 cgge seed0 sampling1 complete
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 58 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g3/cgge/seed-0/sampling-1.json
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.information_ladder --all
+
+## 2026-09-17T14:06:42.616259+09:00
+
+Gate: G3
+Stage: VALIDATE
+
+Completed:
+- G3 cgge seed0 sampling2 complete
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 58 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g3/cgge/seed-0/sampling-2.json
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.information_ladder --all
+
+## 2026-09-17T14:06:42.624509+09:00
+
+Gate: G3
+Stage: VALIDATE
+
+Completed:
+- G3 cgge seed0 PASS
+
+Results:
+- Status: READY
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 58 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g3/cgge/seed-0/metrics.json
+
+Decision: READY
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.information_ladder --all
+
+## 2026-09-17T14:06:42.630337+09:00
+
+Gate: G3
+Stage: RUN_FULL
+
+Completed:
+- Stage started
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 58 passed; independent encoding 2 passed
+
+Artifacts:
+- 
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.information_ladder --all
+
+## 2026-09-17T14:06:42.733438+09:00
+
+Gate: G3
+Stage: VALIDATE
+
+Completed:
+- G3 bits seed1 sampling0 complete
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 58 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g3/bits/seed-1/sampling-0.json
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.information_ladder --all
+
+## 2026-09-17T14:06:42.830780+09:00
+
+Gate: G3
+Stage: VALIDATE
+
+Completed:
+- G3 bits seed1 sampling1 complete
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 58 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g3/bits/seed-1/sampling-1.json
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.information_ladder --all
+
+## 2026-09-17T14:06:42.930431+09:00
+
+Gate: G3
+Stage: VALIDATE
+
+Completed:
+- G3 bits seed1 sampling2 complete
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 58 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g3/bits/seed-1/sampling-2.json
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.information_ladder --all
+
+## 2026-09-17T14:06:42.937016+09:00
+
+Gate: G3
+Stage: VALIDATE
+
+Completed:
+- G3 bits seed1 PASS
+
+Results:
+- Status: READY
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 58 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g3/bits/seed-1/metrics.json
+
+Decision: READY
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.information_ladder --all
+
+## 2026-09-17T14:06:42.942429+09:00
+
+Gate: G3
+Stage: RUN_FULL
+
+Completed:
+- Stage started
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 58 passed; independent encoding 2 passed
+
+Artifacts:
+- 
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.information_ladder --all
+
+## 2026-09-17T14:06:47.114426+09:00
+
+Gate: G3
+Stage: VALIDATE
+
+Completed:
+- G3 bgv seed1 sampling0 complete
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 58 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g3/bgv/seed-1/sampling-0.json
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.information_ladder --all
+
+## 2026-09-17T14:06:51.087591+09:00
+
+Gate: G3
+Stage: VALIDATE
+
+Completed:
+- G3 bgv seed1 sampling1 complete
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 58 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g3/bgv/seed-1/sampling-1.json
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.information_ladder --all
+
+## 2026-09-17T14:06:55.219878+09:00
+
+Gate: G3
+Stage: VALIDATE
+
+Completed:
+- G3 bgv seed1 sampling2 complete
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 58 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g3/bgv/seed-1/sampling-2.json
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.information_ladder --all
+
+## 2026-09-17T14:06:55.229043+09:00
+
+Gate: G3
+Stage: VALIDATE
+
+Completed:
+- G3 bgv seed1 PASS
+
+Results:
+- Status: READY
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 58 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g3/bgv/seed-1/metrics.json
+
+Decision: READY
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.information_ladder --all
+
+## 2026-09-17T14:06:55.233715+09:00
+
+Gate: G3
+Stage: RUN_FULL
+
+Completed:
+- Stage started
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 58 passed; independent encoding 2 passed
+
+Artifacts:
+- 
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.information_ladder --all
+
+## 2026-09-17T14:06:57.698392+09:00
+
+Gate: G3
+Stage: VALIDATE
+
+Completed:
+- G3 cgge seed1 sampling0 complete
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 58 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g3/cgge/seed-1/sampling-0.json
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.information_ladder --all
+
+## 2026-09-17T14:07:02.794150+09:00
+
+Gate: G3
+Stage: VALIDATE
+
+Completed:
+- G3 cgge seed1 sampling1 complete
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 58 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g3/cgge/seed-1/sampling-1.json
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.information_ladder --all
+
+## 2026-09-17T14:07:08.082513+09:00
+
+Gate: G3
+Stage: VALIDATE
+
+Completed:
+- G3 cgge seed1 sampling2 complete
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 58 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g3/cgge/seed-1/sampling-2.json
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.information_ladder --all
+
+## 2026-09-17T14:07:08.101726+09:00
+
+Gate: G3
+Stage: VALIDATE
+
+Completed:
+- G3 cgge seed1 PASS
+
+Results:
+- Status: READY
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 58 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g3/cgge/seed-1/metrics.json
+
+Decision: READY
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.information_ladder --all
+
+## 2026-09-17T14:07:08.117309+09:00
+
+Gate: G3
+Stage: RUN_FULL
+
+Completed:
+- Stage started
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 58 passed; independent encoding 2 passed
+
+Artifacts:
+- 
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.information_ladder --all
+
+## 2026-09-17T14:07:08.371907+09:00
+
+Gate: G3
+Stage: VALIDATE
+
+Completed:
+- G3 bits seed2 sampling0 complete
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 58 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g3/bits/seed-2/sampling-0.json
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.information_ladder --all
+
+## 2026-09-17T14:07:08.649537+09:00
+
+Gate: G3
+Stage: VALIDATE
+
+Completed:
+- G3 bits seed2 sampling1 complete
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 58 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g3/bits/seed-2/sampling-1.json
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.information_ladder --all
+
+## 2026-09-17T14:07:08.946819+09:00
+
+Gate: G3
+Stage: VALIDATE
+
+Completed:
+- G3 bits seed2 sampling2 complete
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 58 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g3/bits/seed-2/sampling-2.json
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.information_ladder --all
+
+## 2026-09-17T14:07:08.961918+09:00
+
+Gate: G3
+Stage: VALIDATE
+
+Completed:
+- G3 bits seed2 PASS
+
+Results:
+- Status: READY
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 58 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g3/bits/seed-2/metrics.json
+
+Decision: READY
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.information_ladder --all
+
+## 2026-09-17T14:07:08.971682+09:00
+
+Gate: G3
+Stage: RUN_FULL
+
+Completed:
+- Stage started
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 58 passed; independent encoding 2 passed
+
+Artifacts:
+- 
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.information_ladder --all
+
+## 2026-09-17T14:07:19.350694+09:00
+
+Gate: G3
+Stage: VALIDATE
+
+Completed:
+- G3 bgv seed2 sampling0 complete
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 58 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g3/bgv/seed-2/sampling-0.json
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.information_ladder --all
+
+## 2026-09-17T14:07:30.687036+09:00
+
+Gate: G3
+Stage: VALIDATE
+
+Completed:
+- G3 bgv seed2 sampling1 complete
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 58 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g3/bgv/seed-2/sampling-1.json
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.information_ladder --all
+
+## 2026-09-17T14:07:41.647803+09:00
+
+Gate: G3
+Stage: VALIDATE
+
+Completed:
+- G3 bgv seed2 sampling2 complete
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 58 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g3/bgv/seed-2/sampling-2.json
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.information_ladder --all
+
+## 2026-09-17T14:07:41.673451+09:00
+
+Gate: G3
+Stage: VALIDATE
+
+Completed:
+- G3 bgv seed2 PASS
+
+Results:
+- Status: READY
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 58 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g3/bgv/seed-2/metrics.json
+
+Decision: READY
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.information_ladder --all
+
+## 2026-09-17T14:07:41.695198+09:00
+
+Gate: G3
+Stage: RUN_FULL
+
+Completed:
+- Stage started
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 58 passed; independent encoding 2 passed
+
+Artifacts:
+- 
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.information_ladder --all
+
+## 2026-09-17T14:07:47.026934+09:00
+
+Gate: G3
+Stage: VALIDATE
+
+Completed:
+- G3 cgge seed2 sampling0 complete
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 58 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g3/cgge/seed-2/sampling-0.json
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.information_ladder --all
+
+## 2026-09-17T14:07:52.435156+09:00
+
+Gate: G3
+Stage: VALIDATE
+
+Completed:
+- G3 cgge seed2 sampling1 complete
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 58 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g3/cgge/seed-2/sampling-1.json
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.information_ladder --all
+
+## 2026-09-17T14:07:57.596384+09:00
+
+Gate: G3
+Stage: VALIDATE
+
+Completed:
+- G3 cgge seed2 sampling2 complete
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 58 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g3/cgge/seed-2/sampling-2.json
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.information_ladder --all
+
+## 2026-09-17T14:07:57.614059+09:00
+
+Gate: G3
+Stage: VALIDATE
+
+Completed:
+- G3 cgge seed2 PASS
+
+Results:
+- Status: READY
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 58 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g3/cgge/seed-2/metrics.json
+
+Decision: READY
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.information_ladder --all
+
+## 2026-09-17T14:07:57.620532+09:00
+
+Gate: G3
+Stage: DECIDE/CHECKPOINT
+
+Completed:
+- G3 PASS: All representations/seeds meet the frozen full/partial/L0 criteria.
+
+Results:
+- Status: READY
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 58 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g3/gate_summary.json
+- output/g3/report.md
+
+Decision: READY
+
+Next exact action:
+- Implement and freeze G4 toy hash oracle and pipeline.
+
+## 2026-09-17T14:10:53.838792+09:00
+
+Gate: G4
+Stage: IMPLEMENT
+
+Completed:
+- G3 PASS; G4 toy setting frozen
+
+Results:
+- Status: READY
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 58 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g3/report.md
+- output/g4/config_frozen.json
+
+Decision: READY
+
+Next exact action:
+- Implement G4 independent oracle, exhaustive consistency tests and candidate evaluation.
+
+## 2026-09-17T14:11:11.279113+09:00
+
+Gate: G4
+Stage: TEST
+
+Completed:
+- G4 oracle implementation and full regression PASS
+
+Results:
+- Status: READY
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 61 passed; independent encoding 2 passed
+
+Artifacts:
+- output/session_checkpoints/g4_pytest.log
+- output/g4/config_frozen.json
+
+Decision: READY
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.toy_hash
+
+## 2026-09-17T14:11:14.122383+09:00
+
+Gate: G4
+Stage: VALIDATE
+
+Completed:
+- G4 exhaustive oracle and split audit PASS
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 61 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g4/oracle/audit.json
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.toy_hash

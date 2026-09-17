@@ -1,0 +1,65 @@
+{
+  "gates": [
+    {
+      "artifact": "output/g0-seed0/metrics.json",
+      "gate": "G0",
+      "status": "PASS"
+    },
+    {
+      "artifacts": [
+        "output/g1-bits-seed0/gate_results.json",
+        "output/g1-bgv-seed0/gate_results.json",
+        "output/g1-cgge-seed0/gate_results.json"
+      ],
+      "gate": "G1-A",
+      "status": "PASS"
+    },
+    {
+      "artifacts": [
+        "output/g1-bits-seed0/gate_results.json",
+        "output/g1-bgv-seed0/gate_results.json",
+        "output/g1-cgge-seed0/gate_results.json"
+      ],
+      "gate": "G1-B",
+      "status": "PASS"
+    },
+    {
+      "artifacts": [
+        "output/g1-bits-seed0/gate_results.json",
+        "output/g1-bgv-seed0/gate_results.json",
+        "output/g1-cgge-seed0/gate_results.json"
+      ],
+      "gate": "G1-C",
+      "status": "PASS"
+    },
+    {
+      "artifact": "output/g2/gate_summary.json",
+      "gate": "G2",
+      "status": "PASS"
+    },
+    {
+      "artifact": "output/g3/gate_summary.json",
+      "gate": "G3",
+      "status": "PASS"
+    },
+    {
+      "gate": "G4",
+      "status": "NOT RUN"
+    },
+    {
+      "gate": "G5",
+      "status": "NOT RUN"
+    },
+    {
+      "gate": "G6",
+      "status": "NOT RUN"
+    }
+  ],
+  "model_seed": 0,
+  "sampling_seeds": [
+    0,
+    1,
+    2
+  ],
+  "torch_version": "2.14.0"
+}

@@ -1,0 +1,80 @@
+{
+  "bits": {
+    "correct_matches_G1": true,
+    "absolute_metric_differences": {
+      "test": {
+        "bit_accuracy": 0.0,
+        "byte_accuracy": 0.0,
+        "exact_recovery_rate": 0.0,
+        "reconstruction_mse": 1.5158245210249166e-12,
+        "valid_decode_rate": 0.0
+      },
+      "train": {
+        "bit_accuracy": 0.0,
+        "byte_accuracy": 0.0,
+        "exact_recovery_rate": 0.0,
+        "reconstruction_mse": 4.168517392160939e-12,
+        "valid_decode_rate": 0.0
+      },
+      "validation": {
+        "bit_accuracy": 0.0,
+        "byte_accuracy": 0.0,
+        "exact_recovery_rate": 0.0,
+        "reconstruction_mse": 4.850638418490635e-12,
+        "valid_decode_rate": 0.0
+      }
+    }
+  },
+  "bgv": {
+    "correct_matches_G1": true,
+    "absolute_metric_differences": {
+      "test": {
+        "bit_accuracy": 0.0,
+        "byte_accuracy": 0.0,
+        "exact_recovery_rate": 0.0,
+        "reconstruction_mse": 5.1538033281166296e-12,
+        "valid_decode_rate": 0.0
+      },
+      "train": {
+        "bit_accuracy": 0.0,
+        "byte_accuracy": 0.0,
+        "exact_recovery_rate": 0.0,
+        "reconstruction_mse": 1.3036090761552044e-11,
+        "valid_decode_rate": 0.0
+      },
+      "validation": {
+        "bit_accuracy": 0.0,
+        "byte_accuracy": 0.0,
+        "exact_recovery_rate": 0.0,
+        "reconstruction_mse": 2.516268676712105e-11,
+        "valid_decode_rate": 0.0
+      }
+    }
+  },
+  "cgge": {
+    "correct_matches_G1": true,
+    "absolute_metric_differences": {
+      "test": {
+        "bit_accuracy": 0.0,
+        "byte_accuracy": 0.0,
+        "exact_recovery_rate": 0.0,
+        "reconstruction_mse": 4.123042651651282e-11,
+        "valid_decode_rate": 0.0
+      },
+      "train": {
+        "bit_accuracy": 0.0,
+        "byte_accuracy": 0.0,
+        "exact_recovery_rate": 0.0,
+        "reconstruction_mse": 1.0610772243485611e-12,
+        "valid_decode_rate": 0.0
+      },
+      "validation": {
+        "bit_accuracy": 0.0,
+        "byte_accuracy": 0.0,
+        "exact_recovery_rate": 0.0,
+        "reconstruction_mse": 1.2126596059779116e-11,
+        "valid_decode_rate": 0.0
+      }
+    }
+  }
+}
