@@ -214,7 +214,8 @@
     "Generate direct_predictor_K1",
     "direct_predictor_K1: exact budget and oracle agreement validated",
     "G5 INCONCLUSIVE: Frozen efficacy criteria not met; interval includes zero or evidence lacks precision.",
-    "G2 PASS, G3 PASS, G4 PASS, G5 INCONCLUSIVE; final report saved; G6 NOT RUN"
+    "G2 PASS, G3 PASS, G4 PASS, G5 INCONCLUSIVE; final report saved; G6 NOT RUN",
+    "Final milestone 8fa1006 committed; 628 artifact hash checks and 83 prerequisite files verified; Git staging retry resolved."
   ],
   "current_gate": "G5",
   "current_stage": "FINAL CHECKPOINT",
@@ -229,13 +230,12 @@
     "G5": "INCONCLUSIVE",
     "G6": "NOT_RUN"
   },
-  "last_failed_command": "git add EXPERIMENT_STATE.json EXPERIMENT_PROGRESS.md NEXT_ACTION.md EXPERIMENT_DECISIONS.md src/diffusion_hash_inv/experiment_state.py src/diffusion_hash_inv/conditional_dependence.py tests/test_conditional_dependence.py && git commit -m 'g2: add resumable paired condition intervention and seed0 validation'",
-  "last_successful_command": ".venv/bin/python -m diffusion_hash_inv.information_ladder --all",
+  "last_failed_command": "git add EXPERIMENT_STATE.json EXPERIMENT_PROGRESS.md NEXT_ACTION.md EXPERIMENT_DECISIONS.md EXPERIMENT_G2_TO_G6_REPORT.md src/diffusion_hash_inv/experiment_state.py src/diffusion_hash_inv/candidate_budget.py tests/test_candidate_budget.py output/gate_summary.json && git add -f output/g4/gate_summary.json output/g4/report.md output/g5/gate_summary.json output/g5/report.md output/g5/config_frozen.json output/g5/statistics output/session_checkpoints/final_artifact_sha256.json output/session_checkpoints/final_verification.json output/session_checkpoints/final_pytest.log output/session_checkpoints/final_independent.log output/session_checkpoints/environment.json output/session_checkpoints/git_operations.json && git commit -m 'g5: record inconclusive matched-budget screen and fail-stop G6'",
+  "last_successful_command": ".venv/bin/python -m diffusion_hash_inv.experiment_state --verify",
   "latest_artifacts": [
     "EXPERIMENT_G2_TO_G6_REPORT.md",
-    "output/gate_summary.json",
-    "output/g5/statistics/comparisons.json",
-    "output/session_checkpoints/final_pytest.log"
+    "output/session_checkpoints/final_verification.json",
+    "output/session_checkpoints/git_operations.json"
   ],
   "latest_test_result": "65 passed; independent encoding 2 passed",
   "pending_actions": [],
@@ -244,5 +244,5 @@
   "resume_instruction": ".venv/bin/python -m diffusion_hash_inv.experiment_state --verify",
   "schema_version": 1,
   "status": "STOPPED",
-  "updated_at": "2026-09-17T14:18:54.046481+09:00"
+  "updated_at": "2026-09-17T14:20:51.357481+09:00"
 }

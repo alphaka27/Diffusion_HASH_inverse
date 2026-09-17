@@ -5751,3 +5751,30 @@ Decision: STOPPED
 
 Next exact action:
 - .venv/bin/python -m diffusion_hash_inv.experiment_state --verify
+
+## 2026-09-17T14:20:51.357481+09:00
+
+Gate: G5
+Stage: FINAL CHECKPOINT
+
+Completed:
+- Final milestone 8fa1006 committed; 628 artifact hash checks and 83 prerequisite files verified; Git staging retry resolved.
+
+Results:
+- Status: STOPPED
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 65 passed; independent encoding 2 passed
+
+Artifacts:
+- EXPERIMENT_G2_TO_G6_REPORT.md
+- output/session_checkpoints/final_verification.json
+- output/session_checkpoints/git_operations.json
+
+Decision: STOPPED
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.experiment_state --verify

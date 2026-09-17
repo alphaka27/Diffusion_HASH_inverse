@@ -1,6 +1,11 @@
 {
   "failed_command": "git add EXPERIMENT_STATE.json EXPERIMENT_PROGRESS.md NEXT_ACTION.md EXPERIMENT_DECISIONS.md src/diffusion_hash_inv/experiment_state.py src/diffusion_hash_inv/conditional_dependence.py tests/test_conditional_dependence.py && git commit -m 'g2: add resumable paired condition intervention and seed0 validation'",
   "failure": "Sandbox denied .git/index.lock write",
+  "final_staging_retry": {
+    "error": "Ignored output path rejected by git staging",
+    "failed_command": "git add EXPERIMENT_STATE.json EXPERIMENT_PROGRESS.md NEXT_ACTION.md EXPERIMENT_DECISIONS.md EXPERIMENT_G2_TO_G6_REPORT.md src/diffusion_hash_inv/experiment_state.py src/diffusion_hash_inv/candidate_budget.py tests/test_candidate_budget.py output/gate_summary.json && git add -f output/g4/gate_summary.json output/g4/report.md output/g5/gate_summary.json output/g5/report.md output/g5/config_frozen.json output/g5/statistics output/session_checkpoints/final_artifact_sha256.json output/session_checkpoints/final_verification.json output/session_checkpoints/final_pytest.log output/session_checkpoints/final_independent.log output/session_checkpoints/environment.json output/session_checkpoints/git_operations.json && git commit -m 'g5: record inconclusive matched-budget screen and fail-stop G6'",
+    "resolution": "Explicit forced file paths succeeded; final milestone commit 8fa1006"
+  },
   "initial_worktree": "clean",
   "resolution": "Authorized escalation succeeded; dcbca1b"
 }
