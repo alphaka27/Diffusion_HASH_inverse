@@ -92,3 +92,39 @@ def experiment_lock():
             yield
         finally:
             fcntl.flock(stream, fcntl.LOCK_UN)
+
+
+def verify_persisted_state():
+    verify_prerequisites()
+    state=json.loads(Path('EXPERIMENT_STATE.json').read_text())
+    root=json.loads(Path('output/gate_summary.json').read_text())
+    for row in root['gates']:
+        name=row['gate']
+        if name in state['gates']:
+            assert row['status'].replace(' ','_')==state['gates'][name], f'Gate state mismatch: {name}'
+    checked=0
+    for folder in ('g2','g3','g4','g5'):
+        for marker in Path('output',folder).rglob('complete.json'):
+            for name,digest in json.loads(marker.read_text())['sha256'].items():
+                assert sha256(marker.parent/name)==digest, f'Run artifact mismatch: {marker.parent/name}'
+                checked+=1
+    final=Path('output/session_checkpoints/final_artifact_sha256.json')
+    if final.exists():
+        for name,digest in json.loads(final.read_text()).items():
+            assert sha256(name)==digest, f'Final artifact mismatch: {name}'
+            checked+=1
+    for gate,status in state['gates'].items():
+        if int(gate[1:])>=2 and status!='NOT_RUN':
+            summary=json.loads(Path(f'output/{gate.lower()}/gate_summary.json').read_text())
+            assert summary['status']==status
+    if state['gates']['G5']!='PASS':
+        assert state['gates']['G6']=='NOT_RUN'
+    return dict(status='PASS',artifact_hash_checks=checked,prerequisite_files=len(json.loads(Path('output/session_checkpoints/prerequisite_sha256.json').read_text())),gates=state['gates'],experiment_status=state['status'])
+
+
+if __name__=='__main__':
+    import argparse
+    parser=argparse.ArgumentParser(description='Read-only verification of persistent experiment state and artifacts.')
+    parser.add_argument('--verify',action='store_true',required=True)
+    parser.parse_args()
+    print(json.dumps(verify_persisted_state(),sort_keys=True))
