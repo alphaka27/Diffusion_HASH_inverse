@@ -64,6 +64,8 @@ class ExperimentConfig:
     learning_rate: float = 1e-3
     diffusion_steps: int = 100
     sampling_steps: int = 100
+    beta_end: float = 0.02
+    prediction_type: Literal["epsilon", "sample"] = "epsilon"
     width: int = 32
     condition_dim: int = 256
     test_limit: int | None = None
@@ -84,13 +86,15 @@ class ExperimentConfig:
             raise ValueError("Direct Bits has no separate length-conditioning ablation")
         if self.method == "predictor" and self.k != 1:
             raise ValueError("the deterministic predictor is only a K=1 baseline")
-        if self.dataset_size < 3 or self.k < 1 or self.training_steps < 1 or self.batch_size < 1:
+        if self.dataset_size < 1 or self.k < 1 or self.training_steps < 1 or self.batch_size < 1:
             raise ValueError("dataset size, budget, training steps, and batch size must be positive")
         if (
             self.diffusion_steps < 2
             or self.sampling_steps < 1
             or self.sampling_steps > self.diffusion_steps
             or self.learning_rate <= 0
+            or not 1e-4 < self.beta_end < 1
+            or self.prediction_type not in {"epsilon", "sample"}
             or self.width < 2
             or self.condition_dim < 1
             or self.test_limit is not None and self.test_limit < 1
@@ -134,11 +138,12 @@ def _digest_condition(record: DigestRecord, config: ExperimentConfig) -> Tensor:
 
 
 def _record_condition(record: DigestRecord, config: ExperimentConfig) -> Tensor:
-    bits = DirectBitsEncoder().encode(record.message).flatten()
-    if len(bits) > config.condition_dim:
+    encoder, _, _ = _codec(config.representation)
+    value = encoder.encode(record.message).flatten()
+    if len(value) > config.condition_dim:
         raise ValueError("condition_dim is too small for the reversible record")
     condition = torch.zeros(config.condition_dim, dtype=torch.float32)
-    condition[: len(bits)] = bits
+    condition[: len(value)] = value
     return condition
 
 
@@ -169,8 +174,14 @@ def _codec(representation: Representation):
 
 def _build_model(config: ExperimentConfig, shape: tuple[int, ...]):
     if config.representation == "bits":
-        return BitDenoiser(shape[0] * shape[1], config.condition_dim, width=max(64, config.width * 4))
-    return ImageUNet(shape[0], config.condition_dim, width=config.width)
+        return BitDenoiser(
+            shape[0] * shape[1],
+            config.condition_dim,
+            width=max(64, config.width * 4),
+            aligned_condition=config.condition_mode == "reversible_record" and config.condition_dim == prod(shape),
+        )
+    condition_shape = shape if config.condition_mode == "reversible_record" and config.condition_dim == prod(shape) else None
+    return ImageUNet(shape[0], config.condition_dim, width=config.width, condition_shape=condition_shape)
 
 
 def _training_data(records: Sequence[DigestRecord], config: ExperimentConfig, encoder, device: torch.device) -> tuple[Tensor, Tensor]:
@@ -185,7 +196,12 @@ def _train(
     model.train()
     optimizer = torch.optim.Adam(model.parameters(), lr=config.learning_rate)
     generator = torch.Generator(device=device).manual_seed(config.model_seed)
-    diffusion = GaussianDiffusion(config.diffusion_steps, device=device)
+    diffusion = GaussianDiffusion(
+        config.diffusion_steps,
+        beta_end=config.beta_end,
+        prediction_type=config.prediction_type,
+        device=device,
+    )
     loss = torch.tensor(float("nan"))
     for _ in range(config.training_steps):
         indices = torch.randint(len(values), (config.batch_size,), device=device, generator=generator)
@@ -329,7 +345,11 @@ def run_experiment(config: ExperimentConfig, output_dir: str | Path) -> Experime
         "glyph_distance_metric": "mse" if config.representation == "cgge" else None,
         "glyph_valid_threshold": decoder.config.glyph_valid_threshold if config.representation == "cgge" else None,
         "mask_threshold": decoder.config.mask_threshold if config.representation in {"bgv", "cgge"} else None,
-        "condition_format": "digest_bits" if config.representation == "bits" else "ascii_caption_bytes",
+        "condition_format": (
+            "encoded_record"
+            if config.condition_mode == "reversible_record"
+            else "digest_bits" if config.representation == "bits" else "ascii_caption_bytes"
+        ),
         "torch_version": torch.__version__,
         "training_loss": training_loss,
         "run_gates": {
