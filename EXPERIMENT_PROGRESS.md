@@ -4769,3 +4769,985 @@ Decision: RUNNING
 
 Next exact action:
 - .venv/bin/python -m diffusion_hash_inv.toy_hash
+
+## 2026-09-17T14:11:16.503874+09:00
+
+Gate: G4
+Stage: RUN_SMALL training
+
+Completed:
+- G4 seed0 training step250
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 61 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g4/experiments/seed-0/training_resume.pt
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.toy_hash
+
+## 2026-09-17T14:11:16.596895+09:00
+
+Gate: G4
+Stage: RUN_SMALL training
+
+Completed:
+- G4 seed0 training step500
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 61 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g4/experiments/seed-0/training_resume.pt
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.toy_hash
+
+## 2026-09-17T14:11:16.686904+09:00
+
+Gate: G4
+Stage: RUN_SMALL training
+
+Completed:
+- G4 seed0 training step750
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 61 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g4/experiments/seed-0/training_resume.pt
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.toy_hash
+
+## 2026-09-17T14:11:16.774900+09:00
+
+Gate: G4
+Stage: RUN_SMALL training
+
+Completed:
+- G4 seed0 training step1000
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 61 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g4/experiments/seed-0/training_resume.pt
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.toy_hash
+
+## 2026-09-17T14:11:16.866504+09:00
+
+Gate: G4
+Stage: RUN_SMALL training
+
+Completed:
+- G4 seed0 training step1250
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 61 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g4/experiments/seed-0/training_resume.pt
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.toy_hash
+
+## 2026-09-17T14:11:16.954744+09:00
+
+Gate: G4
+Stage: RUN_SMALL training
+
+Completed:
+- G4 seed0 training step1500
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 61 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g4/experiments/seed-0/training_resume.pt
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.toy_hash
+
+## 2026-09-17T14:11:16.963621+09:00
+
+Gate: G4
+Stage: RUN_SMALL
+
+Completed:
+- G4 validation target 09 complete
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 61 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g4/experiments/seed-0/validation-target-09.json
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.toy_hash
+
+## 2026-09-17T14:11:16.970176+09:00
+
+Gate: G4
+Stage: RUN_SMALL
+
+Completed:
+- G4 validation target 2e complete
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 61 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g4/experiments/seed-0/validation-target-2e.json
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.toy_hash
+
+## 2026-09-17T14:11:16.976725+09:00
+
+Gate: G4
+Stage: RUN_SMALL
+
+Completed:
+- G4 validation target 42 complete
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 61 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g4/experiments/seed-0/validation-target-42.json
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.toy_hash
+
+## 2026-09-17T14:11:16.978225+09:00
+
+Gate: G4
+Stage: VALIDATE
+
+Completed:
+- G4 validation smoke integrity PASS; no parameter adaptation
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 61 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g4/experiments/seed-0/smoke_metrics.json
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.toy_hash
+
+## 2026-09-17T14:11:16.998116+09:00
+
+Gate: G4
+Stage: RUN_FULL
+
+Completed:
+- G4 test target 04 complete
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 61 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g4/experiments/seed-0/test-target-04.json
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.toy_hash
+
+## 2026-09-17T14:11:17.019048+09:00
+
+Gate: G4
+Stage: RUN_FULL
+
+Completed:
+- G4 test target 16 complete
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 61 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g4/experiments/seed-0/test-target-16.json
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.toy_hash
+
+## 2026-09-17T14:11:17.042772+09:00
+
+Gate: G4
+Stage: RUN_FULL
+
+Completed:
+- G4 test target 23 complete
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 61 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g4/experiments/seed-0/test-target-23.json
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.toy_hash
+
+## 2026-09-17T14:11:17.077045+09:00
+
+Gate: G4
+Stage: RUN_FULL
+
+Completed:
+- G4 test target 2b complete
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 61 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g4/experiments/seed-0/test-target-2b.json
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.toy_hash
+
+## 2026-09-17T14:11:17.098524+09:00
+
+Gate: G4
+Stage: RUN_FULL
+
+Completed:
+- G4 test target 3c complete
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 61 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g4/experiments/seed-0/test-target-3c.json
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.toy_hash
+
+## 2026-09-17T14:11:17.119014+09:00
+
+Gate: G4
+Stage: RUN_FULL
+
+Completed:
+- G4 test target 60 complete
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 61 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g4/experiments/seed-0/test-target-60.json
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.toy_hash
+
+## 2026-09-17T14:11:17.139659+09:00
+
+Gate: G4
+Stage: RUN_FULL
+
+Completed:
+- G4 test target 70 complete
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 61 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g4/experiments/seed-0/test-target-70.json
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.toy_hash
+
+## 2026-09-17T14:11:17.161424+09:00
+
+Gate: G4
+Stage: RUN_FULL
+
+Completed:
+- G4 test target 82 complete
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 61 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g4/experiments/seed-0/test-target-82.json
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.toy_hash
+
+## 2026-09-17T14:11:17.183623+09:00
+
+Gate: G4
+Stage: RUN_FULL
+
+Completed:
+- G4 test target 87 complete
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 61 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g4/experiments/seed-0/test-target-87.json
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.toy_hash
+
+## 2026-09-17T14:11:17.207477+09:00
+
+Gate: G4
+Stage: RUN_FULL
+
+Completed:
+- G4 test target 88 complete
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 61 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g4/experiments/seed-0/test-target-88.json
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.toy_hash
+
+## 2026-09-17T14:11:17.232673+09:00
+
+Gate: G4
+Stage: RUN_FULL
+
+Completed:
+- G4 test target b0 complete
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 61 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g4/experiments/seed-0/test-target-b0.json
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.toy_hash
+
+## 2026-09-17T14:11:17.258547+09:00
+
+Gate: G4
+Stage: RUN_FULL
+
+Completed:
+- G4 test target ba complete
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 61 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g4/experiments/seed-0/test-target-ba.json
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.toy_hash
+
+## 2026-09-17T14:11:17.285669+09:00
+
+Gate: G4
+Stage: RUN_FULL
+
+Completed:
+- G4 test target c0 complete
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 61 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g4/experiments/seed-0/test-target-c0.json
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.toy_hash
+
+## 2026-09-17T14:11:17.312205+09:00
+
+Gate: G4
+Stage: RUN_FULL
+
+Completed:
+- G4 test target da complete
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 61 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g4/experiments/seed-0/test-target-da.json
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.toy_hash
+
+## 2026-09-17T14:11:17.341142+09:00
+
+Gate: G4
+Stage: RUN_FULL
+
+Completed:
+- G4 test target e2 complete
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 61 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g4/experiments/seed-0/test-target-e2.json
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.toy_hash
+
+## 2026-09-17T14:11:17.370663+09:00
+
+Gate: G4
+Stage: RUN_FULL
+
+Completed:
+- G4 test target e6 complete
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 61 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g4/experiments/seed-0/test-target-e6.json
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.toy_hash
+
+## 2026-09-17T14:11:17.400672+09:00
+
+Gate: G4
+Stage: RUN_FULL
+
+Completed:
+- G4 test target eb complete
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 61 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g4/experiments/seed-0/test-target-eb.json
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.toy_hash
+
+## 2026-09-17T14:11:17.430317+09:00
+
+Gate: G4
+Stage: RUN_FULL
+
+Completed:
+- G4 test target f5 complete
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 61 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g4/experiments/seed-0/test-target-f5.json
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.toy_hash
+
+## 2026-09-17T14:11:17.453970+09:00
+
+Gate: G4
+Stage: DECIDE/CHECKPOINT
+
+Completed:
+- G4 PASS: Oracle agreement, no leakage and at least one held-out preimage.
+
+Results:
+- Status: READY
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 61 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g4/gate_summary.json
+- output/g4/report.md
+
+Decision: READY
+
+Next exact action:
+- Freeze and implement G5 matched-budget baseline comparison.
+
+## 2026-09-17T14:14:31.977696+09:00
+
+Gate: G5
+Stage: IMPLEMENT
+
+Completed:
+- G4 PASS; G5 efficacy screen frozen
+
+Results:
+- Status: READY
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 61 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g4/report.md
+- output/g5/config_frozen.json
+
+Decision: READY
+
+Next exact action:
+- Implement matched-budget baselines and paired target accounting tests.
+
+## 2026-09-17T14:14:48.729248+09:00
+
+Gate: G5
+Stage: TEST
+
+Completed:
+- G5 budget/target-pairing tests and full regression PASS
+
+Results:
+- Status: READY
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 64 passed; independent encoding 2 passed
+
+Artifacts:
+- output/session_checkpoints/g5_pytest.log
+- output/g5/config_frozen.json
+
+Decision: READY
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.candidate_budget
+
+## 2026-09-17T14:14:49.662813+09:00
+
+Gate: G5
+Stage: RUN_FULL
+
+Completed:
+- Generate uniform_random
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 64 passed; independent encoding 2 passed
+
+Artifacts:
+- 
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.candidate_budget
+
+## 2026-09-17T14:14:49.676407+09:00
+
+Gate: G5
+Stage: VALIDATE
+
+Completed:
+- uniform_random: exact budget and oracle agreement validated
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 64 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g5/uniform_random/per_target.jsonl
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.candidate_budget
+
+## 2026-09-17T14:14:49.677811+09:00
+
+Gate: G5
+Stage: RUN_FULL
+
+Completed:
+- Generate source_prior
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 64 passed; independent encoding 2 passed
+
+Artifacts:
+- 
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.candidate_budget
+
+## 2026-09-17T14:14:49.692849+09:00
+
+Gate: G5
+Stage: VALIDATE
+
+Completed:
+- source_prior: exact budget and oracle agreement validated
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 64 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g5/source_prior/per_target.jsonl
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.candidate_budget
+
+## 2026-09-17T14:14:49.694310+09:00
+
+Gate: G5
+Stage: RUN_SMALL
+
+Completed:
+- Generate direct_predictor_K1
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 64 passed; independent encoding 2 passed
+
+Artifacts:
+- 
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.candidate_budget
+
+## 2026-09-17T14:14:50.664158+09:00
+
+Gate: G5
+Stage: VALIDATE
+
+Completed:
+- direct_predictor_K1: exact budget and oracle agreement validated
+
+Results:
+- Status: RUNNING
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 64 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g5/direct_predictor_K1/per_target.jsonl
+
+Decision: RUNNING
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.candidate_budget
+
+## 2026-09-17T14:14:50.752690+09:00
+
+Gate: G5
+Stage: DECIDE/CHECKPOINT
+
+Completed:
+- G5 INCONCLUSIVE: Frozen efficacy criteria not met; interval includes zero or evidence lacks precision.
+
+Results:
+- Status: STOPPED
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 64 passed; independent encoding 2 passed
+
+Artifacts:
+- output/g5/gate_summary.json
+- output/g5/report.md
+
+Decision: STOPPED
+
+Next exact action:
+- STOP. G6 NOT RUN. Read EXPERIMENT_G2_TO_G6_REPORT.md.
+
+## 2026-09-17T14:18:54.046481+09:00
+
+Gate: G5
+Stage: FINAL CHECKPOINT
+
+Completed:
+- G2 PASS, G3 PASS, G4 PASS, G5 INCONCLUSIVE; final report saved; G6 NOT RUN
+
+Results:
+- Status: STOPPED
+
+Files changed:
+- State/progress/next-action documents and listed artifacts.
+
+Tests:
+- 65 passed; independent encoding 2 passed
+
+Artifacts:
+- EXPERIMENT_G2_TO_G6_REPORT.md
+- output/gate_summary.json
+- output/g5/statistics/comparisons.json
+- output/session_checkpoints/final_pytest.log
+
+Decision: STOPPED
+
+Next exact action:
+- .venv/bin/python -m diffusion_hash_inv.experiment_state --verify

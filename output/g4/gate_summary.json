@@ -1,0 +1,5 @@
+{
+  "gate": "G4",
+  "reason": "Oracle agreement, no leakage and at least one held-out preimage.",
+  "status": "PASS"
+}

@@ -1,0 +1,5 @@
+{
+  "gate": "G5",
+  "reason": "Frozen efficacy criteria not met; interval includes zero or evidence lacks precision.",
+  "status": "INCONCLUSIVE"
+}

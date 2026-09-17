@@ -1,0 +1,114 @@
+{
+  "direct_predictor_K1@1": {
+    "absolute_gain": 0.0,
+    "additional_solved_targets": 0,
+    "baseline_successes": 0,
+    "delta_ci95": [
+      0.0,
+      0.0
+    ],
+    "holm_adjusted_pvalue": 1.0,
+    "mcnemar_pvalue": 1.0,
+    "model_successes": 0,
+    "n01": 0,
+    "n10": 0,
+    "relative_gain": null,
+    "target_count": 18
+  },
+  "source_prior@1": {
+    "absolute_gain": 0.0,
+    "additional_solved_targets": 0,
+    "baseline_successes": 0,
+    "delta_ci95": [
+      0.0,
+      0.0
+    ],
+    "holm_adjusted_pvalue": 1.0,
+    "mcnemar_pvalue": 1.0,
+    "model_successes": 0,
+    "n01": 0,
+    "n10": 0,
+    "relative_gain": null,
+    "target_count": 18
+  },
+  "source_prior@10": {
+    "absolute_gain": 0.0,
+    "additional_solved_targets": 0,
+    "baseline_successes": 1,
+    "delta_ci95": [
+      -0.16666666666666666,
+      0.16666666666666666
+    ],
+    "holm_adjusted_pvalue": 1.0,
+    "mcnemar_pvalue": 0.75,
+    "model_successes": 1,
+    "n01": 1,
+    "n10": 1,
+    "relative_gain": 1.0,
+    "target_count": 18
+  },
+  "source_prior@100": {
+    "absolute_gain": -0.2222222222222222,
+    "additional_solved_targets": -4,
+    "baseline_successes": 7,
+    "delta_ci95": [
+      -0.5,
+      0.05555555555555555
+    ],
+    "holm_adjusted_pvalue": 1.0,
+    "mcnemar_pvalue": 0.96484375,
+    "model_successes": 3,
+    "n01": 6,
+    "n10": 2,
+    "relative_gain": 0.42857142857142855,
+    "target_count": 18
+  },
+  "uniform_random@1": {
+    "absolute_gain": 0.0,
+    "additional_solved_targets": 0,
+    "baseline_successes": 0,
+    "delta_ci95": [
+      0.0,
+      0.0
+    ],
+    "holm_adjusted_pvalue": 1.0,
+    "mcnemar_pvalue": 1.0,
+    "model_successes": 0,
+    "n01": 0,
+    "n10": 0,
+    "relative_gain": null,
+    "target_count": 18
+  },
+  "uniform_random@10": {
+    "absolute_gain": 0.05555555555555555,
+    "additional_solved_targets": 1,
+    "baseline_successes": 0,
+    "delta_ci95": [
+      0.0,
+      0.16666666666666666
+    ],
+    "holm_adjusted_pvalue": 1.0,
+    "mcnemar_pvalue": 0.5,
+    "model_successes": 1,
+    "n01": 0,
+    "n10": 1,
+    "relative_gain": null,
+    "target_count": 18
+  },
+  "uniform_random@100": {
+    "absolute_gain": -0.3333333333333333,
+    "additional_solved_targets": -6,
+    "baseline_successes": 9,
+    "delta_ci95": [
+      -0.6666666666666666,
+      0.0
+    ],
+    "holm_adjusted_pvalue": 1.0,
+    "mcnemar_pvalue": 0.980712890625,
+    "model_successes": 3,
+    "n01": 9,
+    "n10": 3,
+    "relative_gain": 0.3333333333333333,
+    "target_count": 18
+  }
+}

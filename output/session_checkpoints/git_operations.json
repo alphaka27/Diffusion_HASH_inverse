@@ -1,0 +1,6 @@
+{
+  "failed_command": "git add EXPERIMENT_STATE.json EXPERIMENT_PROGRESS.md NEXT_ACTION.md EXPERIMENT_DECISIONS.md src/diffusion_hash_inv/experiment_state.py src/diffusion_hash_inv/conditional_dependence.py tests/test_conditional_dependence.py && git commit -m 'g2: add resumable paired condition intervention and seed0 validation'",
+  "failure": "Sandbox denied .git/index.lock write",
+  "initial_worktree": "clean",
+  "resolution": "Authorized escalation succeeded; dcbca1b"
+}

@@ -1,0 +1,1642 @@
+{
+  "diffusion@1": [
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "04",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "16",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "23",
+      "unique_ratio": 0.0,
+      "valid_ratio": 0.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "2b",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "3c",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "60",
+      "unique_ratio": 0.0,
+      "valid_ratio": 0.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "70",
+      "unique_ratio": 0.0,
+      "valid_ratio": 0.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "82",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "87",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "88",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "b0",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "ba",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "c0",
+      "unique_ratio": 0.0,
+      "valid_ratio": 0.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "da",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "e2",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "e6",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "eb",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "f5",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    }
+  ],
+  "diffusion@10": [
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.1,
+      "exact": false,
+      "success": false,
+      "target_prefix": "04",
+      "unique_ratio": 0.6,
+      "valid_ratio": 0.7
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.2,
+      "exact": false,
+      "success": false,
+      "target_prefix": "16",
+      "unique_ratio": 0.7,
+      "valid_ratio": 0.9
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.1,
+      "exact": false,
+      "success": false,
+      "target_prefix": "23",
+      "unique_ratio": 0.5,
+      "valid_ratio": 0.5
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.1,
+      "exact": false,
+      "success": false,
+      "target_prefix": "2b",
+      "unique_ratio": 0.7,
+      "valid_ratio": 0.8
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "3c",
+      "unique_ratio": 0.5,
+      "valid_ratio": 0.5
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.1,
+      "exact": false,
+      "success": false,
+      "target_prefix": "60",
+      "unique_ratio": 0.3,
+      "valid_ratio": 0.4
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.1,
+      "exact": false,
+      "success": false,
+      "target_prefix": "70",
+      "unique_ratio": 0.5,
+      "valid_ratio": 0.6
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "82",
+      "unique_ratio": 0.8,
+      "valid_ratio": 0.8
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "87",
+      "unique_ratio": 0.6,
+      "valid_ratio": 0.6
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.1,
+      "exact": false,
+      "success": false,
+      "target_prefix": "88",
+      "unique_ratio": 0.7,
+      "valid_ratio": 0.8
+    },
+    {
+      "candidates_to_first_match": 10,
+      "duplicate_ratio": 0.0,
+      "exact": true,
+      "success": true,
+      "target_prefix": "b0",
+      "unique_ratio": 0.6,
+      "valid_ratio": 0.6
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.1,
+      "exact": false,
+      "success": false,
+      "target_prefix": "ba",
+      "unique_ratio": 0.4,
+      "valid_ratio": 0.5
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.1,
+      "exact": false,
+      "success": false,
+      "target_prefix": "c0",
+      "unique_ratio": 0.6,
+      "valid_ratio": 0.7
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.1,
+      "exact": false,
+      "success": false,
+      "target_prefix": "da",
+      "unique_ratio": 0.5,
+      "valid_ratio": 0.6
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.1,
+      "exact": false,
+      "success": false,
+      "target_prefix": "e2",
+      "unique_ratio": 0.8,
+      "valid_ratio": 0.9
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.2,
+      "exact": false,
+      "success": false,
+      "target_prefix": "e6",
+      "unique_ratio": 0.6,
+      "valid_ratio": 0.8
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "eb",
+      "unique_ratio": 0.8,
+      "valid_ratio": 0.8
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.1,
+      "exact": false,
+      "success": false,
+      "target_prefix": "f5",
+      "unique_ratio": 0.9,
+      "valid_ratio": 1.0
+    }
+  ],
+  "diffusion@100": [
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.48,
+      "exact": false,
+      "success": false,
+      "target_prefix": "04",
+      "unique_ratio": 0.26,
+      "valid_ratio": 0.64
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.34,
+      "exact": false,
+      "success": false,
+      "target_prefix": "16",
+      "unique_ratio": 0.34,
+      "valid_ratio": 0.63
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.36,
+      "exact": false,
+      "success": false,
+      "target_prefix": "23",
+      "unique_ratio": 0.35,
+      "valid_ratio": 0.65
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.31,
+      "exact": false,
+      "success": false,
+      "target_prefix": "2b",
+      "unique_ratio": 0.34,
+      "valid_ratio": 0.57
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.43,
+      "exact": false,
+      "success": false,
+      "target_prefix": "3c",
+      "unique_ratio": 0.26,
+      "valid_ratio": 0.53
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.52,
+      "exact": false,
+      "success": false,
+      "target_prefix": "60",
+      "unique_ratio": 0.26,
+      "valid_ratio": 0.66
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.45,
+      "exact": false,
+      "success": false,
+      "target_prefix": "70",
+      "unique_ratio": 0.26,
+      "valid_ratio": 0.53
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.54,
+      "exact": false,
+      "success": false,
+      "target_prefix": "82",
+      "unique_ratio": 0.26,
+      "valid_ratio": 0.76
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.45,
+      "exact": false,
+      "success": false,
+      "target_prefix": "87",
+      "unique_ratio": 0.28,
+      "valid_ratio": 0.67
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.62,
+      "exact": false,
+      "success": false,
+      "target_prefix": "88",
+      "unique_ratio": 0.2,
+      "valid_ratio": 0.76
+    },
+    {
+      "candidates_to_first_match": 10,
+      "duplicate_ratio": 0.42,
+      "exact": true,
+      "success": true,
+      "target_prefix": "b0",
+      "unique_ratio": 0.22,
+      "valid_ratio": 0.5
+    },
+    {
+      "candidates_to_first_match": 46,
+      "duplicate_ratio": 0.43,
+      "exact": false,
+      "success": true,
+      "target_prefix": "ba",
+      "unique_ratio": 0.31,
+      "valid_ratio": 0.66
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.64,
+      "exact": false,
+      "success": false,
+      "target_prefix": "c0",
+      "unique_ratio": 0.18,
+      "valid_ratio": 0.75
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.57,
+      "exact": false,
+      "success": false,
+      "target_prefix": "da",
+      "unique_ratio": 0.27,
+      "valid_ratio": 0.79
+    },
+    {
+      "candidates_to_first_match": 36,
+      "duplicate_ratio": 0.49,
+      "exact": false,
+      "success": true,
+      "target_prefix": "e2",
+      "unique_ratio": 0.25,
+      "valid_ratio": 0.6
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.48,
+      "exact": false,
+      "success": false,
+      "target_prefix": "e6",
+      "unique_ratio": 0.31,
+      "valid_ratio": 0.74
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.32,
+      "exact": false,
+      "success": false,
+      "target_prefix": "eb",
+      "unique_ratio": 0.35,
+      "valid_ratio": 0.65
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.46,
+      "exact": false,
+      "success": false,
+      "target_prefix": "f5",
+      "unique_ratio": 0.29,
+      "valid_ratio": 0.67
+    }
+  ],
+  "direct_predictor_K1@1": [
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "04",
+      "unique_ratio": 0.0,
+      "valid_ratio": 0.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "16",
+      "unique_ratio": 0.0,
+      "valid_ratio": 0.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "23",
+      "unique_ratio": 0.0,
+      "valid_ratio": 0.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "2b",
+      "unique_ratio": 0.0,
+      "valid_ratio": 0.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "3c",
+      "unique_ratio": 0.0,
+      "valid_ratio": 0.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "60",
+      "unique_ratio": 0.0,
+      "valid_ratio": 0.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "70",
+      "unique_ratio": 0.0,
+      "valid_ratio": 0.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "82",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "87",
+      "unique_ratio": 0.0,
+      "valid_ratio": 0.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "88",
+      "unique_ratio": 0.0,
+      "valid_ratio": 0.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "b0",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "ba",
+      "unique_ratio": 0.0,
+      "valid_ratio": 0.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "c0",
+      "unique_ratio": 0.0,
+      "valid_ratio": 0.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "da",
+      "unique_ratio": 0.0,
+      "valid_ratio": 0.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "e2",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "e6",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "eb",
+      "unique_ratio": 0.0,
+      "valid_ratio": 0.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "f5",
+      "unique_ratio": 0.0,
+      "valid_ratio": 0.0
+    }
+  ],
+  "source_prior@1": [
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "04",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "16",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "23",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "2b",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "3c",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "60",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "70",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "82",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "87",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "88",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "b0",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "ba",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "c0",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "da",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "e2",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "e6",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "eb",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "f5",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    }
+  ],
+  "source_prior@10": [
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.1,
+      "exact": false,
+      "success": false,
+      "target_prefix": "04",
+      "unique_ratio": 0.9,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "16",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "23",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "2b",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "3c",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "60",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "70",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "82",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "87",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "88",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "b0",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "ba",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.1,
+      "exact": false,
+      "success": false,
+      "target_prefix": "c0",
+      "unique_ratio": 0.9,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "da",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.1,
+      "exact": false,
+      "success": false,
+      "target_prefix": "e2",
+      "unique_ratio": 0.9,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "e6",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": 4,
+      "duplicate_ratio": 0.0,
+      "exact": true,
+      "success": true,
+      "target_prefix": "eb",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "f5",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    }
+  ],
+  "source_prior@100": [
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.14,
+      "exact": false,
+      "success": false,
+      "target_prefix": "04",
+      "unique_ratio": 0.86,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.19,
+      "exact": false,
+      "success": false,
+      "target_prefix": "16",
+      "unique_ratio": 0.81,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": 65,
+      "duplicate_ratio": 0.13,
+      "exact": true,
+      "success": true,
+      "target_prefix": "23",
+      "unique_ratio": 0.87,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": 83,
+      "duplicate_ratio": 0.16,
+      "exact": true,
+      "success": true,
+      "target_prefix": "2b",
+      "unique_ratio": 0.84,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.16,
+      "exact": false,
+      "success": false,
+      "target_prefix": "3c",
+      "unique_ratio": 0.84,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.18,
+      "exact": false,
+      "success": false,
+      "target_prefix": "60",
+      "unique_ratio": 0.82,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.16,
+      "exact": false,
+      "success": false,
+      "target_prefix": "70",
+      "unique_ratio": 0.84,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.17,
+      "exact": false,
+      "success": false,
+      "target_prefix": "82",
+      "unique_ratio": 0.83,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.14,
+      "exact": false,
+      "success": false,
+      "target_prefix": "87",
+      "unique_ratio": 0.86,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": 29,
+      "duplicate_ratio": 0.13,
+      "exact": true,
+      "success": true,
+      "target_prefix": "88",
+      "unique_ratio": 0.87,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.19,
+      "exact": false,
+      "success": false,
+      "target_prefix": "b0",
+      "unique_ratio": 0.81,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.13,
+      "exact": false,
+      "success": false,
+      "target_prefix": "ba",
+      "unique_ratio": 0.87,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": 100,
+      "duplicate_ratio": 0.17,
+      "exact": false,
+      "success": true,
+      "target_prefix": "c0",
+      "unique_ratio": 0.83,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.18,
+      "exact": false,
+      "success": false,
+      "target_prefix": "da",
+      "unique_ratio": 0.82,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": 69,
+      "duplicate_ratio": 0.15,
+      "exact": true,
+      "success": true,
+      "target_prefix": "e2",
+      "unique_ratio": 0.85,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": 41,
+      "duplicate_ratio": 0.18,
+      "exact": true,
+      "success": true,
+      "target_prefix": "e6",
+      "unique_ratio": 0.82,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": 4,
+      "duplicate_ratio": 0.16,
+      "exact": true,
+      "success": true,
+      "target_prefix": "eb",
+      "unique_ratio": 0.84,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.08,
+      "exact": false,
+      "success": false,
+      "target_prefix": "f5",
+      "unique_ratio": 0.92,
+      "valid_ratio": 1.0
+    }
+  ],
+  "uniform_random@1": [
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "04",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "16",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "23",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "2b",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "3c",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "60",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "70",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "82",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "87",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "88",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "b0",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "ba",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "c0",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "da",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "e2",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "e6",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "eb",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "f5",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    }
+  ],
+  "uniform_random@10": [
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "04",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "16",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.1,
+      "exact": false,
+      "success": false,
+      "target_prefix": "23",
+      "unique_ratio": 0.9,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "2b",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "3c",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.1,
+      "exact": false,
+      "success": false,
+      "target_prefix": "60",
+      "unique_ratio": 0.9,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "70",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "82",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "87",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "88",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "b0",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "ba",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "c0",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "da",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "e2",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "e6",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "eb",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.0,
+      "exact": false,
+      "success": false,
+      "target_prefix": "f5",
+      "unique_ratio": 1.0,
+      "valid_ratio": 1.0
+    }
+  ],
+  "uniform_random@100": [
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.16,
+      "exact": false,
+      "success": false,
+      "target_prefix": "04",
+      "unique_ratio": 0.84,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": 34,
+      "duplicate_ratio": 0.17,
+      "exact": true,
+      "success": true,
+      "target_prefix": "16",
+      "unique_ratio": 0.83,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": 27,
+      "duplicate_ratio": 0.16,
+      "exact": true,
+      "success": true,
+      "target_prefix": "23",
+      "unique_ratio": 0.84,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": 58,
+      "duplicate_ratio": 0.14,
+      "exact": true,
+      "success": true,
+      "target_prefix": "2b",
+      "unique_ratio": 0.86,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": 57,
+      "duplicate_ratio": 0.14,
+      "exact": true,
+      "success": true,
+      "target_prefix": "3c",
+      "unique_ratio": 0.86,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": 56,
+      "duplicate_ratio": 0.1,
+      "exact": true,
+      "success": true,
+      "target_prefix": "60",
+      "unique_ratio": 0.9,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": 29,
+      "duplicate_ratio": 0.18,
+      "exact": true,
+      "success": true,
+      "target_prefix": "70",
+      "unique_ratio": 0.82,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.19,
+      "exact": false,
+      "success": false,
+      "target_prefix": "82",
+      "unique_ratio": 0.81,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": 87,
+      "duplicate_ratio": 0.17,
+      "exact": true,
+      "success": true,
+      "target_prefix": "87",
+      "unique_ratio": 0.83,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.19,
+      "exact": false,
+      "success": false,
+      "target_prefix": "88",
+      "unique_ratio": 0.81,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.22,
+      "exact": false,
+      "success": false,
+      "target_prefix": "b0",
+      "unique_ratio": 0.78,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.17,
+      "exact": false,
+      "success": false,
+      "target_prefix": "ba",
+      "unique_ratio": 0.83,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.13,
+      "exact": false,
+      "success": false,
+      "target_prefix": "c0",
+      "unique_ratio": 0.87,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": 12,
+      "duplicate_ratio": 0.17,
+      "exact": true,
+      "success": true,
+      "target_prefix": "da",
+      "unique_ratio": 0.83,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.2,
+      "exact": false,
+      "success": false,
+      "target_prefix": "e2",
+      "unique_ratio": 0.8,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": 65,
+      "duplicate_ratio": 0.15,
+      "exact": true,
+      "success": true,
+      "target_prefix": "e6",
+      "unique_ratio": 0.85,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.18,
+      "exact": false,
+      "success": false,
+      "target_prefix": "eb",
+      "unique_ratio": 0.82,
+      "valid_ratio": 1.0
+    },
+    {
+      "candidates_to_first_match": null,
+      "duplicate_ratio": 0.19,
+      "exact": false,
+      "success": false,
+      "target_prefix": "f5",
+      "unique_ratio": 0.81,
+      "valid_ratio": 1.0
+    }
+  ]
+}

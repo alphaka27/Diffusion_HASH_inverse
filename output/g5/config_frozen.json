@@ -1,0 +1,29 @@
+{
+  "K": [
+    1,
+    10,
+    100
+  ],
+  "baseline_seeds": {
+    "source_prior": 4201,
+    "uniform_random": 4200
+  },
+  "baselines": [
+    "uniform_random",
+    "source_prior",
+    "direct_predictor_K1"
+  ],
+  "bootstrap_samples": 10000,
+  "bootstrap_seed": 4300,
+  "freeze_note": "G4 diffusion outcomes already observed for pipeline validation; efficacy baseline samples and comparisons not yet evaluated. This is a staged exploratory toy screen, not an independent confirmatory preregistration.",
+  "gate": "G5",
+  "limits": "Toy efficacy screening at model seed0; no population pooling or multi-seed efficacy claim. G6 would independently require model seeds0/1/2.",
+  "model_seed": 0,
+  "pass_criterion": "At K100, diffusion exceeds both source_prior and uniform_random with CI lower>0 and Holm p<.05. Otherwise FAIL if source-prior delta CI upper<0; INCONCLUSIVE otherwise. G6 cannot run unless PASS.",
+  "primary_K": 100,
+  "primary_baseline": "source_prior",
+  "setting": "G4 frozen MD5 q8 ABCD^4 toy; exactly same 18 targets and saved seed0 candidates",
+  "source_prior": "iid uniform A/B/C/D at each of four positions; no target or length inputs. Distribution exactly equals uniform enumeration baseline; independent RNG realizations.",
+  "statistics": "Paired target outcomes; one-sided exact McNemar; target-level percentile bootstrap95; Holm family all 7 diffusion-vs-baseline comparisons across K.",
+  "validity": "Same codec+ABCD^4 domain validity as G4. Invalid, duplicates and malformed candidates consume K. No replacement."
+}

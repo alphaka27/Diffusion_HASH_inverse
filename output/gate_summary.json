@@ -1,4 +1,8 @@
 {
+  "G6_execution_status": "NOT_RUN",
+  "G6_scientific_result": "NOT_RUN",
+  "current_model_seed_note": "Original model_seed=0 field retained; G2/G3 use 0/1/2; G4/G5 use 0.",
+  "failure_boundary": "G5 INCONCLUSIVE",
   "gates": [
     {
       "artifact": "output/g0-seed0/metrics.json",
@@ -43,12 +47,14 @@
       "status": "PASS"
     },
     {
+      "artifact": "output/g4/gate_summary.json",
       "gate": "G4",
-      "status": "NOT RUN"
+      "status": "PASS"
     },
     {
+      "artifact": "output/g5/gate_summary.json",
       "gate": "G5",
-      "status": "NOT RUN"
+      "status": "INCONCLUSIVE"
     },
     {
       "gate": "G6",
@@ -56,6 +62,7 @@
     }
   ],
   "model_seed": 0,
+  "research_answer": "INCONCLUSIVE",
   "sampling_seeds": [
     0,
     1,

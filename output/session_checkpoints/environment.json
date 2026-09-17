@@ -1,0 +1,8 @@
+{
+  "device": "cpu",
+  "platform": "macOS-27.0-arm64-arm-64bit",
+  "python": "3.12.4 (main, Jul 17 2024, 17:27:53) [Clang 15.0.0 (clang-1500.3.9.4)]",
+  "threads_during_runs": 1,
+  "time": "2026-09-17T14:18:54.012092+09:00",
+  "torch": "2.14.0"
+}
