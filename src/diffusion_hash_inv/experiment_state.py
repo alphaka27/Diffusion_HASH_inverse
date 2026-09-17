@@ -69,3 +69,26 @@ def record_gate(gate, status, reason, next_action):
                failure_boundary=None if status=='PASS' else f'{gate}: {reason}',
                artifacts=[f'output/{gate.lower()}/gate_summary.json',f'output/{gate.lower()}/report.md'],
                pending_actions=[next_action])
+
+
+from contextlib import contextmanager
+
+
+@contextmanager
+def experiment_lock():
+    """Keep resumed sessions from writing the same run/state concurrently."""
+    import fcntl
+    import os
+    path = Path('output/session_checkpoints/experiment.lock')
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open('a+') as stream:
+        try:
+            fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise RuntimeError('Another experiment process is active; read experiment.lock and its logs.') from None
+        stream.seek(0); stream.truncate()
+        stream.write(str(os.getpid())+'\n'); stream.flush()
+        try:
+            yield
+        finally:
+            fcntl.flock(stream, fcntl.LOCK_UN)
