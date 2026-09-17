@@ -10,7 +10,7 @@ import traceback
 
 import torch
 from .dataset import build_digest_records
-from .experiment_state import checkpoint, record_gate, require_previous, sha256, verify_prerequisites, write_json
+from .experiment_state import checkpoint, experiment_lock, record_gate, require_previous, sha256, verify_prerequisites, write_json
 from .models import GaussianDiffusion
 from .positive_control import _byte_score
 from .runner import ExperimentConfig, _build_model, _codec, _training_data
@@ -154,7 +154,9 @@ def validate_completed(output):
     marker = output/'complete.json'
     if not marker.exists(): return False
     for name, digest in json.loads(marker.read_text())['sha256'].items():
-        if not (output/name).is_file() or sha256(output/name) != digest:
+        if not (output/name).is_file():
+            return False  # Recover missing products from intact per-unit artifacts.
+        if sha256(output/name) != digest:
             raise RuntimeError(f'Completed artifact corrupt: {output/name}')
     return True
 
@@ -270,4 +272,6 @@ def main():
         raise
 
 
-if __name__=='__main__': main()
+if __name__=='__main__':
+    with experiment_lock():
+        main()

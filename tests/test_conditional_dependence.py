@@ -34,3 +34,35 @@ def test_intervention_and_paired_oracle(representation):
 
 def test_derangement_requires_two():
     with pytest.raises(ValueError): interventions(torch.zeros(1,8))
+
+
+def test_completed_artifact_integrity_and_missing_product_recovery(tmp_path):
+    import json
+    from diffusion_hash_inv.conditional_dependence import validate_completed
+    from diffusion_hash_inv.experiment_state import sha256
+    product=tmp_path/'metrics.json'
+    product.write_text('{}')
+    (tmp_path/'complete.json').write_text(json.dumps({'sha256':{'metrics.json':sha256(product)}}))
+    assert validate_completed(tmp_path)
+    product.unlink()
+    assert not validate_completed(tmp_path)
+    product.write_text('{"tampered":true}')
+    with pytest.raises(RuntimeError,match='corrupt'): validate_completed(tmp_path)
+
+
+def test_gate_fail_stop(tmp_path,monkeypatch):
+    import json
+    from diffusion_hash_inv.experiment_state import require_previous
+    monkeypatch.chdir(tmp_path)
+    (tmp_path/'EXPERIMENT_STATE.json').write_text(json.dumps({'gates':{'G0':'PASS','G1':'PASS','G2':'FAIL'}}))
+    with pytest.raises(RuntimeError,match='blocked by G2'): require_previous('G3')
+    require_previous('G2')
+
+
+def test_recovery_lock_rejects_concurrent_writer(tmp_path,monkeypatch):
+    from diffusion_hash_inv.experiment_state import experiment_lock
+    monkeypatch.chdir(tmp_path)
+    with experiment_lock():
+        with pytest.raises(RuntimeError,match='active'):
+            with experiment_lock(): pass
+    with experiment_lock(): pass
