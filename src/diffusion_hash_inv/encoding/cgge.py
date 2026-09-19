@@ -81,17 +81,19 @@ _PROTOTYPES = torch.stack([glyph_for_character(character) for character in PRINT
 class CGGEConfig:
     min_message_length: int = 4
     max_message_length: int = 31
-    rows: int = 4
+    rows: int | None = None
     cols: int = 8
     glyph_size: int = 8
     mask_threshold: float = 0.5
     glyph_valid_threshold: float = 0.1
 
     def __post_init__(self) -> None:
+        if self.rows is None:
+            object.__setattr__(self, "rows", (self.max_message_length + 8) // 8)
         if self.min_message_length < 0 or self.min_message_length > self.max_message_length:
             raise ValueError("invalid message-length range")
-        if self.max_message_length + 1 != self.rows * self.cols:
-            raise ValueError("grid must hold every character plus one reserve cell")
+        if self.cols != 8 or self.rows != (self.max_message_length + 8) // 8:
+            raise ValueError("grid must be the minimal eight-column grid")
         if self.glyph_size != 8:
             raise ValueError("the fixed glyph table is 8x8")
         if not 0 <= self.mask_threshold <= 1 or not 0 <= self.glyph_valid_threshold <= 1:
@@ -168,13 +170,15 @@ class CGGEDecoder:
             raise TypeError("image must be a torch.Tensor")
         if tuple(image.shape) != expected_shape:
             return DecodeResult(None, False, None, f"invalid_shape_expected_{expected_shape}")
+        if not torch.isfinite(image).all():
+            return DecodeResult(None, False, None, "non_finite")
         unit_image = (image + 1.0) / 2.0 if normalized else image
         valid_slots = tuple(
             self._cell(unit_image[1], slot).mean().item() >= self.config.mask_threshold
             for slot in range(self.config.slot_count)
         )
-        length = sum(valid_slots[:-1])
-        if valid_slots[-1] or not self.config.min_message_length <= length <= self.config.max_message_length:
+        length = sum(valid_slots[:self.config.max_message_length])
+        if any(valid_slots[self.config.max_message_length:]) or not self.config.min_message_length <= length <= self.config.max_message_length:
             return DecodeResult(None, False, length, "mask_inconsistent")
         if any(slot_is_valid != (slot < length) for slot, slot_is_valid in enumerate(valid_slots)):
             return DecodeResult(None, False, length, "mask_inconsistent")

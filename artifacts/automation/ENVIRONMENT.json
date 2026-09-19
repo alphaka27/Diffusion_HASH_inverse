@@ -1,0 +1,11 @@
+{
+  "cpu_count": 16,
+  "cuda_available": false,
+  "disk_free_bytes": 238387200000,
+  "mps_available": false,
+  "mps_built": true,
+  "platform": "macOS-27.0-arm64-arm-64bit",
+  "python": "3.12.4",
+  "scope": "observed in this process; inaccessible GPU is not proof of absent hardware",
+  "torch": "2.14.0"
+}

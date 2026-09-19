@@ -1,0 +1,50 @@
+{
+  "rows": [
+    {
+      "algorithm": "md5",
+      "lengths": [
+        1,
+        2
+      ],
+      "messages": 8930,
+      "source": "printable",
+      "status": "PASS",
+      "verdict_checks": 142880
+    },
+    {
+      "algorithm": "sha256",
+      "lengths": [
+        1,
+        2
+      ],
+      "messages": 8930,
+      "source": "printable",
+      "status": "PASS",
+      "verdict_checks": 160740
+    },
+    {
+      "algorithm": "md5",
+      "lengths": [
+        1,
+        2
+      ],
+      "messages": 65792,
+      "source": "random_bytes",
+      "status": "PASS",
+      "verdict_checks": 1052672
+    },
+    {
+      "algorithm": "sha256",
+      "lengths": [
+        1,
+        2
+      ],
+      "messages": 65792,
+      "source": "random_bytes",
+      "status": "PASS",
+      "verdict_checks": 1184256
+    }
+  ],
+  "scope": "engineering",
+  "verifier_version": "hashlib-independent-msb-v2"
+}

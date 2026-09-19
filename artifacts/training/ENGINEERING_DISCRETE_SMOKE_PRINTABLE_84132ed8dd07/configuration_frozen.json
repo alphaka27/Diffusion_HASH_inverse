@@ -1,0 +1,38 @@
+{
+  "code_version": "84132ed8dd074e51d7bea8502a9fd5169f8aa22cd865d0476d517eb5c057584a",
+  "config": {
+    "algorithm": "md5",
+    "batch_size": 2,
+    "beta_end": 0.02,
+    "condition_dim": 259,
+    "condition_format": "canonical_bits",
+    "condition_mode": "hash",
+    "data_seed": 7,
+    "dataset_size": 60,
+    "device": "cpu",
+    "diffusion_steps": 100,
+    "k": 1,
+    "learning_rate": 0.001,
+    "length_conditioning": false,
+    "masking_schedule": [
+      0,
+      0.5,
+      1
+    ],
+    "max_length": 7,
+    "method": "diffusion",
+    "model_seed": 0,
+    "prediction_type": "epsilon",
+    "q": 8,
+    "representation": "tokens",
+    "sampling_steps": 2,
+    "source": "printable",
+    "split_seed": 11,
+    "test_limit": 2,
+    "token_embedding_dim": 2,
+    "token_temperature": 1.0,
+    "training_steps": 1,
+    "width": 8
+  },
+  "scope": "engineering_or_legacy_only_not_confirmatory"
+}

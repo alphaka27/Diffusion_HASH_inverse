@@ -1,0 +1,28 @@
+{
+  "candidate_attempt_count": 1000,
+  "candidate_budget": 100,
+  "evaluator_version": "fixed-budget-domain-v2",
+  "exact_source_recovery_at_k": 0.0,
+  "hash_verification_count": 1000,
+  "in_domain_preimage_success_at_k": 0.2,
+  "length_match_rate": 0.042,
+  "length_matched_preimage_success_at_k": 0.0,
+  "max_length": 31,
+  "metadata": {
+    "dataset_id": "SANITY_sha256_printable_Q8_84132ed8dd07",
+    "scope": "engineering",
+    "seed": 7
+  },
+  "method": "source_prior_engineering_sanity",
+  "min_length": 4,
+  "preimage_success_at_k": 0.2,
+  "preimage_success_ci95": [
+    0.05668215145437519,
+    0.5098375284633583
+  ],
+  "target_count": 10,
+  "valid_decode_rate": 1.0,
+  "verifier_version": "hashlib-independent-msb-v2",
+  "zero_success_rule_of_three": null,
+  "zero_success_upper95": null
+}

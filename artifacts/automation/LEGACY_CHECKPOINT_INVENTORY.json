@@ -1,0 +1,182 @@
+[
+  {
+    "bytes": 559477,
+    "path": "output/md5-bgv-q8-s0-reversible-mps/checkpoint.pt",
+    "sha256": "ee28481ae6cf1da6b9032838ead7172757162052ad49fc3546728da19232ffa6"
+  },
+  {
+    "bytes": 559477,
+    "path": "output/md5-bgv-q8-s0-mps/checkpoint.pt",
+    "sha256": "d0e2abc3d9630abe65f27eb2bae0b65738dbfc876d0a1e3686f7dcede9110fe4"
+  },
+  {
+    "bytes": 559477,
+    "path": "output/md5-bgv-q8-s0/checkpoint.pt",
+    "sha256": "60dea173e650603d9d6132dd06b13fce2d760a5da07e81b0e0fbea71c3d507c7"
+  },
+  {
+    "bytes": 36469,
+    "path": "output/g1-bgv-seed0/g1-a-n1-seed0/checkpoint.pt",
+    "sha256": "d442b5732bc8f220501c9e25295213d62cc542edbfe5ac19e0ae9a7190bc8e79"
+  },
+  {
+    "bytes": 36469,
+    "path": "output/g1-bgv-seed0/g1-b-n16-seed0/checkpoint.pt",
+    "sha256": "07a67008e83b149cfe27d70e0b5ec6972b46be6da8ce50b818019978f962fbb0"
+  },
+  {
+    "bytes": 36469,
+    "path": "output/g1-bgv-seed0/g1-b-n64-seed0/checkpoint.pt",
+    "sha256": "bbae1399056dfb53d3ab2c440aeced8aa96ee8601326a40a44cc760a7bb2567c"
+  },
+  {
+    "bytes": 36469,
+    "path": "output/g1-bgv-seed0/g1-c-n64-seed0/checkpoint.pt",
+    "sha256": "bbae1399056dfb53d3ab2c440aeced8aa96ee8601326a40a44cc760a7bb2567c"
+  },
+  {
+    "bytes": 36469,
+    "path": "output/g1-bgv-seed0/g1-b-n4-seed0/checkpoint.pt",
+    "sha256": "fb55325a577aca4094896073cb5b77940e5f2f8b44c8a6db7ddc71b8f7ae9323"
+  },
+  {
+    "bytes": 36469,
+    "path": "output/g1-cgge-seed0/g1-a-n1-seed0/checkpoint.pt",
+    "sha256": "7dcc661be28cdcc5a67c9dd4a579ed0f17d044ddc609eba46414bb8cdd503f1c"
+  },
+  {
+    "bytes": 36469,
+    "path": "output/g1-cgge-seed0/g1-b-n16-seed0/checkpoint.pt",
+    "sha256": "f21f36ec2247687e3d204f40b7bdacc0e593fc675e9475f28038a9247b4ed1b1"
+  },
+  {
+    "bytes": 36469,
+    "path": "output/g1-cgge-seed0/g1-b-n64-seed0/checkpoint.pt",
+    "sha256": "ab3acdb484c685df4e3cc3ca8665369df65612d27aadf4b6de743d375e6f77c5"
+  },
+  {
+    "bytes": 36469,
+    "path": "output/g1-cgge-seed0/g1-c-n64-seed0/checkpoint.pt",
+    "sha256": "ab3acdb484c685df4e3cc3ca8665369df65612d27aadf4b6de743d375e6f77c5"
+  },
+  {
+    "bytes": 36469,
+    "path": "output/g1-cgge-seed0/g1-b-n4-seed0/checkpoint.pt",
+    "sha256": "4485284c59f06d4eafeb8b21d3b826e9a8ade1b182542b99367ffa03e69a50c8"
+  },
+  {
+    "bytes": 23986,
+    "path": "output/g2/bits/seed-2/training_resume.pt",
+    "sha256": "19b62bb9e25d057f4ca2f9d89000114d40db713e34cded8dc0127d2aee5e5447"
+  },
+  {
+    "bytes": 3899,
+    "path": "output/g2/bits/seed-2/checkpoint.pt",
+    "sha256": "553cac747ac8dbb323af842572412c18184b4175206908055974eb4a2c8c5d8f"
+  },
+  {
+    "bytes": 3899,
+    "path": "output/g2/bits/seed-0/checkpoint.pt",
+    "sha256": "47acd99ba8eda84e2a784c533a6d934762f25adb6584c2c2f817bd02407e4ea2"
+  },
+  {
+    "bytes": 23986,
+    "path": "output/g2/bits/seed-1/training_resume.pt",
+    "sha256": "43625a1ff62efe79c1e23d9d70ecc61483e69eb1c0c964fda7f6e411004b1373"
+  },
+  {
+    "bytes": 3899,
+    "path": "output/g2/bits/seed-1/checkpoint.pt",
+    "sha256": "2659edca705ecaeeb3119d78cc518d48b9be0df6b4ac6523d914b329e81954f6"
+  },
+  {
+    "bytes": 124730,
+    "path": "output/g2/bgv/seed-2/training_resume.pt",
+    "sha256": "812f0c4be82923ef4ebb647ff480ec43398f7848d6795ca2d1df66fcaf26e53b"
+  },
+  {
+    "bytes": 36469,
+    "path": "output/g2/bgv/seed-2/checkpoint.pt",
+    "sha256": "7a91645243887d254b8f4587382e54ccfafce187d3dc873f6bbec421e885eacf"
+  },
+  {
+    "bytes": 36469,
+    "path": "output/g2/bgv/seed-0/checkpoint.pt",
+    "sha256": "bbae1399056dfb53d3ab2c440aeced8aa96ee8601326a40a44cc760a7bb2567c"
+  },
+  {
+    "bytes": 124730,
+    "path": "output/g2/bgv/seed-1/training_resume.pt",
+    "sha256": "e60a931dfa21facd29b871121edbdd59b3d1641ea4135567686e8e0de0a0a94b"
+  },
+  {
+    "bytes": 36469,
+    "path": "output/g2/bgv/seed-1/checkpoint.pt",
+    "sha256": "63db81a7e1dc14e3d19d109273634b76b4704d952460384fcabfbf77c951371f"
+  },
+  {
+    "bytes": 124730,
+    "path": "output/g2/cgge/seed-2/training_resume.pt",
+    "sha256": "96aa28ffa4e6df211f0380ed691756721c3fb1b50db379da816b26541dd9525c"
+  },
+  {
+    "bytes": 36469,
+    "path": "output/g2/cgge/seed-2/checkpoint.pt",
+    "sha256": "655e3e068c2f99f293bb9aa74d56614d7adccbb5a184e714782ea5639bfd9178"
+  },
+  {
+    "bytes": 36469,
+    "path": "output/g2/cgge/seed-0/checkpoint.pt",
+    "sha256": "ab3acdb484c685df4e3cc3ca8665369df65612d27aadf4b6de743d375e6f77c5"
+  },
+  {
+    "bytes": 124730,
+    "path": "output/g2/cgge/seed-1/training_resume.pt",
+    "sha256": "f78ca3800daef40b049317ef1eab1452e0f915d280ecfb7ec14da8d615398011"
+  },
+  {
+    "bytes": 36469,
+    "path": "output/g2/cgge/seed-1/checkpoint.pt",
+    "sha256": "fe868b8a47a31dd58dc01206bf93bf1fc58ba7eaf60ba0cb947d79d6e07ae786"
+  },
+  {
+    "bytes": 206521,
+    "path": "output/g5/direct_predictor_K1/checkpoint.pt",
+    "sha256": "e1ae97d4a7819f1baced0539e3204a8fba5455a8d64a73b9439b9c931071ee2f"
+  },
+  {
+    "bytes": 1027738,
+    "path": "output/g4/experiments/seed-0/training_resume.pt",
+    "sha256": "dcbbe2df95f0309065ad2f9e9c9c9837e7c2910f349cb74abec3675b8c51879e"
+  },
+  {
+    "bytes": 338041,
+    "path": "output/g4/experiments/seed-0/checkpoint.pt",
+    "sha256": "fdde6d2ad8225c232c779398b2132345b4df2215cc8555677aedb739fb166db1"
+  },
+  {
+    "bytes": 3899,
+    "path": "output/g1-bits-seed0/g1-a-n1-seed0/checkpoint.pt",
+    "sha256": "0445195ee23719f801099cc9ebe208188900ab557b9c9609dda0c6a0e1121f09"
+  },
+  {
+    "bytes": 3899,
+    "path": "output/g1-bits-seed0/g1-b-n16-seed0/checkpoint.pt",
+    "sha256": "9278dfca7d9440424be164a93a2a9c6c79a8730601c9870bbdad5441ddf99c78"
+  },
+  {
+    "bytes": 3899,
+    "path": "output/g1-bits-seed0/g1-b-n64-seed0/checkpoint.pt",
+    "sha256": "47acd99ba8eda84e2a784c533a6d934762f25adb6584c2c2f817bd02407e4ea2"
+  },
+  {
+    "bytes": 3899,
+    "path": "output/g1-bits-seed0/g1-c-n64-seed0/checkpoint.pt",
+    "sha256": "47acd99ba8eda84e2a784c533a6d934762f25adb6584c2c2f817bd02407e4ea2"
+  },
+  {
+    "bytes": 3899,
+    "path": "output/g1-bits-seed0/g1-b-n4-seed0/checkpoint.pt",
+    "sha256": "091ce478019b69e3208adb99a91e491836d859929574e6794cbe47bb8c18ccad"
+  }
+]

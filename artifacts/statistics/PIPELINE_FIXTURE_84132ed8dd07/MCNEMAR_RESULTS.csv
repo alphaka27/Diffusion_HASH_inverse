@@ -1,0 +1,7 @@
+comparison_id,seed,alternative,target_count,n10,n01,mcnemar_pvalue
+fixture_prior,0,greater,8,8,0,0.00390625
+fixture_approach,0,two-sided,8,8,0,0.0078125
+fixture_prior,1,greater,8,8,0,0.00390625
+fixture_approach,1,two-sided,8,8,0,0.0078125
+fixture_prior,2,greater,8,8,0,0.00390625
+fixture_approach,2,two-sided,8,8,0,0.0078125

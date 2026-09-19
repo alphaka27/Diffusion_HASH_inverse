@@ -14,7 +14,7 @@ from torch import Tensor
 class BGVConfig:
     min_message_length: int = 4
     max_message_length: int = 31
-    rows: int = 4
+    rows: int | None = None
     cols: int = 8
     glyph_rows: int = 2
     glyph_cols: int = 4
@@ -23,6 +23,8 @@ class BGVConfig:
     mask_threshold: float = 0.5
 
     def __post_init__(self) -> None:
+        if self.rows is None:
+            object.__setattr__(self, "rows", (self.max_message_length + 8) // 8)
         if self.min_message_length < 0 or self.max_message_length > 255:
             raise ValueError("message lengths must fit in one byte")
         if self.min_message_length > self.max_message_length:
@@ -31,8 +33,8 @@ class BGVConfig:
             raise ValueError("grid dimensions and bit_block_size must be positive")
         if self.glyph_rows * self.glyph_cols != 8:
             raise ValueError("a byte glyph must contain exactly eight bits")
-        if self.rows * self.cols != self.max_message_length + 1:
-            raise ValueError("slot grid must contain one length slot and every payload slot")
+        if self.cols != 8 or self.rows != (self.max_message_length + 8) // 8:
+            raise ValueError("slot grid must be the minimal eight-column grid")
         if not 0 <= self.bit_threshold <= 1 or not 0 <= self.mask_threshold <= 1:
             raise ValueError("thresholds must be in [0, 1]")
 
@@ -156,6 +158,8 @@ class BGVDecoder:
         expected_shape = (2, self.config.image_height, self.config.image_width)
         if tuple(image.shape) != expected_shape:
             return DecodeResult(None, False, None, f"invalid_shape_expected_{expected_shape}")
+        if not torch.isfinite(image).all():
+            return DecodeResult(None, False, None, "non_finite")
 
         unit_image = (image + 1.0) / 2.0 if normalized else image
         length = decode_byte_glyph(self._cell(unit_image[0], 0), self.config)
@@ -170,6 +174,9 @@ class BGVDecoder:
             return DecodeResult(None, False, length, "length_slot_invalid")
         if strict_mask and any(slot_is_valid != (slot <= length) for slot, slot_is_valid in enumerate(valid_slots)):
             return DecodeResult(None, False, length, "mask_inconsistent")
+        if any(decode_byte_glyph(self._cell(unit_image[0], slot), self.config) != 0
+               for slot in range(length + 1, self.config.slot_count)):
+            return DecodeResult(None, False, length, "padding_inconsistent")
 
         message = bytes(decode_byte_glyph(self._cell(unit_image[0], slot), self.config) for slot in range(1, length + 1))
         return DecodeResult(message, True, length, None)

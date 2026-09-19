@@ -1,0 +1,89 @@
+{
+  "baseline_seeds": null,
+  "bootstrap_seed": null,
+  "candidate_subset_seed": null,
+  "condition_format": "canonical_bits",
+  "dataset_seed": null,
+  "direct_predictor_configuration": null,
+  "excluded_observed_corpora": [
+    "all output/ legacy corpora",
+    "artifacts/datasets/SANITY_*",
+    "all engineering smoke/test fixture corpora"
+  ],
+  "family_configuration": {
+    "D-P": null,
+    "D-P-L": null,
+    "D-R": null,
+    "D-R-L": null,
+    "G-P-BGV": null,
+    "G-P-BGV-L": null,
+    "G-P-CG": null,
+    "G-P-CG-L": null,
+    "G-R-BGV": null,
+    "G-R-BGV-L": null
+  },
+  "full_digest_reserved_budget": null,
+  "k": [
+    1,
+    10,
+    100
+  ],
+  "l_max": 31,
+  "l_max_provenance": "Legacy RESEARCH_PLAN.md and preserved output/md5-bgv-q8-s0-mps/data/manifest.json; current user explicitly authorizes existing registered values. New confirmatory snapshot still blocked.",
+  "l_min": 4,
+  "length_distribution": "uniform_integer",
+  "main_quotas": [
+    100000,
+    10000,
+    10000
+  ],
+  "model_seeds": [
+    0,
+    1,
+    2
+  ],
+  "monte_carlo_draws": null,
+  "monte_carlo_seed": null,
+  "pilot_quotas": [
+    10000,
+    1000,
+    1000
+  ],
+  "plan_sha256": "eda7668efff3b41617bd131cca0acd4a16d75ec7323e196867c122408ea4f36d",
+  "positive_control_protocol": null,
+  "power_target": null,
+  "q_values": {
+    "md5": [
+      8,
+      12,
+      16,
+      20,
+      24,
+      32,
+      64,
+      128
+    ],
+    "sha256": [
+      8,
+      12,
+      16,
+      20,
+      24,
+      32,
+      64,
+      128,
+      256
+    ]
+  },
+  "resource_envelope": null,
+  "sampling_seeds": null,
+  "sources": [
+    "printable",
+    "random_bytes"
+  ],
+  "split_seed": null,
+  "statistical_comparison_manifest": null,
+  "status": "BLOCKED_SPECIFICATION_NOT_A_RUN_CONFIG",
+  "stopping_rule": null,
+  "validation_selection_protocol": null
+}

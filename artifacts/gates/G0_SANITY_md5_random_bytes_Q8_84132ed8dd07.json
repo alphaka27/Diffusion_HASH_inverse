@@ -1,0 +1,40 @@
+{
+  "audit": {
+    "algorithm_q_consistent": true,
+    "pairwise": {
+      "train_test": {
+        "digest_examples": [],
+        "digest_overlap_count": 0,
+        "message_examples_hex": [],
+        "message_overlap_count": 0
+      },
+      "train_validation": {
+        "digest_examples": [],
+        "digest_overlap_count": 0,
+        "message_examples_hex": [],
+        "message_overlap_count": 0
+      },
+      "validation_test": {
+        "digest_examples": [],
+        "digest_overlap_count": 0,
+        "message_examples_hex": [],
+        "message_overlap_count": 0
+      }
+    },
+    "passed": true,
+    "record_counts": {
+      "test": 10,
+      "train": 40,
+      "validation": 10
+    },
+    "unique_digest_counts": {
+      "test": 9,
+      "train": 37,
+      "validation": 6
+    }
+  },
+  "errors": [],
+  "gate": "G0",
+  "scope": "engineering_sanity_not_pilot",
+  "status": "PASS"
+}

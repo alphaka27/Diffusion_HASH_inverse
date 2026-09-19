@@ -1,0 +1,59 @@
+{
+  "condition_format": "canonical_bits",
+  "config": {
+    "algorithm": "md5",
+    "batch_size": 2,
+    "beta_end": 0.02,
+    "condition_dim": 260,
+    "condition_format": "canonical_bits",
+    "condition_mode": "hash",
+    "data_seed": 7,
+    "dataset_size": 60,
+    "device": "cpu",
+    "diffusion_steps": 100,
+    "k": 1,
+    "learning_rate": 0.001,
+    "length_conditioning": true,
+    "masking_schedule": [
+      0,
+      0.5,
+      1
+    ],
+    "max_length": 7,
+    "method": "diffusion",
+    "model_seed": 0,
+    "prediction_type": "epsilon",
+    "q": 8,
+    "representation": "tokens",
+    "sampling_steps": 2,
+    "source": "random_bytes",
+    "split_seed": 11,
+    "test_limit": 2,
+    "token_embedding_dim": 2,
+    "token_temperature": 1.0,
+    "training_steps": 1,
+    "width": 8
+  },
+  "glyph_distance_metric": null,
+  "glyph_table_checksum": null,
+  "glyph_valid_threshold": null,
+  "image_shape": [
+    8
+  ],
+  "mask_threshold": null,
+  "parameter_count": 21318,
+  "representation": "tokens",
+  "representation_version": "categorical-eos-pad-mask-v1",
+  "run_gates": {
+    "g0_split_independence": true,
+    "g1_round_trip": true,
+    "g2_candidate_budget": true
+  },
+  "scope": "engineering_or_legacy_only_not_confirmatory",
+  "test_count": 2,
+  "test_record_count": 6,
+  "torch_version": "2.14.0",
+  "train_count": 48,
+  "training_loss": 5.6009979248046875,
+  "training_wall_seconds": 0.0025059160543605685
+}

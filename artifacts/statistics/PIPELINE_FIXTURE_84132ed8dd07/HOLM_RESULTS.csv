@@ -1,0 +1,7 @@
+comparison_id,seed,mcnemar_pvalue,holm_adjusted_pvalue
+fixture_prior,0,0.00390625,0.0078125
+fixture_approach,0,0.0078125,0.0078125
+fixture_prior,1,0.00390625,0.0078125
+fixture_approach,1,0.0078125,0.0078125
+fixture_prior,2,0.00390625,0.0078125
+fixture_approach,2,0.0078125,0.0078125

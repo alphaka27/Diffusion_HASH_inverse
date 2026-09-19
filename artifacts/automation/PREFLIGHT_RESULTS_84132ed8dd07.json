@@ -1,0 +1,294 @@
+{
+  "codecs": {
+    "D-P": {
+      "codec_status": "PASS",
+      "gate": "G1",
+      "positive_control_status": "BLOCKED_SPECIFICATION",
+      "reason": "No new-protocol learned reversible positive control has been executed.",
+      "roundtrip_count": 570,
+      "roundtrip_rate": 1.0,
+      "scope": "engineering",
+      "status": "PARTIAL"
+    },
+    "D-P-L": {
+      "codec_status": "PASS",
+      "gate": "G1",
+      "positive_control_status": "BLOCKED_SPECIFICATION",
+      "reason": "No new-protocol learned reversible positive control has been executed.",
+      "roundtrip_count": 570,
+      "roundtrip_rate": 1.0,
+      "scope": "engineering",
+      "status": "PARTIAL"
+    },
+    "D-R": {
+      "codec_status": "PASS",
+      "gate": "G1",
+      "positive_control_status": "BLOCKED_SPECIFICATION",
+      "reason": "No new-protocol learned reversible positive control has been executed.",
+      "roundtrip_count": 1554,
+      "roundtrip_rate": 1.0,
+      "scope": "engineering",
+      "status": "PARTIAL"
+    },
+    "D-R-L": {
+      "codec_status": "PASS",
+      "gate": "G1",
+      "positive_control_status": "BLOCKED_SPECIFICATION",
+      "reason": "No new-protocol learned reversible positive control has been executed.",
+      "roundtrip_count": 1554,
+      "roundtrip_rate": 1.0,
+      "scope": "engineering",
+      "status": "PARTIAL"
+    },
+    "G-P-BGV": {
+      "codec_status": "PASS",
+      "gate": "G1",
+      "positive_control_status": "BLOCKED_SPECIFICATION",
+      "reason": "No new-protocol learned reversible positive control has been executed.",
+      "roundtrip_count": 570,
+      "roundtrip_rate": 1.0,
+      "scope": "engineering",
+      "status": "PARTIAL"
+    },
+    "G-P-BGV-L": {
+      "codec_status": "PASS",
+      "gate": "G1",
+      "positive_control_status": "BLOCKED_SPECIFICATION",
+      "reason": "No new-protocol learned reversible positive control has been executed.",
+      "roundtrip_count": 570,
+      "roundtrip_rate": 1.0,
+      "scope": "engineering",
+      "status": "PARTIAL"
+    },
+    "G-P-CG": {
+      "codec_status": "PASS",
+      "gate": "G1",
+      "positive_control_status": "BLOCKED_SPECIFICATION",
+      "reason": "No new-protocol learned reversible positive control has been executed.",
+      "roundtrip_count": 570,
+      "roundtrip_rate": 1.0,
+      "scope": "engineering",
+      "status": "PARTIAL"
+    },
+    "G-P-CG-L": {
+      "codec_status": "PASS",
+      "gate": "G1",
+      "positive_control_status": "BLOCKED_SPECIFICATION",
+      "reason": "No new-protocol learned reversible positive control has been executed.",
+      "roundtrip_count": 570,
+      "roundtrip_rate": 1.0,
+      "scope": "engineering",
+      "status": "PARTIAL"
+    },
+    "G-R-BGV": {
+      "codec_status": "PASS",
+      "gate": "G1",
+      "positive_control_status": "BLOCKED_SPECIFICATION",
+      "reason": "No new-protocol learned reversible positive control has been executed.",
+      "roundtrip_count": 1554,
+      "roundtrip_rate": 1.0,
+      "scope": "engineering",
+      "status": "PARTIAL"
+    },
+    "G-R-BGV-L": {
+      "codec_status": "PASS",
+      "gate": "G1",
+      "positive_control_status": "BLOCKED_SPECIFICATION",
+      "reason": "No new-protocol learned reversible positive control has been executed.",
+      "roundtrip_count": 1554,
+      "roundtrip_rate": 1.0,
+      "scope": "engineering",
+      "status": "PARTIAL"
+    }
+  },
+  "datasets": [
+    {
+      "algorithm": "md5",
+      "baseline_at_100": 0.4444444444444444,
+      "dataset_id": "SANITY_md5_printable_Q8_84132ed8dd07",
+      "mc_expected_at_100": 0.38976133161131643,
+      "q": 8,
+      "source": "printable",
+      "unique_test": 9,
+      "unique_train": 32,
+      "unique_validation": 8
+    },
+    {
+      "algorithm": "md5",
+      "baseline_at_100": 0.0,
+      "dataset_id": "SANITY_md5_printable_Q12_84132ed8dd07",
+      "mc_expected_at_100": 0.019041570577258214,
+      "q": 12,
+      "source": "printable",
+      "unique_test": 10,
+      "unique_train": 39,
+      "unique_validation": 10
+    },
+    {
+      "algorithm": "md5",
+      "baseline_at_100": 0.0,
+      "dataset_id": "SANITY_md5_printable_Q16_84132ed8dd07",
+      "mc_expected_at_100": 0.0,
+      "q": 16,
+      "source": "printable",
+      "unique_test": 10,
+      "unique_train": 40,
+      "unique_validation": 10
+    },
+    {
+      "algorithm": "sha256",
+      "baseline_at_100": 0.2,
+      "dataset_id": "SANITY_sha256_printable_Q8_84132ed8dd07",
+      "mc_expected_at_100": 0.341694941575052,
+      "q": 8,
+      "source": "printable",
+      "unique_test": 10,
+      "unique_train": 37,
+      "unique_validation": 9
+    },
+    {
+      "algorithm": "sha256",
+      "baseline_at_100": 0.0,
+      "dataset_id": "SANITY_sha256_printable_Q12_84132ed8dd07",
+      "mc_expected_at_100": 0.019041570577258214,
+      "q": 12,
+      "source": "printable",
+      "unique_test": 10,
+      "unique_train": 40,
+      "unique_validation": 10
+    },
+    {
+      "algorithm": "sha256",
+      "baseline_at_100": 0.0,
+      "dataset_id": "SANITY_sha256_printable_Q16_84132ed8dd07",
+      "mc_expected_at_100": 0.0,
+      "q": 16,
+      "source": "printable",
+      "unique_test": 10,
+      "unique_train": 40,
+      "unique_validation": 10
+    },
+    {
+      "algorithm": "md5",
+      "baseline_at_100": 0.2222222222222222,
+      "dataset_id": "SANITY_md5_random_bytes_Q8_84132ed8dd07",
+      "mc_expected_at_100": 0.34994962871926494,
+      "q": 8,
+      "source": "random_bytes",
+      "unique_test": 9,
+      "unique_train": 37,
+      "unique_validation": 6
+    },
+    {
+      "algorithm": "md5",
+      "baseline_at_100": 0.0,
+      "dataset_id": "SANITY_md5_random_bytes_Q12_84132ed8dd07",
+      "mc_expected_at_100": 0.009520785288629107,
+      "q": 12,
+      "source": "random_bytes",
+      "unique_test": 10,
+      "unique_train": 40,
+      "unique_validation": 10
+    },
+    {
+      "algorithm": "md5",
+      "baseline_at_100": 0.0,
+      "dataset_id": "SANITY_md5_random_bytes_Q16_84132ed8dd07",
+      "mc_expected_at_100": 0.0,
+      "q": 16,
+      "source": "random_bytes",
+      "unique_test": 10,
+      "unique_train": 40,
+      "unique_validation": 10
+    },
+    {
+      "algorithm": "sha256",
+      "baseline_at_100": 0.2222222222222222,
+      "dataset_id": "SANITY_sha256_random_bytes_Q8_84132ed8dd07",
+      "mc_expected_at_100": 0.3056283657807906,
+      "q": 8,
+      "source": "random_bytes",
+      "unique_test": 9,
+      "unique_train": 38,
+      "unique_validation": 9
+    },
+    {
+      "algorithm": "sha256",
+      "baseline_at_100": 0.0,
+      "dataset_id": "SANITY_sha256_random_bytes_Q12_84132ed8dd07",
+      "mc_expected_at_100": 0.019041570577258214,
+      "q": 12,
+      "source": "random_bytes",
+      "unique_test": 10,
+      "unique_train": 40,
+      "unique_validation": 10
+    },
+    {
+      "algorithm": "sha256",
+      "baseline_at_100": 0.0,
+      "dataset_id": "SANITY_sha256_random_bytes_Q16_84132ed8dd07",
+      "mc_expected_at_100": 0.0,
+      "q": 16,
+      "source": "random_bytes",
+      "unique_test": 10,
+      "unique_train": 40,
+      "unique_validation": 10
+    }
+  ],
+  "elapsed_seconds": 22.161716666072607,
+  "scientific_gates": {
+    "G0": "BLOCKED_SPECIFICATION",
+    "G1": "PARTIAL_POSITIVE_CONTROLS_NOT_RUN",
+    "G2": "NOT_RUN",
+    "G3": "NOT_RUN",
+    "G4": "NOT_RUN"
+  },
+  "scope": "engineering_only",
+  "source_version": "84132ed8dd074e51d7bea8502a9fd5169f8aa22cd865d0476d517eb5c057584a",
+  "verifier": [
+    {
+      "algorithm": "md5",
+      "lengths": [
+        1,
+        2
+      ],
+      "messages": 8930,
+      "source": "printable",
+      "status": "PASS",
+      "verdict_checks": 142880
+    },
+    {
+      "algorithm": "sha256",
+      "lengths": [
+        1,
+        2
+      ],
+      "messages": 8930,
+      "source": "printable",
+      "status": "PASS",
+      "verdict_checks": 160740
+    },
+    {
+      "algorithm": "md5",
+      "lengths": [
+        1,
+        2
+      ],
+      "messages": 65792,
+      "source": "random_bytes",
+      "status": "PASS",
+      "verdict_checks": 1052672
+    },
+    {
+      "algorithm": "sha256",
+      "lengths": [
+        1,
+        2
+      ],
+      "messages": 65792,
+      "source": "random_bytes",
+      "status": "PASS",
+      "verdict_checks": 1184256
+    }
+  ]
+}

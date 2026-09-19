@@ -1,0 +1,2 @@
+target_count,candidate_budget,candidate_attempt_count,hash_verification_count,valid_decode_rate,preimage_success_at_k,in_domain_preimage_success_at_k,exact_source_recovery_at_k,length_match_rate,length_matched_preimage_success_at_k,preimage_success_ci95,zero_success_upper95
+9,100,900,900,1.0,0.4444444444444444,0.4444444444444444,0.0,0.05,0.0,"(0.18877852109766452, 0.733348706504507)",

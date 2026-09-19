@@ -1,0 +1,15 @@
+{
+  "artifact_hash_checks": 628,
+  "experiment_status": "STOPPED",
+  "gates": {
+    "G0": "PASS",
+    "G1": "PASS",
+    "G2": "PASS",
+    "G3": "PASS",
+    "G4": "PASS",
+    "G5": "INCONCLUSIVE",
+    "G6": "NOT_RUN"
+  },
+  "prerequisite_files": 83,
+  "status": "PASS"
+}

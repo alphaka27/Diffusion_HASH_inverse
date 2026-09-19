@@ -1,0 +1,16 @@
+{
+  "sha256": {
+    "checkpoint.pt": "02b41b82fbdc8ac95339584c6bc80c057be09101a9374861919a516107c42a32",
+    "configuration_frozen.json": "f9987cce4ffdbd5159e8c978549721fb2590498ecb9f310088667e1f6203f867",
+    "data/manifest.json": "a377da80d5ce0726a4580201ac47836f2d4851af37ad4711e001e5d353da47d4",
+    "data/records.jsonl": "a893ff0a75c5b4165ccb2983396eb5539c0ffd4adb9748c29a82a0d34160bd75",
+    "data/split_validation.json": "7f8b0b21e0533984aaf69c13eb77f4f4c7b59e0805b1975bb9ae8e79246fa974",
+    "evaluation/candidates.jsonl": "958efad05305b52d0531ff6049e5b7115b55c41ee400fc5ab14a312c122792d9",
+    "evaluation/metrics.csv": "5c41f36606f71d8642680c6b1ad9cb1953cd005e2c849668f970c1e8ba63b720",
+    "evaluation/metrics.json": "06cc5b392156f3231ef65ee9f50cbc927bac501d737570dfd49ca669fc018913",
+    "evaluation/outcomes.jsonl": "6134b2590c807d32353ba45042ee54318970f73c9131edfe9773a4371157e1fd",
+    "run_manifest.json": "fc027fa0333f90bd867feb9e3f1d5d0819a326d894e954632eb094fa099bb9c9",
+    "training_resume.pt": "aaab83a31c9c9e754b8eab2da8656f30a541b167bf5f5534fc40919d3d76ab2f",
+    "training_resume.sha256": "42aae62f425a7ff58f764b9e98a898f53c90146d1dabaee3fbe085c6f8a8d605"
+  }
+}

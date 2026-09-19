@@ -1,0 +1,10 @@
+{
+  "codec_status": "PASS",
+  "gate": "G1",
+  "positive_control_status": "BLOCKED_SPECIFICATION",
+  "reason": "No new-protocol learned reversible positive control has been executed.",
+  "roundtrip_count": 1554,
+  "roundtrip_rate": 1.0,
+  "scope": "engineering",
+  "status": "PARTIAL"
+}

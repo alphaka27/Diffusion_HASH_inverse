@@ -8,11 +8,13 @@ import json
 import math
 import random
 from dataclasses import asdict, dataclass
-from math import comb
 from pathlib import Path
 from typing import Mapping, Sequence
 
-from .dataset import DigestRecord, digest_prefix_hex
+from .dataset import DigestRecord
+
+EVALUATOR_VERSION = "fixed-budget-domain-v2"
+VERIFIER_VERSION = "hashlib-independent-msb-v2"
 
 
 @dataclass(frozen=True)
@@ -22,12 +24,16 @@ class CandidateAttempt:
     message: bytes | None
     valid: bool
     reason: str | None = None
+    generation_seed: int | None = None
+    raw_representation: list | None = None
+    generation_seconds: float | None = None
 
 
 @dataclass(frozen=True)
 class Verification:
     digest: str | None
     prefix_match: bool
+    full_digest_match: bool = False
 
 
 @dataclass(frozen=True)
@@ -69,15 +75,18 @@ class PairedComparison:
 
 
 def verify_candidate(candidate: bytes, target: DigestRecord) -> Verification:
-    """Rehash a decoded candidate and compare only the experiment's q bits."""
+    """Independent full rehash; binary-string extraction does not reuse generator code."""
     digest = hashlib.new(target.algorithm, candidate).digest()
-    return Verification(digest.hex(), digest_prefix_hex(digest, target.q) == target.prefix)
+    if not 1 <= target.q <= len(digest) * 8:
+        raise ValueError("invalid target q")
+    prefix = int("".join(f"{byte:08b}" for byte in digest)[:target.q], 2)
+    return Verification(digest.hex(), prefix == int(target.prefix, 16), digest == target.digest)
 
 
-def _in_source_domain(candidate: bytes, target: DigestRecord) -> bool:
-    if not 4 <= len(candidate) <= 31:
-        return False
-    return target.source == "random_bytes" or all(0x21 <= byte <= 0x7E for byte in candidate)
+def _in_source_domain(candidate: bytes, target: DigestRecord, *, min_length: int, max_length: int) -> bool:
+    return (min_length <= len(candidate) <= max_length
+            and (target.source == "random_bytes" or
+                 target.source == "printable" and all(0x21 <= byte <= 0x7E for byte in candidate)))
 
 
 def binomial_ci95(successes: int, trials: int) -> tuple[float, float]:
@@ -92,23 +101,23 @@ def binomial_ci95(successes: int, trials: int) -> tuple[float, float]:
     return max(0.0, centre - margin), min(1.0, centre + margin)
 
 
-def target_outcomes(
-    targets: Sequence[DigestRecord], attempts_by_target: Sequence[Sequence[CandidateAttempt]], *, k: int
-) -> tuple[TargetOutcome, ...]:
-    """Return one binary success outcome for every unique evaluated target."""
-    if k < 1 or len(targets) != len(attempts_by_target):
-        raise ValueError("targets and attempt groups must align and k must be positive")
-    outcomes = []
-    for target, attempts in zip(targets, attempts_by_target):
-        if len(attempts) != k:
-            raise ValueError("every target must consume exactly k candidate attempts")
-        success = exact = False
-        for attempt in attempts:
-            if attempt.valid and attempt.message is not None:
-                success |= verify_candidate(attempt.message, target).prefix_match
-                exact |= attempt.message == target.message
-        outcomes.append(TargetOutcome(target.id, target.prefix, success, exact))
-    return tuple(outcomes)
+def target_outcomes(targets, attempts_by_target, *, k: int, min_length: int = 4, max_length: int = 31):
+    """Same domain validation and exact budget rules as the summary and ledger."""
+    return _evaluate(targets, attempts_by_target, k=k, min_length=min_length, max_length=max_length)[1]
+
+
+def exact_mcnemar(n10: int, n01: int, *, alternative: str = "greater") -> float:
+    if min(n10, n01) < 0 or alternative not in {"greater", "two-sided"}:
+        raise ValueError("invalid discordances or alternative")
+    n = n10 + n01
+    if not n:
+        return 1.0
+    upper = n01 if alternative == "greater" else min(n10, n01)
+    coefficient = total = 1
+    for k in range(1, upper + 1):
+        coefficient = coefficient * (n - k + 1) // k
+        total += coefficient
+    return min(1.0, (2 if alternative == "two-sided" else 1) * total / 2**n)
 
 
 def paired_comparison(
@@ -117,6 +126,7 @@ def paired_comparison(
     *,
     bootstrap_seed: int = 0,
     bootstrap_samples: int = 10_000,
+    alternative: str = "greater",
 ) -> PairedComparison:
     """Compute the preregistered paired McNemar test and bootstrap gain interval."""
     if not model_outcomes or len(model_outcomes) != len(baseline_outcomes) or bootstrap_samples < 1:
@@ -126,11 +136,12 @@ def paired_comparison(
     baseline_successes = sum(baseline_outcomes)
     n10 = sum(model and not baseline for model, baseline in zip(model_outcomes, baseline_outcomes))
     n01 = sum(not model and baseline for model, baseline in zip(model_outcomes, baseline_outcomes))
-    discordant = n10 + n01
-    pvalue = sum(comb(discordant, value) for value in range(n10, discordant + 1)) / 2**discordant if discordant else 1.0
-    differences = tuple(int(model) - int(baseline) for model, baseline in zip(model_outcomes, baseline_outcomes))
-    generator = random.Random(bootstrap_seed)
-    samples = sorted(sum(generator.choices(differences, k=n)) / n for _ in range(bootstrap_samples))
+    pvalue = exact_mcnemar(n10, n01, alternative=alternative)
+    # Exactly target-level bootstrap for binary pairs, via their difference counts.
+    import numpy as np
+    generator = np.random.default_rng(bootstrap_seed)
+    counts = generator.multinomial(n, [n01 / n, (n - n10 - n01) / n, n10 / n], size=bootstrap_samples)
+    samples = sorted((counts[:, 2] - counts[:, 0]) / n)
     return PairedComparison(
         target_count=n,
         model_successes=model_successes,
@@ -158,85 +169,80 @@ def holm_adjust(pvalues: Mapping[str, float]) -> dict[str, float]:
     return adjusted
 
 
-def score_attempts(
-    targets: Sequence[DigestRecord], attempts_by_target: Sequence[Sequence[CandidateAttempt]], *, k: int
-) -> EvaluationSummary:
-    """Score exactly k attempts per target without retrying invalid candidates."""
-    if k < 1 or len(targets) != len(attempts_by_target):
-        raise ValueError("targets and attempt groups must align and k must be positive")
-    valid_count = verification_count = length_matches = successes = in_domain_successes = exact_recoveries = length_matched_successes = 0
+def _evaluate(targets, attempts_by_target, *, k, min_length, max_length):
+    if k < 1 or not targets or len(targets) != len(attempts_by_target) or not 0 <= min_length <= max_length:
+        raise ValueError("nonempty targets, aligned attempts, positive budget and valid lengths required")
+    keys = [(r.algorithm, r.q, r.prefix) for r in targets]
+    if len(set(keys)) != len(keys):
+        raise ValueError("evaluation unit must be a unique digest condition")
+    valid_count = verification_count = length_matches = successes = exact_recoveries = length_successes = 0
+    outcomes, ledger = [], []
     for target, attempts in zip(targets, attempts_by_target):
         if len(attempts) != k:
             raise ValueError("every target must consume exactly k candidate attempts")
-        target_success = target_in_domain_success = target_exact = target_length_matched_success = False
-        for attempt in attempts:
-            if not attempt.valid or attempt.message is None:
-                continue
-            valid_count += 1
-            length_matches += len(attempt.message) == len(target.message)
-            verification_count += 1
-            verified = verify_candidate(attempt.message, target)
-            target_success |= verified.prefix_match
-            target_in_domain_success |= verified.prefix_match and _in_source_domain(attempt.message, target)
-            target_length_matched_success |= verified.prefix_match and len(attempt.message) == len(target.message)
-            target_exact |= attempt.message == target.message
-        successes += target_success
-        in_domain_successes += target_in_domain_success
-        length_matched_successes += target_length_matched_success
-        exact_recoveries += target_exact
-    total_attempts = len(targets) * k
-    return EvaluationSummary(
-        target_count=len(targets),
-        candidate_budget=k,
-        candidate_attempt_count=total_attempts,
-        hash_verification_count=verification_count,
-        valid_decode_rate=valid_count / total_attempts if total_attempts else 0.0,
-        preimage_success_at_k=successes / len(targets) if targets else 0.0,
-        in_domain_preimage_success_at_k=in_domain_successes / len(targets) if targets else 0.0,
-        exact_source_recovery_at_k=exact_recoveries / len(targets) if targets else 0.0,
-        length_match_rate=length_matches / total_attempts if total_attempts else 0.0,
-        length_matched_preimage_success_at_k=length_matched_successes / len(targets) if targets else 0.0,
-        preimage_success_ci95=binomial_ci95(successes, len(targets)) if targets else (0.0, 0.0),
-        zero_success_upper95=min(1.0, 3 / len(targets)) if not successes and targets else None,
-    )
+        success = exact = length_success = False
+        for index, attempt in enumerate(attempts):
+            candidate = attempt.message
+            if candidate is not None and not isinstance(candidate, bytes):
+                raise TypeError("decoded candidate must be raw bytes or None")
+            # Rehash every interpretable payload, including invalid-domain and duplicate outputs.
+            verified = verify_candidate(candidate, target) if candidate is not None else None
+            verification_count += verified is not None
+            valid = bool(attempt.valid and candidate is not None and _in_source_domain(
+                candidate, target, min_length=min_length, max_length=max_length))
+            reason = attempt.reason if not attempt.valid else None
+            if attempt.valid and not valid:
+                reason = "missing_payload" if candidate is None else "source_domain"
+            match_length = valid and len(candidate) == len(target.message)
+            matched = valid and verified.prefix_match
+            recovered = valid and candidate == target.message
+            valid_count += valid
+            length_matches += match_length
+            success |= matched
+            exact |= recovered
+            length_success |= matched and match_length
+            ledger.append(dict(target_id=target.id, target_digest=target.digest.hex(), target_prefix=target.prefix,
+                               algorithm=target.algorithm, q=target.q, candidate_index=index, k_position=index + 1,
+                               valid=valid, decode_success=attempt.valid, reason=reason,
+                               message_hex=candidate.hex() if candidate is not None else None,
+                               candidate_length=len(candidate) if candidate is not None else None,
+                               actual_digest=verified.digest if verified else None,
+                               prefix_match=verified.prefix_match if verified else False,
+                               full_digest_match=verified.full_digest_match if verified else False,
+                               exact_source_match=recovered, generation_seed=attempt.generation_seed,
+                               raw_representation=attempt.raw_representation, generation_seconds=attempt.generation_seconds))
+        outcomes.append(TargetOutcome(target.id, target.prefix, bool(success), bool(exact)))
+        successes += success
+        exact_recoveries += exact
+        length_successes += length_success
+    n, total = len(targets), len(targets) * k
+    summary = EvaluationSummary(n, k, total, verification_count, valid_count / total,
+                                successes / n, successes / n, exact_recoveries / n,
+                                length_matches / total, length_successes / n,
+                                binomial_ci95(successes, n), -math.expm1(math.log(0.05) / n) if successes == 0 else None)
+    return summary, tuple(outcomes), ledger
 
 
-def write_evaluation(
-    targets: Sequence[DigestRecord],
-    attempts_by_target: Sequence[Sequence[CandidateAttempt]],
-    output_dir: str | Path,
-    *,
-    method: str,
-    k: int,
-    metadata: dict[str, object] | None = None,
-) -> EvaluationSummary:
-    """Persist a summary and every attempt, including invalid budget spend."""
-    summary = score_attempts(targets, attempts_by_target, k=k)
-    outcomes = target_outcomes(targets, attempts_by_target, k=k)
+def score_attempts(targets, attempts_by_target, *, k: int, min_length: int = 4, max_length: int = 31):
+    """Score exactly k attempts. Format AND source domain are primary validity."""
+    return _evaluate(targets, attempts_by_target, k=k, min_length=min_length, max_length=max_length)[0]
+
+
+def write_evaluation(targets, attempts_by_target, output_dir, *, method: str, k: int,
+                     metadata=None, min_length: int = 4, max_length: int = 31):
+    """One verification pass feeds the metrics, outcomes and canonical JSON ledger."""
+    summary, outcomes, ledger = _evaluate(targets, attempts_by_target, k=k,
+                                          min_length=min_length, max_length=max_length)
     target = Path(output_dir)
     target.mkdir(parents=True, exist_ok=True)
     with (target / "candidates.jsonl").open("w", encoding="utf-8") as output:
-        for record, attempts in zip(targets, attempts_by_target):
-            for index, attempt in enumerate(attempts):
-                verification = verify_candidate(attempt.message, record) if attempt.valid and attempt.message is not None else None
-                output.write(
-                    json.dumps(
-                        {
-                            "target_id": record.id,
-                            "candidate_index": index,
-                            "valid": attempt.valid,
-                            "reason": attempt.reason,
-                            "message_hex": attempt.message.hex() if attempt.message is not None else None,
-                            "candidate_length": len(attempt.message) if attempt.message is not None else None,
-                            "actual_digest": verification.digest if verification else None,
-                            "prefix_match": verification.prefix_match if verification else False,
-                        },
-                        sort_keys=True,
-                    )
-                    + "\n"
-                )
-    result = {"method": method, "metadata": metadata or {}, **asdict(summary)}
-    (target / "metrics.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        for row in ledger:
+            output.write(json.dumps(row, sort_keys=True, allow_nan=False) + "\n")
+    result = {"method": method, "metadata": metadata or {}, "evaluator_version": EVALUATOR_VERSION,
+              "verifier_version": VERIFIER_VERSION, "min_length": min_length, "max_length": max_length,
+              "zero_success_rule_of_three": min(1.0, 3 / len(targets)) if summary.zero_success_upper95 else None,
+              **asdict(summary)}
+    (target / "metrics.json").write_text(json.dumps(result, indent=2, sort_keys=True, allow_nan=False) + "\n")
     with (target / "metrics.csv").open("w", newline="", encoding="utf-8") as output:
         writer = csv.DictWriter(output, fieldnames=tuple(asdict(summary)))
         writer.writeheader()

@@ -1,0 +1,7 @@
+comparison_id,seed,absolute_gain,delta_ci95
+fixture_prior,0,1.0,"(np.float64(1.0), np.float64(1.0))"
+fixture_approach,0,1.0,"(np.float64(1.0), np.float64(1.0))"
+fixture_prior,1,1.0,"(np.float64(1.0), np.float64(1.0))"
+fixture_approach,1,1.0,"(np.float64(1.0), np.float64(1.0))"
+fixture_prior,2,1.0,"(np.float64(1.0), np.float64(1.0))"
+fixture_approach,2,1.0,"(np.float64(1.0), np.float64(1.0))"

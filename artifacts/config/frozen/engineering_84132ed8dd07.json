@@ -1,0 +1,60 @@
+{
+  "algorithms": {
+    "md5": [
+      8,
+      12,
+      16,
+      20,
+      24,
+      32,
+      64,
+      128
+    ],
+    "sha256": [
+      8,
+      12,
+      16,
+      20,
+      24,
+      32,
+      64,
+      128,
+      256
+    ]
+  },
+  "baseline_seed": 7,
+  "bootstrap_samples": 10000,
+  "bootstrap_seed": 7,
+  "codec_test_maxima": [
+    4,
+    7,
+    8,
+    31,
+    32,
+    255
+  ],
+  "dataset_seed": 7,
+  "ks": [
+    1,
+    10,
+    100
+  ],
+  "max_draws": 3000,
+  "maximum_length": 31,
+  "monte_carlo_draws": 1000,
+  "monte_carlo_seed": 8,
+  "representative_seed": 7,
+  "sanity_q": [
+    8,
+    12,
+    16
+  ],
+  "sanity_quotas": [
+    40,
+    10,
+    10
+  ],
+  "scope": "engineering_only_not_preregistered_scientific_run",
+  "source_version": "84132ed8dd074e51d7bea8502a9fd5169f8aa22cd865d0476d517eb5c057584a",
+  "split_seed": 11
+}

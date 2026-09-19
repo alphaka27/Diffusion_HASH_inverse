@@ -88,6 +88,9 @@ class DigestRecord:
 
 def generate_source_messages(spec: SourceSpec) -> tuple[bytes, ...]:
     """Generate a unique, deterministic source corpus without storing RNG state."""
+    alphabet_size = 94 if spec.distribution == "printable" else 256
+    if spec.size > sum(alphabet_size**length for length in range(spec.min_length, spec.max_length + 1)):
+        raise ValueError("requested unique count exceeds source domain")
     rng = random.Random(spec.seed)
     messages: set[bytes] = set()
     alphabet = PRINTABLE94.encode("ascii")
@@ -138,12 +141,14 @@ def split_digest_groups(
     return {name: tuple(result[name]) for name in names}
 
 
-def select_digest_representatives(records: Sequence[DigestRecord]) -> tuple[DigestRecord, ...]:
+def select_digest_representatives(records: Sequence[DigestRecord], *, seed: int | None = None) -> tuple[DigestRecord, ...]:
     """Choose one deterministic source record for every q-bit digest target."""
     representatives: dict[str, DigestRecord] = {}
+    def priority(record):
+        return record.id if seed is None else hashlib.sha256(f"{seed}:".encode() + record.message).digest()
     for record in records:
         current = representatives.get(record.prefix)
-        if current is None or record.id < current.id:
+        if current is None or priority(record) < priority(current):
             representatives[record.prefix] = record
     return tuple(representatives[prefix] for prefix in sorted(representatives))
 
@@ -198,6 +203,47 @@ def write_split(
         "caption_format": "<algorithm>-<q>:<hex digest>",
     }
     (target / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def quota_digest_split(spec: SourceSpec, *, algorithm: str, q: int, split_seed: int,
+                       quotas: tuple[int, int, int], max_draws: int):
+    """Exact message quotas with immutable digest ownership and bounded construction.
+
+    Surplus messages stay unused, never reassigned. All numerical choices are
+    explicit inputs; this function does not choose a confirmatory specification.
+    """
+    from .baselines import _sample_message
+    if len(quotas) != 3 or min(quotas) < 1 or sum(quotas) != spec.size or max_draws < spec.size:
+        raise ValueError("invalid quotas or construction budget")
+    algorithm = normalize_algorithm(algorithm)
+    digest_prefix_hex(hashlib.new(algorithm).digest(), q)
+    rng, split_rng = random.Random(spec.seed), random.Random(split_seed)
+    names = ("train", "validation", "test")
+    partitions = {name: [] for name in names}
+    owner, seen = {}, set()
+    duplicates = unused = 0
+    for draw in range(1, max_draws + 1):
+        message = _sample_message(rng, spec.distribution, min_length=spec.min_length,
+                                  max_length=spec.max_length, length=None)
+        if message in seen:
+            duplicates += 1
+            continue
+        seen.add(message)
+        record = DigestRecord(draw - 1, spec.distribution, message, algorithm, q,
+                              hashlib.new(algorithm, message).digest())
+        if record.prefix not in owner:
+            owner[record.prefix] = split_rng.choices(names, weights=quotas)[0]
+        split_name = owner[record.prefix]
+        if len(partitions[split_name]) < quotas[names.index(split_name)]:
+            partitions[split_name].append(record)
+        else:
+            unused += 1
+        if all(len(partitions[name]) == quota for name, quota in zip(names, quotas)):
+            return {name: tuple(values) for name, values in partitions.items()}, {
+                "draw_count": draw, "duplicate_count": duplicates, "unused_count": unused,
+                "digest_ownership": owner, "max_draws": max_draws, "quotas": quotas,
+            }
+    raise RuntimeError("DATASET_CONSTRUCTION_FAILED: immutable group ownership could not fill quotas within max_draws")
 
 
 __all__ = [
