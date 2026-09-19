@@ -21,6 +21,7 @@ _MATCHED_SETTINGS = (
     "split_seed",
     "test_limit",
     "length_conditioning",
+    "max_length",
 )
 
 
@@ -60,7 +61,7 @@ def _by_seed(paths: Sequence[str | Path]) -> dict[int, RunArtifact]:
 def _matched(model: RunArtifact, baseline: RunArtifact) -> bool:
     if any(model.config.get(name) != baseline.config.get(name) for name in _MATCHED_SETTINGS):
         return False
-    if model.outcomes.keys() != baseline.outcomes.keys():
+    if list(model.outcomes) != list(baseline.outcomes):
         return False
     for artifact in (model, baseline):
         target_count = artifact.metrics.get("target_count")
@@ -81,6 +82,8 @@ def _positive_control_passes(model: RunArtifact, positive: RunArtifact | None) -
     if positive is None:
         return False
     if positive.config.get("method") not in {"diffusion", "predictor"} or positive.config.get("condition_mode") != "reversible_record":
+        return False
+    if positive.config.get("representation") != model.config.get("representation"):
         return False
     if any(model.config.get(name) != positive.config.get(name) for name in _MATCHED_SETTINGS if name != "k"):
         return False
@@ -132,6 +135,8 @@ def validate_confirmatory_runs(
     for name, runs in baselines.items():
         gains = {}
         for seed in expected_seeds & models.keys() & runs.keys():
+            if not _matched(models[seed], runs[seed]):
+                continue
             model_outcomes, baseline_outcomes = _outcome_vector(models[seed], runs[seed])
             gains[str(seed)] = (sum(model_outcomes) - sum(baseline_outcomes)) / len(model_outcomes)
         seed_gains[name] = gains
