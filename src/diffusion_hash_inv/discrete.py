@@ -44,17 +44,23 @@ class MaskedDiffusion:
         self.device = device
 
     def corrupt(self, clean: Tensor, index: Tensor, *, generator: torch.Generator):
-        if clean.dtype != torch.long or ((clean < 0) | (clean >= self.mask_token)).any():
-            raise ValueError("clean tokens must exclude MASK and unknown states")
+        """Legacy schedule-index API; corruption itself uses continuous time."""
         if ((index < 0) | (index > self.steps)).any():
             raise ValueError("timestep outside schedule")
-        masked = torch.rand(clean.shape, device=self.device, generator=generator) < self.probabilities[index, None]
+        return self.corrupt_at_time(clean, self.probabilities[index], generator=generator)
+
+    def corrupt_at_time(self, clean: Tensor, time: Tensor, *, generator: torch.Generator):
+        if clean.dtype != torch.long or ((clean < 0) | (clean >= self.mask_token)).any():
+            raise ValueError("clean tokens must exclude MASK and unknown states")
+        if time.shape != (len(clean),) or not torch.isfinite(time).all() or ((time < 0) | (time > 1)).any():
+            raise ValueError("time must have one finite probability per sequence")
+        masked = torch.rand(clean.shape, device=self.device, generator=generator) < time[:, None]
         return clean.masked_fill(masked, self.mask_token), masked
 
     def loss(self, model, clean: Tensor, condition: Tensor, *, generator: torch.Generator):
-        index = torch.randint(1, self.steps + 1, (len(clean),), device=self.device, generator=generator)
-        noisy, masked = self.corrupt(clean, index, generator=generator)
-        logits = model(noisy, index.float() / self.steps, condition)
+        time = torch.rand((len(clean),), device=self.device, generator=generator)
+        noisy, masked = self.corrupt_at_time(clean, time, generator=generator)
+        logits = model(noisy, time, condition)
         if not torch.isfinite(logits).all():
             raise FloatingPointError("non-finite categorical logits")
         # An empty corruption contributes zero; never reveal padding to force a mask.
@@ -71,7 +77,7 @@ class MaskedDiffusion:
         times = torch.linspace(self.steps, 0, sampling_steps + 1, device=self.device).round().long()
         value = torch.full((len(condition), *shape), self.mask_token, dtype=torch.long, device=self.device)
         for current, previous in zip(times[:-1], times[1:]):
-            time = torch.full((len(condition),), current.item() / self.steps, device=self.device)
+            time = self.probabilities[current].expand(len(condition))
             logits = model(value, time, condition)
             if logits.shape != (*value.shape, self.mask_token) or not torch.isfinite(logits).all():
                 raise FloatingPointError("invalid categorical output")
