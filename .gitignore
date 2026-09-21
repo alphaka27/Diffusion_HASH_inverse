@@ -18,6 +18,10 @@ data/
 # Output
 output/
 
+# Experimental results stay local for archival and external transfer.
+artifacts/
+local_experiment_archive/
+
 # Etc
 .vscode/
 .DS_Store
