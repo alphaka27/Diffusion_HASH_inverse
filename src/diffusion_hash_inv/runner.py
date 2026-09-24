@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import random
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from math import prod
 from pathlib import Path
 from time import perf_counter
@@ -44,6 +44,7 @@ from .encoding.cgge import CGGEConfig
 from .encoding.tokens import TokenCodec, TOKENIZER_VERSION
 from .discrete import MaskedDiffusion, SequenceDenoiser
 from .conditioning import digest_condition, shuffled_donors
+from .devices import resolve_device, synchronize
 
 
 Method = Literal["diffusion", "predictor", "random", "nearest_train", "reversible", "shuffled", "zero"]
@@ -74,7 +75,7 @@ class ExperimentConfig:
     width: int = 32
     condition_dim: int = 256
     test_limit: int | None = None
-    device: str = "cpu"
+    device: str = "auto"
     max_length: int = 31
     condition_format: str = "legacy"
     masking_schedule: tuple[float, ...] | None = None
@@ -296,12 +297,13 @@ def _diffusion_attempts(
     for target, condition in zip(targets, _conditions(targets, config).to(device)):
         group = []
         for _ in range(config.k):
+            synchronize(device)
             started = perf_counter()
             options = {"temperature": config.token_temperature} if config.representation == "tokens" else {}
-            sample = diffusion.sample(model, condition[None, :], shape, sampling_steps=config.sampling_steps, generator=generator, **options)[0]
+            sample = diffusion.sample(model, condition[None, :], shape, sampling_steps=config.sampling_steps, generator=generator, **options)[0].cpu()
             decoded = decoder.decode(sample if config.representation == "tokens" else (sample + 1) / 2)
             group.append(CandidateAttempt(decoded.message, decoded.valid, decoded.reason,
-                                          config.model_seed + 1, sample.cpu().tolist(), perf_counter() - started))
+                                          config.model_seed + 1, sample.tolist(), perf_counter() - started))
         attempts.append(tuple(group))
     return tuple(attempts)
 
@@ -328,7 +330,7 @@ def _predictor_attempts(model, targets: Sequence[DigestRecord], config: Experime
     model.eval()
     attempts = []
     for target, condition in zip(targets, _conditions(targets, config).to(device)):
-        value = model(condition[None, :], shape)[0].clamp(-1, 1)
+        value = model(condition[None, :], shape)[0].clamp(-1, 1).cpu()
         decoded = decoder.decode((value + 1) / 2)
         attempts.append(tuple(CandidateAttempt(decoded.message, decoded.valid, decoded.reason) for _ in range(config.k)))
     return tuple(attempts)
@@ -391,6 +393,7 @@ def _run_experiment(config: ExperimentConfig, output_dir: str | Path) -> Experim
         encoder, decoder, shape = _codec(config.representation, max_length=config.max_length, source=config.source)
         device = torch.device(config.device)
         model = _build_model(config, shape).to(device)
+        synchronize(device)
         started = perf_counter()
         if config.method == "predictor":
             if config.representation == "tokens":
@@ -401,7 +404,9 @@ def _run_experiment(config: ExperimentConfig, output_dir: str | Path) -> Experim
         else:
             diffusion, training_loss = _train(model, split["train"], config, encoder, device,
                                               checkpoint_path=output / "training_resume.pt")
-        metadata.update({"parameter_count": parameter_count(model), "training_wall_seconds": perf_counter() - started})
+        synchronize(device)
+        metadata.update({"parameter_count": parameter_count(model), "training_wall_seconds": perf_counter() - started,
+                         "execution_device": str(next(model.parameters()).device)})
         parameter_total = parameter_count(model)
         torch.save({"config": asdict(config), "model_state": model.state_dict()}, output / "checkpoint.pt")
         attempts = (
@@ -448,6 +453,8 @@ def run_experiment(config: ExperimentConfig, output_dir: str | Path) -> Experime
     import fcntl
     from .automation import freeze_json, source_version
     from .experiment_state import sha256, write_json
+    # Freeze the resolved backend so an auto run cannot resume on another device.
+    config = replace(config, device=str(resolve_device(config.device)))
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)
     with (output / '.run.lock').open('a') as lock:

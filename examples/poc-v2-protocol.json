@@ -1,0 +1,101 @@
+{
+  "protocol_id": "dhi-poc-v2-20260923",
+  "status": "DESIGN_DEFINED_EXECUTION_BLOCKED",
+  "algorithm": "md5",
+  "q": 12,
+  "pipelines": ["P-G-BGV", "P-G-CGGE", "P-DISC", "R-G-BGV", "R-DISC"],
+  "model_seeds": [0, 1, 2],
+  "methods": ["main", "shuffled", "random"],
+  "learned_runs": 30,
+  "sources": ["printable", "random_bytes"],
+  "length_range": [4, 31],
+  "condition_dim": 12,
+  "dataset": {
+    "ownership": "source_specific_exposure_aware",
+    "train_digest_slots": 1536,
+    "validation_digest_slots": 512,
+    "test_digest_slots": 2048,
+    "train_unique_messages": 10000,
+    "draw_cap_per_source": 1000000,
+    "representative": "first_draw_per_validation_or_test_digest",
+    "study_seed": 2026092302,
+    "engineering_seed": 2026092399
+  },
+  "candidate_prefixes": [1, 10, 100],
+  "primary_k": 100,
+  "statistics": {
+    "component_test": "one_sided_exact_mcnemar_assumptions_required",
+    "composite": "max_over_two_controls_and_three_seeds",
+    "family": "five_pipeline_composites",
+    "alpha": 0.05,
+    "adjustment": "holm",
+    "missing_pipeline_p_for_adjustment_only": 1,
+    "bootstrap_resamples": 10000,
+    "ci_level": 0.95,
+    "ci_method": "paired_target_percentile",
+    "quantile_method": "linear",
+    "design_alternative_multiplier": 2,
+    "design_power_reference_target": 0.8
+  },
+  "gaussian": {
+    "architecture": "ImageUNet",
+    "width": 32,
+    "prediction": "epsilon",
+    "diffusion_timesteps": 1000,
+    "beta_start": 0.0001,
+    "beta_end": 0.02,
+    "sampler": "existing_deterministic_ddim_style",
+    "sampling_steps": 100
+  },
+  "discrete": {
+    "architecture": "SequenceDenoiser",
+    "width": 128,
+    "embedding_dim": 16,
+    "sequence_length": 32,
+    "training_time": "continuous_uniform_0_1",
+    "loss": "per_sequence_masked_cross_entropy_mean_zero_when_empty",
+    "reverse_grid": "linear_32_intervals",
+    "sampling_steps": 32,
+    "temperature": 1.0
+  },
+  "training": {
+    "optimizer": "Adam",
+    "learning_rate": 0.001,
+    "betas": [0.9, 0.999],
+    "eps": 1e-8,
+    "weight_decay": 0,
+    "batch_size": 64,
+    "epochs": 100,
+    "drop_last": false,
+    "precision": "float32",
+    "validation_every_epochs": 10,
+    "checkpoint_selection": "minimum_fixed_validation_denoising_loss_earliest_tie",
+    "search_trials": 1,
+    "performance_early_stopping": false
+  },
+  "positive_control": {
+    "task": "three_nibble_payload_constraints_v1",
+    "printable_symbols": "0123456789abcdef",
+    "random_byte_symbols": "00_through_0f",
+    "condition_pairing": "y_xor_4095",
+    "train_conditions": 3072,
+    "validation_conditions": 512,
+    "test_conditions": 512,
+    "k": 1,
+    "confidence": "two_sided_wilson_95",
+    "correct_joint_lower_bound": 0.9,
+    "wrong_original_constraint_upper_bound": 0.05
+  },
+  "artifacts": {
+    "stream_candidates": true,
+    "raw_tensor_samples_per_learned_run": 16,
+    "directory": "local_experiment_archive/runs/<run-id>/"
+  },
+  "execution_blockers": [
+    "complete_exposure_inventory_and_final_ownership_seal",
+    "full_model_boundary_and_generation_integration",
+    "learned_positive_controls_for_all_five_pipelines",
+    "statistical_assumption_and_sensitivity_review",
+    "hardware_throughput_resource_cap_and_recovery_manifest"
+  ]
+}

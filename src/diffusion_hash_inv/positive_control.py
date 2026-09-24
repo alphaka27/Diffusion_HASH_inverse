@@ -7,7 +7,7 @@ import hashlib
 import json
 import shlex
 import sys
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from time import perf_counter
 from typing import Sequence
@@ -17,6 +17,7 @@ import torch
 from .dataset import SourceSpec, build_digest_records, generate_source_messages
 from .runner import ExperimentConfig, _build_model, _codec, _conditions, _training_data
 from .models import GaussianDiffusion, parameter_count
+from .devices import resolve_device, synchronize
 
 
 @dataclass(frozen=True)
@@ -37,7 +38,7 @@ class G1Config:
     width: int | None = None
     evaluation_interval: int = 500
     sampling_seeds: tuple[int, ...] = (0, 1, 2)
-    device: str = "cpu"
+    device: str = "auto"
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "train_sizes", tuple(self.train_sizes))
@@ -103,7 +104,7 @@ def _evaluate(model, diffusion, records, config, encoder, decoder, shape, device
         mse += torch.nn.functional.mse_loss(last, clean, reduction="sum").item()
         bit_correct += ((last >= 0) == (clean >= 0)).sum().item()
         bit_total += clean.numel()
-        for record, value in zip(records, last):
+        for record, value in zip(records, last.cpu()):
             decoded = decoder.decode((value + 1) / 2)
             correct, total = _byte_score(decoded.message if decoded.valid else None, record.message)
             byte_correct += correct
@@ -209,6 +210,7 @@ def _run_stage(name: str, train_messages, evaluation_sets, config: G1Config, out
     optimizer = torch.optim.Adam(model.parameters(), lr=config.learning_rate)
     generator = torch.Generator(device=device).manual_seed(config.seed)
     log = []
+    synchronize(device)
     started = perf_counter()
     model.train()
     for step in range(1, config.training_steps + 1):
@@ -234,6 +236,7 @@ def _run_stage(name: str, train_messages, evaluation_sets, config: G1Config, out
         sample_rows.extend({"split": split, **sample} for sample in samples)
     required = ("train",) if "test" not in sets else ("train", "validation", "test")
     passed = all(metrics[split]["exact_recovery_rate"] == 1.0 for split in required)
+    synchronize(device)
     result = {
         "gate": "G1-C" if "test" in sets else "G1-A" if len(train_messages) == 1 else "G1-B",
         "stage": name,
@@ -247,6 +250,7 @@ def _run_stage(name: str, train_messages, evaluation_sets, config: G1Config, out
         "effective_model_configuration": asdict(experiment),
         "parameter_count": parameter_count(model),
         "torch_version": torch.__version__,
+        "execution_device": str(next(model.parameters()).device),
         "training_wall_seconds": perf_counter() - started,
         "terminal_alpha_bar": diffusion.alpha_bar[-1].item(),
         "metrics": metrics,
@@ -265,6 +269,7 @@ def _run_stage(name: str, train_messages, evaluation_sets, config: G1Config, out
 
 def run_g1(config: G1Config, output_dir: str | Path, *, command: str = "") -> dict[str, object]:
     """Run G1-A, the 4/16/64 G1-B ladder, then held-out G1-C; stop on failure."""
+    config = replace(config, device=str(resolve_device(config.device)))
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)
     total = max(config.train_sizes) + config.validation_size + config.test_size
@@ -315,8 +320,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run the sequential reversible diffusion G1 controls.")
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--device", help="Override config device: auto, cpu, mps, or cuda:N")
     arguments = parser.parse_args(argv)
     config = G1Config(**json.loads(arguments.config.read_text(encoding="utf-8")))
+    if arguments.device is not None:
+        config = replace(config, device=arguments.device)
     command = shlex.join([sys.executable, "-m", "diffusion_hash_inv.positive_control", *(argv or sys.argv[1:])])
     result = run_g1(config, arguments.output, command=command)
     print(json.dumps(result, sort_keys=True))

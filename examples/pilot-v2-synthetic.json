@@ -1,0 +1,14 @@
+{
+  "scope": "development_synthetic_pilot_not_g1_certification",
+  "pipeline": "P-G-BGV",
+  "model_seed": 0,
+  "method": "main",
+  "train_messages": 2048,
+  "validation_conditions": 128,
+  "test_conditions": 128,
+  "epochs": 20,
+  "checkpoint_every_updates": 16,
+  "prefix_diagnostic_targets": 4,
+  "prefix_diagnostic_k": 100,
+  "device": "mps"
+}
