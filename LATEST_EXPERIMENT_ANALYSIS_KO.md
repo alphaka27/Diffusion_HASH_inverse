@@ -2,6 +2,8 @@
 
 기준: 2026-09-25 로컬 저장 산출물. 최신 정식 study는 `v3-cli-p0-mps-final-20260925`이며, 디렉터리 이름과 달리 P0 이후 P1·P2·P3 실행 기록이 포함되어 있다. 분석 과정에서 학습·생성을 재실행하거나 원본 결과·실행 코드를 수정하지 않았다.
 
+**추가 상세 분석:** §7–§10에는 저장 checkpoint로 수행한 CPU validation 복원·logit 진단을 추가했다. 새 학습, 정식 sampler 평가, P3 test 후보 생성은 수행하지 않았다. 특히 Discrete에서는 조건 학습 신호가 확인되어, joint success 0을 조건 학습의 완전한 부재로 해석하면 안 된다.
+
 **결론: P0–P2의 기술 검증은 통과했지만, P3는 시간 예산 초과로 미완료다. 먼저 평가를 마친 Printable Gaussian 모델 6개는 유효 후보를 하나도 생성하지 못했다. 따라서 실행 중단과 생성 성능 미달이라는 두 문제가 동시에 존재한다. MD5 본실험의 실패로 해석할 수는 없다.**
 
 ## 1. 최신 실행 상태
@@ -109,3 +111,112 @@ P-DISC는 P3 validation loss가 epoch 20의 2.29745에서 epoch 60의 2.38142로
 - 과거 retired study의 G5 `INCONCLUSIVE` 및 G6 `NOT_RUN`은 다른 protocol의 결과다. 이를 이번 v3 성능과 합산하거나 v3의 적격성 증거로 사용하지 않았다.
 - 분석 시 P0–P2 seal, 완료한 P3 6개 run seal, resources·데이터·protocol 체크섬을 검증했다. 현재 소스의 파일별 해시도 실행 manifest와 모두 일치했다. P3 후보 수와 거부 사유는 읽기 전용 SQLite 조회로 재집계했다.
 - 분석 범위는 이 workspace에 저장된 산출물이다. 새로운 학습·표본 생성·통계적 우위 검정은 수행하지 않았다.
+
+## 7. 추가 진단: Gaussian은 낮은 잡음 복원과 높은 잡음 복원이 다르다
+
+기존 결과만으로는 형식 실패의 발생 위치를 충분히 좁힐 수 없어 다음 제한된 진단을 수행했다.
+
+- P3 P-G-BGV·P-G-CGGE seed 0의 저장된 BEST checkpoint를 사용했다. 두 모델 모두 epoch 100이다.
+- 저장된 Printable validation의 첫 16개 메시지에 고정 Gaussian noise(seed 20260925)를 더했다.
+- t=0/100/300/500/700/999 각각에서 한 번의 denoiser forward로 clean image 추정치를 구했다. Decode에는 [-1,1] clipping을 적용했다.
+- CPU float32로 검사했다. 이는 원래 MPS 실행과 동일한 backend 재현 검사가 아니며, validation 16개에 국한된 탐색 진단이다. 모델 파라미터는 갱신하지 않았다.
+
+| Noise index t | BGV 복원 valid /16 | BGV exact /16 | CGGE 복원 valid /16 | CGGE exact /16 |
+|---:|---:|---:|---:|---:|
+| 0 | 16 | 16 | 16 | 16 |
+| 100 | 16 | 16 | 16 | 16 |
+| 300 | 15 | 13 | 2 | 1 |
+| 500 | 5 | 0 | 0 | 0 |
+| 700 | 0 | 0 | 0 | 0 |
+| 999 | 0 | 0 | 0 | 0 |
+
+낮은 잡음에서는 이미 입력에 원문 정보가 많이 남아 있다. 따라서 16/16 exact는 조건만으로 메시지를 생성할 수 있다는 증거가 아니다. 그럼에도 codec과 모델 경로가 모든 입력에서 완전히 고장 난 상태가 아니라는 점, 잡음이 커질 때 구조 복원이 급격히 나빠진다는 점은 확인된다.
+
+### 7.1 Noise MSE가 작아도 구조 복원이 나쁜 이유
+
+현재 epsilon parameterization의 수식은 다음과 같다.
+
+`x0_hat = (x_t - sqrt(1-alpha_bar_t) * epsilon_hat) / sqrt(alpha_bar_t)`
+
+알려진 clean image에서 만든 x_t에 대해서는 다음 오차 관계가 정확히 성립한다.
+
+`MSE(x0_hat, x0) = ((1-alpha_bar_t) / alpha_bar_t) * MSE(epsilon_hat, epsilon)`
+
+t=999에서 alpha_bar는 약 0.0000403583이다. Epsilon 오차의 진폭은 clean 추정치에서 약 157.4배, 제곱오차는 약 24,777배로 확대된다. 실제 진단에서도 아래 관계가 수치적으로 일치했다.
+
+| 모델 | t=999 noise MSE | clipping 전 clean MSE | clean 추정치가 [-1,1] 밖인 좌표 |
+|---|---:|---:|---:|
+| P-G-BGV | 0.001060 | 26.263 | 84.81% |
+| P-G-CGGE | 0.000857 | 21.238 | 83.92% |
+
+참고로 같은 t에서 항상 clean=0을 암묵적으로 예측하는 `epsilon_hat=x_t/sqrt(1-alpha_bar)` 기준의 noise MSE는 약 0.00004036이다. 이 기준은 유효한 이미지를 만들지 못하지만, 높은 잡음에서 작은 noise loss 자체가 유효 생성의 증거가 아니라는 점을 보여준다.
+
+이는 현재 공식 생성이 실패한 현상과 일치하는 진단이다. 다만 한 단계의 x0 추정과 100-step 반복 sampling은 다르다. 이 결과만으로 모든 실패를 특정 timestep이나 clipping 부재 하나에 귀속할 수는 없다. 높은 잡음에서는 원문의 임의 suffix를 정확히 식별할 수도 없으므로, exact 복원 실패 자체를 곧바로 생성 불가능으로 해석하지 않는다.
+
+### 7.2 구조적 제약과 평균 loss의 간극
+
+BGV는 32 slots 중 하나에 length byte를 넣고, 모든 slot의 mask·padding과 그 길이를 맞춰야 한다. CGGE는 mask가 처음부터 연속한 valid 영역이어야 하고 각 glyph도 허용 거리 안이어야 한다. 평균 pixel 오차와 이 불연속적인 record 유효성은 다른 척도다.
+
+BGV 전체 tensor에서 length header의 glyph 영역은 1/64=1.5625%, 세 prefix glyph 영역은 3/64=4.6875%다. CGGE의 세 prefix glyph도 전체 tensor의 4.6875%다. 이 숫자는 좌표 비중이지 실제 loss 또는 gradient 기여도의 측정값이 아니다. 하지만 평균 loss 하나로 작은 필드의 정확성을 판단하기 어렵다는 구조적 이유를 설명한다.
+
+또한 ImageUNet은 명시적 좌표 없이 공유 convolution과 공간 전체에 동일하게 더한 condition embedding을 사용한다. 위치별 역할과 전역적인 mask 연속성 학습이 어렵다는 가설은 타당한 검사 대상이다. 경계 효과와 반복 sampling이 정보를 전달할 수 있으므로 위치 학습이 불가능하다고 단정하지 않는다. 좌표 채널·더 넓은 문맥·objective 변경 중 무엇이 필요한지는 아직 대조 실험으로 확인하지 않았다.
+
+## 8. 추가 진단: Discrete는 조건을 배우지만 그것만으로 생성 성공이 되지 않는다
+
+저장된 validation 첫 64개 조건에 대해 모든 token이 MASK인 입력을 넣고 logits를 조사했다. 정답 prefix 자체는 입력에 들어가지 않으며 모델 입력은 MASK sequence, time=1, 12-bit condition뿐이다. P2 P-DISC/R-DISC의 BEST는 epoch 10, 중단된 P3 P-DISC의 BEST는 epoch 20이다.
+
+| Checkpoint | 첫 세 token의 argmax 정답 수 /192 | 정답 token 평균 확률 | 조건 반전 후 원래 정답 token 평균 확률 |
+|---|---:|---:|---:|
+| P2 P-DISC | 169/192, 88.02% | 23.93% | 0.8413% |
+| P2 R-DISC | 178/192, 92.71% | 25.91% | 0.6935% |
+| P3 P-DISC BEST | 192/192, 100% | 82.63% | 0.0006634% |
+
+P3 P-DISC에서는 검사한 64개 조건 모두 첫 세 token의 argmax가 맞았다. 조건을 반전하면 원래 정답 확률도 크게 감소했다. 이는 검사 범위에서 condition 경로가 작동하고 prefix 관계를 학습했다는 직접 증거다. Validation은 checkpoint 선택에 사용됐으므로 새로운 독립 test 결과로 표현하지 않는다.
+
+### 8.1 정답이 argmax인 것과 정답을 sampling하는 것은 다르다
+
+P2의 argmax 정확도는 높지만 정답 token에 배정한 평균 확률은 약 24–26%에 머문다. 실제 sampler는 argmax가 아니라 temperature 1의 categorical sampling을 사용한다. 따라서 정답이 가장 큰 logit이어도 자주 다른 token을 선택할 수 있다. 세 token의 관계와 반복 reveal 과정을 고려해야 하므로 평균 확률 세 개를 곱해 실제 joint 성공률로 보고하지 않는다.
+
+이 차이는 P2에서 prefix 관계가 학습됐음에도 성공률이 낮을 수 있는 설명이다. P3 BEST에서는 정답 확률이 크게 높아져 같은 문제가 완화된 신호가 있지만, 공식 P3 생성 평가는 실행되지 않았다.
+
+### 8.2 EOS/PAD는 메시지 전체의 제약이다
+
+동일한 all-MASK logits를 모든 위치에서 argmax로 채웠을 때 P3 P-DISC의 64개 sequence는 **모두 EOS가 0개**였다. 정답 prefix 100%와 전체 형식 valid 0%가 동시에 관측됐다. 위치별 EOS 확률을 합한 기대 개수는 평균 약 0.792이고, 위치별 최대 EOS 확률의 평균은 약 0.071이었다. 이는 EOS에 확률을 전혀 주지 않는 상황과 다르며, EOS 위치에 확률이 분산된 상태다.
+
+실제 P2 categorical sampling에서도 문법 오류가 대다수였다.
+
+| P2 결과 /256 | P-DISC | R-DISC |
+|---|---:|---:|
+| EOS 개수 오류 | 136 | 133 |
+| EOS 앞의 잘못된 payload token | 30 | 44 |
+| EOS 뒤 non-PAD | 37 | 37 |
+| 유효 sequence | 53 | 42 |
+
+현재 학습은 가려진 위치의 CE 평균이며 EOS/PAD도 일반 token처럼 취급한다. Forward 하나에서 위치별 marginal logits를 만들고, reveal한 token은 나중에 수정하지 않는다. 정확히 한 EOS, 그 앞의 payload, 그 뒤의 PAD라는 전역 제약이 구조적으로 보장되지 않는다. 초기 오류가 고정되거나 여러 위치가 동시에 EOS를 고르는 경로가 오류에 기여할 가능성이 있다. 전체 reverse trajectory를 계측하지 않았으므로 특정 단계별 기여율은 아직 모른다.
+
+**Argmax로 바꾸면 해결된다는 결론도 성립하지 않는다.** 위 argmax 진단은 원인 분리용이며 정식 32-step stochastic sampler의 결과가 아니다. 오히려 정답 prefix와 EOS 문법을 동시에 해결해야 함을 보여준다.
+
+## 9. 실패가 늦게 드러난 이유와 배제할 수 없는 것
+
+P0는 결정적 fixture, P1은 짧은 통합/복구 검사, P2는 finite 학습·진단·자원 측정 완료를 검사한다. 따라서 P2의 모든 normal joint가 0이어도 PASS가 가능하다. `LEARNING_SIGNAL_ABSENT`는 코드상 `normal_joint == 0`이라는 이름일 뿐, gradient나 조건 반응을 직접 검사한 판정이 아니다. 위 Discrete 진단은 이 명칭을 실제 조건 학습 부재로 읽으면 잘못된 결론에 이를 수 있음을 보여준다.
+
+P3는 한 run의 예산 오류가 stage 예외로 전파되어 뒤의 run들도 수행되지 않았다. 보고서도 P3 gate 완료 전에는 개별 결과를 표시하지 않는다. 이 두 동작이 성능 실패 자체를 만들지는 않았지만, 이후 모델의 평가 기회를 없애고 이미 완료한 실패 결과를 가렸다.
+
+다음 항목도 구분해야 한다.
+
+- **현재 epsilon 학습/sampling parameterization 불일치:** 이번 실행은 epsilon 경로끼리 일치한다. 기존 epsilon oracle 검사 및 Pilot 단일 후보와 기본 sampler의 일치 검사를 재실행해 2 passed를 확인했다. 작은 fixture 통과가 전체 sampler의 완전한 무결성을 증명하지는 않는다.
+- **x0로 한 줄 변경할 때의 위험:** Pilot validation/sampler의 epsilon 가정 때문에 향후 변경 시 수정이 필요하다는 뜻이지, 이번 epsilon 실험의 확인된 bug라는 뜻은 아니다.
+- **데이터 손상/잘못된 합성 라벨:** 앞선 21,024개 train/validation 검사에서 위반이 없었고, 이번에도 데이터·코드·checkpoint 및 완료 산출물의 체크섬이 일치했다. 모든 종류의 데이터 설계 문제를 배제한 것은 아니다.
+- **수치 폭주/OOM:** 공식 중단 원인은 시간 상한이다. 완료 run에서 NaN/Inf 오류 기록은 없다. 높은 잡음의 부정확한 finite x0 추정과 nonfinite crash는 구분한다.
+- **단순 학습 부족:** Gaussian 6개는 각각 100 epochs를 마쳤고 valid 0이다. Discrete의 validation loss는 epoch 20 이후 악화됐지만 prefix 조건 지식은 존재한다. 더 오래 학습하는 것만으로 해결된다는 근거는 없다.
+- **MD5 역상 학습 불가능:** 이번 대상은 synthetic_nibbles다. MD5 본실험은 수행하지 않았으며 그 결론을 낼 수 없다.
+
+## 10. 상세 진단의 결론과 재현
+
+확정된 운영 원인은 **예산 측정에서 누락된 부대 비용**이다. 확인된 생성 병목은 **Gaussian의 length/mask/glyph 정합성**과 **Discrete의 EOS/PAD 및 stochastic joint generation**이다. 추가 진단은 Gaussian의 고잡음 복원 취약성과 Discrete의 실제 조건 학습을 구분해 보여준다. 따라서 하나의 원인으로 모든 pipeline을 설명하거나 조건 학습 실패로 묶어서는 안 된다.
+
+우선순위는 전체 실행 시간 측정 수정, 형식·조건·noise 수준별 지표 분리, 그리고 원인별 작은 대조 실험이다. 특정 구조나 objective로 바꾸면 해결된다는 인과적 증거는 아직 없다.
+
+재현 파일: [진단 코드](local_experiment_archive/analyses/pilot-failure-detail/diagnose.py), [상세 JSON](local_experiment_archive/analyses/pilot-failure-detail/diagnostics.json). JSON에는 데이터·checkpoint·진단 코드 SHA-256, sample 수, device, noise seed, 지표가 기록돼 있다. 코드에는 clean/epsilon MSE의 수식 관계를 확인하는 assert가 포함된다.
+
+재현 명령: 프로젝트 루트에서 `.venv/bin/python local_experiment_archive/analyses/pilot-failure-detail/diagnose.py`. 동일 진단 JSON을 다시 쓰며 봉인된 study와 모델 weights는 변경하지 않는다.
