@@ -4,7 +4,7 @@
 
 여기서 **개발 PoC**는 측정·학습·생성 경로가 가설을 시험할 수 있는지 검증하는 단계다. 독립 engineering 자료와 합성 과제를 사용한다. **본실험**은 봉인한 source별 q=12 평가 집합에서 모델과 두 대조군의 우위를 검정하는 v2 확증 실험이다. Full MD5 역산 연구를 뜻하지 않는다.
 
-현재는 최소 실행 경로를 구현하고 P-G-BGV·seed 0 합성 개발 pilot을 완료했다. Pilot 유효 decode는 0/652로 성공 기준 미충족이며 본실험 진입 조건은 아직 충족되지 않았다. 실행 범위와 증거는 [pilot 보고서](/Users/choisoonwook/Experiments_local/DHI_AI_gen/PILOT_V2_REPORT.md)에 기록했다.
+v2 pilot 구현과 실행 결과는 사용자 요청으로 삭제했다. 현재 재사용 가능한 기반은 기존 모델·codec·GPU 지원이며, v2 최소 실행 경로와 pilot은 다시 구현·검증해야 한다. 본실험 진입 조건은 충족되지 않았다.
 
 ## 1. 이미 확보한 기반
 
@@ -17,25 +17,25 @@
 | Dataset 구성 | 두 source에서 train 10,000 / validation 512 / test 2,048 확보 | Engineering seed와 알려진 노출 목록 아래의 구성 가능성 |
 | 통계 산술 | Exact McNemar 작은 정수 fixture, Holm·missing 처리, power simulation | 계산 구현과 특정 모형의 simulation |
 
-기존 GPU smoke는 legacy runner를 사용했으므로 그 결과만으로 v2 경로 완성을 주장할 수 없었다. 이후 별도의 12-bit 입력 경로와 epoch 학습·validation 선택·합성 평가를 구현하고 축소 pilot을 실행했다. 현재 남은 과제는 아래 상태표와 pilot 결과를 기준으로 판단한다.
+기존 GPU smoke는 legacy runner를 사용한다. 그 결과만으로 v2의 12-bit 입력 경로, epoch 학습·validation 선택, 합성 positive control의 완성을 주장할 수 없다. 현재 남은 과제는 아래 상태표를 기준으로 판단한다.
 
 ## 2. 개발 PoC에서 완료할 작업
 
 | ID | 필요한 작업 | 완료를 확인할 증거 | 현재 상태 |
 |---|---|---|---|
-| D1 | v2 설정을 실제 실행 경로에 연결 | 다섯 pipeline 모두 condition dimension=12, 지정 architecture·loss·schedule·precision 사용; 설정 불일치 시 실행 차단 | 개발 경로 구현·컴포넌트 검사 완료 |
-| D2 | 모델 입력에서 평가 원문과 metadata 분리 | 원문·길이·digest suffix·ID·padding metadata를 바꾸어도 고정 target/RNG의 생성물이 불변인 mutation 검사 | 12-bit-only API·fixture 확인; primary 경로 전체 감사는 남음 |
-| D3 | Main/Shuffled 학습·추론 분리 | 학습 epoch마다 train 안에서 donor permutation; validation/inference에는 실제 y; Main과 초기화·순서·예산 일치 | 구현·단위검사 완료; 실제 pilot은 Main만 실행 |
-| D4 | v2 학습·checkpoint 선택 구현 | Train 10,000개, batch 64, 100 epochs, 마지막 batch 유지; 10 epochs마다 고정 validation noise로 loss 비교, 최소 loss/이른 tie 선택 | 구현 완료; 2,048개·20 epochs 축소 pilot 실행 |
-| D5 | 후보 예산과 독립 평가 연결 | 한 target당 정확히 100 attempts; @1/@10/@100은 동일 stream의 prefix; invalid·중복·성공 후 시도도 계수; 검증은 payload bytes에 적용 | 합성 경로 구현·100-prefix 확인; primary MD5 통합은 남음 |
-| D6 | Streaming 저장과 중단·재개 구현 | 중간 학습 및 후보 기록 경계에서 강제 중단해도 완료 rows와 난수 순서 보존; 누락·중복 0; 실패·미완료 상태 구분 | CPU/MPS 학습·후보 복구 fixture 및 완료 replay 확인 |
-| D7 | v2 합성 positive control 학습 | 아래 문턱을 다섯 pipeline×세 seeds가 모두 충족하는 held-out generation 기록 | P-G-BGV·seed 0 축소 pilot FAIL; 정규 15개 미실행 |
+| D1 | v2 설정을 실제 실행 경로에 연결 | 다섯 pipeline 모두 condition dimension=12, 지정 architecture·loss·schedule·precision 사용; 설정 불일치 시 실행 차단 | 재구현·검증 필요 |
+| D2 | 모델 입력에서 평가 원문과 metadata 분리 | 원문·길이·digest suffix·ID·padding metadata를 바꾸어도 고정 target/RNG의 생성물이 불변인 mutation 검사 | 재구현·검증 필요 |
+| D3 | Main/Shuffled 학습·추론 분리 | 학습 epoch마다 train 안에서 donor permutation; validation/inference에는 실제 y; Main과 초기화·순서·예산 일치 | 재구현·검증 필요 |
+| D4 | v2 학습·checkpoint 선택 구현 | Train 10,000개, batch 64, 100 epochs, 마지막 batch 유지; 10 epochs마다 고정 validation noise로 loss 비교, 최소 loss/이른 tie 선택 | 재구현·검증 필요 |
+| D5 | 후보 예산과 독립 평가 연결 | 한 target당 정확히 100 attempts; @1/@10/@100은 동일 stream의 prefix; invalid·중복·성공 후 시도도 계수; 검증은 payload bytes에 적용 | 재구현·검증 필요 |
+| D6 | Streaming 저장과 중단·재개 구현 | 중간 학습 및 후보 기록 경계에서 강제 중단해도 완료 rows와 난수 순서 보존; 누락·중복 0; 실패·미완료 상태 구분 | 기존 checkpoint 기반만 보존; v2 통합 검증 필요 |
+| D7 | v2 합성 positive control 학습 | 아래 문턱을 다섯 pipeline×세 seeds가 모두 충족하는 held-out generation 기록 | Pilot 결과 삭제; 정규 15개 미실행 |
 | D8 | 전체 평가·통계 경로의 작은 통합 검사 | 성공·실패·invalid·missing이 포함된 고정 fixture에서 6개 component→max-p→5개 Holm, CI와 상태 출력 일치 | 일부 계산만 확인 |
-| D9 | 실제 GPU 자원 측정 | v2 dimensions로 학습·validation·sampling·decode·hash·IO 시간과 메모리/디스크 측정; 실행 상한 기록 | GPU smoke·축소 pilot 측정; 전체 자원 예산은 미확정 |
+| D9 | 실제 GPU 자원 측정 | v2 dimensions로 학습·validation·sampling·decode·hash·IO 시간과 메모리/디스크 측정; 실행 상한 기록 | 기존 GPU smoke만 보존; 전체 자원 예산은 미확정 |
 
 D4에서 Gaussian은 width 32, epsilon prediction, T=1,000 및 100-step sampling, Discrete는 width 128/embedding 16 및 32-step sampling을 사용한다. Optimizer·고정 seed·validation corruption 등 세부값은 v2와 protocol JSON을 따른다. Legacy의 step 기반 학습과 259차원 canonical condition을 v2 구현으로 오인하지 않는다.
 
-D6은 완료 checkpoint 로드뿐 아니라 **실행 중간의 optimizer·epoch permutation·noise RNG·후보 위치 및 저장 transaction 복구**를 작은 CPU/MPS fixture로 검사했다. 이 증거를 primary 전체 경로의 무제한 보증으로 확대하지 않는다. Raw tensor는 pilot에서 첫 16개 정상 표적의 첫 candidate만 보존했다.
+D6은 완료 checkpoint 로드뿐 아니라 **실행 중간의 optimizer·epoch permutation·noise RNG·후보 위치 및 저장 transaction 복구**를 다시 검증해야 한다. Raw tensor는 v2 계획에 따라 run별 첫 16개 target의 첫 candidate만 보존하도록 구현한다.
 
 ### 합성 positive control의 정확한 통과 기준
 
@@ -105,4 +105,4 @@ Pipeline 일부가 blocked여도 나머지가 자신의 선행 조건을 충족�
 6. **Primary data와 학습 결과 봉인:** Final corpus의 G0를 확인하고 적격 pipeline의 Main/Shuffled를 모든 seeds에서 학습·validation 선택한다.
 7. **한 번의 본 평가와 보고:** 고정 checkpoint로 100-attempt streams를 생성하고 실제 G2, G3/G4, CA0 및 모든 실패·미완료를 보고한다.
 
-현재 다음 작업은 **pilot에서 드러난 header/mask 생성 실패의 분리 진단과 E1–E2의 데이터·추론 조건 확인**이다. 학습량·구조 변경은 독립 개발 revision에서 기록해야 한다. 기존 pilot 결과를 덮어쓰거나 정규 30개 본실험을 곧바로 시작하지 않는다.
+다시 개발을 시작한다면 **D1–D6의 최소 실행 경로 구현과 E1–E2의 데이터·추론 조건 확인**이 필요하다. 현재 체크리스트는 삭제한 pilot 결과를 본실험 준비의 증거로 사용하지 않는다.

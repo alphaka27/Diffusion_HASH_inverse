@@ -18,6 +18,7 @@ hash-trace = "diffusion_hash_inv.cli:main"
 hash-inverse-experiment = "diffusion_hash_inv.experiment_cli:main"
 hash-inverse-validate = "diffusion_hash_inv.validation_cli:main"
 hash-inverse-g1 = "diffusion_hash_inv.positive_control:main"
+hash-inverse-study = "diffusion_hash_inv.study_cli:main"
 
 [dependency-groups]
 dev = ["pytest>=8"]

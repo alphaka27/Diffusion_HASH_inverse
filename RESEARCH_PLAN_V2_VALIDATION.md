@@ -184,10 +184,6 @@ GPU 작업에서는 별도 설정으로 작은 학습·추론 검증을 수행�
 
 최초 프로세스의 MPS unavailable은 GPU 부재를 뜻하지 않았다. 호스트 프로세스에서 MPS available=True 및 실제 GPU 연산이 확인됐다. **§6의 약 117.7시간은 기존 CPU 정책의 추정치로만 유효하며 GPU 전체 실행 시간으로 해석하면 안 된다.** GPU 실행 방법·검사 기록과 제한은 [GPU 실행 문서](/Users/choisoonwook/Experiments_local/DHI_AI_gen/GPU_EXECUTION.md)에 정리했다.
 
-## 11. 최소 경로 구현 및 합성 pilot 후속 — 2026-09-24
+## 11. Pilot 삭제 후 현재 상태
 
-12-bit-only 입력, train-only shuffle, epoch 학습과 validation-only checkpoint 선택, SQLite 후보 기록·재개를 별도 개발 경로에 구현했다. 최종 전체 tests는 120 passed, CUDA 부재로 5 skipped였다. MPS Discrete의 미세한 비결정적 차이를 발견해 결정적 연산을 강제하고 Gaussian/Discrete CPU/MPS 중간 학습 복구를 검사했다.
-
-P-G-BGV·seed 0·Main에 대해 train 2,048개·20 epochs, validation/test 128개씩의 사전 고정 합성 pilot을 수행했다. 정상·반전 joint success는 각각 0/128, 전체 valid decode는 0/652였다. 주된 최초 거부 사유는 length_out_of_range 574건이었다. 정규 G1-B 학습량·표본 수를 사용하지 않은 개발 결과이므로 전체 모델 가설이나 다른 pipeline으로 일반화하지 않는다.
-
-따라서 실행 경로의 공학적 증거는 보강됐지만 본실험 진입 판정은 여전히 미충족이다. 관측상 다음 병목은 header/mask를 포함한 구조 생성이다. 상세 결과와 모든 실행 기록은 [pilot 보고서](/Users/choisoonwook/Experiments_local/DHI_AI_gen/PILOT_V2_REPORT.md)에 있다. 이전 절과 원시 검증 기록은 각 검증 시점의 이력으로 보존했다.
+사용자 요청으로 v2 pilot 구현·테스트·설정·보고서와 해당 실행 결과를 삭제했다. 삭제한 pilot의 수치와 검증 결과는 현재 준비도 판단의 증거로 사용하지 않는다. 기존 모델·GPU 지원 및 앞 절의 설계 검증 기록은 보존했다. v2 최소 실행 경로와 pilot 검증은 다시 수행해야 하며 본실험 진입 조건은 미충족이다.
