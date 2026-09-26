@@ -1,4 +1,4 @@
-"""Executable, gated v3 Pilot entry point (not the legacy ExperimentConfig CLI)."""
+"""Gated v3 Pilot and v3.1 development entry point, separate from ExperimentConfig."""
 import argparse
 import json
 from pathlib import Path
@@ -6,12 +6,12 @@ import sys
 
 
 def parser():
-    result = argparse.ArgumentParser(description="v3 Pilot P0–P3 and Pilot reporting; main-study commands are not implemented.")
+    result = argparse.ArgumentParser(description="v3.0 Pilot P0–P3; v3.1 development P0/P1 and read-only plans. Main-study commands are not implemented.")
     commands = result.add_subparsers(dest="command", required=True)
     pilot = commands.add_parser("pilot", help="execute one Pilot stage, checking prerequisites")
     report = commands.add_parser("report", help="verify and summarize existing Pilot artifacts")
     for command in (pilot, report):
-        command.add_argument("--protocol", type=Path, required=True, help="supported v3 protocol JSON (not ExperimentConfig)")
+        command.add_argument("--protocol", type=Path, required=True, help="frozen v3.0/v3.1 protocol JSON (not ExperimentConfig)")
         command.add_argument("--workdir", type=Path, required=True, help="study output directory; use the same directory for P0–P3")
     pilot.add_argument("--stage", required=True, choices=("P0", "P1", "P2", "P3"))
     pilot.add_argument("--device", default="mps", choices=("mps", "cpu"), help="explicit backend; cpu requires --development")
@@ -43,7 +43,7 @@ def main(argv=None):
     except KeyboardInterrupt:
         print("Interrupted; stage state was preserved. Use --resume with identical arguments.", file=sys.stderr)
         return 130
-    except (OSError, RuntimeError, ValueError) as error:
+    except (OSError, RuntimeError, ValueError, FloatingPointError) as error:
         print(json.dumps({"status": "FAILED", "error": str(error), "exit_code": 3}), file=sys.stderr)
         return 3
 

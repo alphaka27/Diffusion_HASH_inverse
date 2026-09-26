@@ -6,6 +6,7 @@ from collections import Counter
 from contextlib import closing, contextmanager
 import fcntl
 import hashlib
+import io
 import json
 import math
 import os
@@ -31,6 +32,7 @@ from .models import GaussianDiffusion, ImageUNet, parameter_count
 
 
 PROTOCOL_SHA256 = "8e3ceefe3c833202273af82411f797b37349d1a648ec868f2d874989c9116fa1"
+PROTOCOL_V31_SHA256 = "d2b3a09e97a4243fa4a27e62d3b35f39618502c7bbfb678f1b244aa52674d7c4"
 GIB = 1024 ** 3
 
 
@@ -74,15 +76,17 @@ def load_protocol(path):
     except (OSError, ValueError) as error:
         raise PilotError(f"Cannot read protocol: {error}", 2) from error
     # A whitelist prevents silently ignoring a changed scientific field or typo.
-    if digest(value) != PROTOCOL_SHA256:
-        raise PilotError("Unsupported/modified protocol. This runner implements the frozen dhi-v3-20260924 revision 3.0 only; scientific amendments require implementation review.", 2)
+    if digest(value) not in {PROTOCOL_SHA256, PROTOCOL_V31_SHA256}:
+        raise PilotError("Unsupported/modified protocol. Only the frozen v3.0 and v3.1 specifications are accepted; amendments require implementation review.", 2)
     return value
 
 
 def seed(p, stage, namespace, *, source=None, pipeline=None, method=None,
-         model_seed=None, epoch=None, unit_id=None, attempt=None):
+         model_seed=None, epoch=None, unit_id=None, attempt=None, profile_id=None):
     fields = [p["protocol_id"], p["seeds"]["engineering_master"], "synthetic_nibbles",
               stage, namespace, source, pipeline, method, model_seed, epoch, unit_id, attempt]
+    if p["revision"] == "3.1":
+        fields.insert(8, profile_id if namespace in p["seeds"]["profile_nonnull_namespaces"] else None)
     raw = json.dumps(fields, separators=(",", ":"), ensure_ascii=False).encode()
     return int.from_bytes(hashlib.sha256(raw).digest()[:8], "big")
 
@@ -119,9 +123,16 @@ class DeterministicEmbedding(torch.nn.Embedding):
         return torch.nn.functional.one_hot(indices, self.num_embeddings).to(self.weight.dtype) @ self.weight
 
 
-def model_and_diffusion(p, pipeline, device, initial_seed):
+def model_and_diffusion(p, pipeline, device, initial_seed, *, profile_id=None):
     cfg = p["pipelines"][pipeline]
     torch.manual_seed(initial_seed)
+    if p["revision"] == "3.1":
+        from .study_profiles import build_profile
+        codec, _, shape = codecs(cfg)
+        model, diffusion = build_profile(p, pipeline, profile_id, shape, codec, device)
+        if cfg["model"] == "discrete" and device.type == "mps":
+            model.embedding = DeterministicEmbedding.from_pretrained(model.embedding.weight, freeze=False)
+        return model.to(device), diffusion
     if cfg["model"] == "gaussian":
         spec = p["models"]["gaussian"]
         model = ImageUNet(2, 12, spec["width"])
@@ -201,6 +212,9 @@ def stage_targets(p, data, stage, source):
 
 
 def plan(p, stage, device, development):
+    if p["revision"] == "3.1":
+        from .study_v31 import plan as v31_plan
+        return v31_plan(p, stage, device, development)
     cfg = p["pilot"][stage]
     return {"protocol": p["protocol_id"], "stage": stage, "mode": "DEVELOPMENT_ONLY" if development else "V3_PILOT",
             "device": device, "dry_run": True, "device_checked": False,
@@ -238,6 +252,36 @@ class Budget:
         self.root, self.stage, self.state, self.p, self.device = root, stage, state, p, device
         self.last = time.monotonic()
         self.run = None
+        self.storage_bytes = None
+        self.reserved_bytes = 0
+        self.run_storage = {}
+        self.other_poc_seconds = (sum(read_json(path).get("active_seconds", 0.)
+                                      for path in (root / "pilot").glob("*/state.json")
+                                      if path.parent.name != stage) if p["revision"] == "3.1" else 0.)
+
+    def reserve(self, run, count, *, refresh=False):
+        """Conservatively reserve writes between full scans; one study writer holds the lock."""
+        if self.p["revision"] != "3.1":
+            return
+        if count < 0:
+            raise ValueError("negative write reservation")
+        cfg = self.p["execution"]
+        if refresh or self.storage_bytes is None or self.reserved_bytes >= 16 * 2 ** 20:
+            self.storage_bytes = sum(path.stat().st_size for path in self.root.rglob("*") if path.is_file())
+            self.reserved_bytes = 0
+            self.run_storage.clear()
+        if self.storage_bytes + self.reserved_bytes + count > cfg["hard_study_storage_gib"] * GIB:
+            raise PilotError("Study storage cap reached before write", 5)
+        if shutil.disk_usage(self.root).free < cfg["minimum_disk_free_gib"] * GIB + count:
+            raise PilotError("Insufficient free disk space for reserved write", 5)
+        if run is not None:
+            key = str(run)
+            if key not in self.run_storage:
+                self.run_storage[key] = sum(path.stat().st_size for path in Path(run).rglob("*") if path.is_file())
+            if self.run_storage[key] + count > cfg["hard_run_storage_gib"] * GIB:
+                raise PilotError("Run storage cap reached before write", 5)
+            self.run_storage[key] += count
+        self.reserved_bytes += count
 
     def tick(self, run=None):
         now = time.monotonic()
@@ -248,6 +292,7 @@ class Budget:
             self.state["run_active_seconds"][self.run] += elapsed
         self.last = now
         self.run = str(run) if run is not None else None
+        self.reserve(None, len(canonical(self.state)) + 1024)
         atomic_json(self.root / "pilot" / self.stage / "state.json", self.state)
 
     def check(self, run=None):
@@ -255,24 +300,38 @@ class Budget:
         cfg = self.p["execution"]
         cap = cfg["hard_stage_active_wall_seconds"][self.stage]
         resources_path = self.root / "resources.json"
-        if self.stage == "P3" and resources_path.exists():
-            resources = read_json(resources_path)
+        resources = read_json(resources_path) if resources_path.exists() else None
+        v31 = self.p["revision"] == "3.1"
+        if self.stage == "P3" and resources is not None and not v31:
             cap = min(cap, resources["p3_soft_wall_seconds"])
         if self.state["active_seconds"] >= cap:
             raise PilotError(f"{self.stage} active wall-clock cap reached", 5)
         if run is not None:
             run_cap = cfg["hard_formal_run_active_wall_seconds"]
-            if self.stage == "P3":
+            if self.stage == "P3" and not v31:
                 relative = Path(run).relative_to(self.root / "pilot" / self.stage / "runs")
                 run_cap = min(run_cap, resources["pipelines"][relative.parts[0]]["p3_run_seconds"])
             if self.state.get("run_active_seconds", {}).get(str(run), 0) >= run_cap:
                 raise PilotError("Per-run active wall-clock cap reached", 5)
+        if v31:
+            if self.other_poc_seconds + self.state["active_seconds"] >= cfg["hard_stage_active_wall_seconds"]["POC_TOTAL"]:
+                raise PilotError("Cumulative PoC active wall-clock cap reached", 5)
+            if self.stage == "P3" and resources is not None:
+                exceeded = self.state["active_seconds"] > resources["p3_soft_wall_seconds"]
+                if run is not None:
+                    pipeline = Path(run).relative_to(self.root / "pilot" / self.stage / "runs").parts[0]
+                    exceeded |= self.state.get("run_active_seconds", {}).get(str(run), 0) > resources["pipelines"][pipeline]["p3_run_seconds"]
+                if exceeded:
+                    self.state.setdefault("warnings", {})["RESOURCE_ESTIMATE_EXCEEDED"] = True
         if shutil.disk_usage(self.root).free < cfg["minimum_disk_free_gib"] * GIB:
             raise PilotError("Minimum free disk space reached", 5)
         rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * (1 if sys.platform == "darwin" else 1024)
         mps = torch.mps.current_allocated_memory() if self.device.type == "mps" else 0
         if rss > cfg["hard_process_rss_gib"] * GIB or mps > cfg["hard_mps_allocated_gib"] * GIB:
             raise PilotError("Process/MPS memory cap reached", 5)
+        if v31:
+            self.reserve(run, 65536)  # Budget for telemetry/metadata until the next check.
+            return
         size = sum(path.stat().st_size for path in self.root.rglob("*") if path.is_file())
         if size > cfg["hard_study_storage_gib"] * GIB:
             raise PilotError("Study storage cap reached", 5)
@@ -285,13 +344,22 @@ def event(directory, **row):
         stream.write(canonical({"wall_time": time.time(), **row}).decode() + "\n")
 
 
-def save_checkpoint(directory, state, *, best=False):
+def save_checkpoint(directory, state, *, best=False, budget=None):
     folder = directory / "checkpoints"
     folder.mkdir(exist_ok=True)
     name = f"update-{state['update']:08d}-epoch-{state['epoch']:04d}.pt"
     path = folder / name
+    payload = None
+    if budget is not None and budget.p["revision"] == "3.1":
+        buffer = io.BytesIO()
+        torch.save(state, buffer)
+        payload = buffer.getvalue()
+        budget.reserve(directory, len(payload) + 16384, refresh=True)
     with (folder / "pending.tmp").open("wb") as stream:
-        torch.save(state, stream)
+        if payload is None:
+            torch.save(state, stream)
+        else:
+            stream.write(payload)
         stream.flush()
         os.fsync(stream.fileno())
     os.replace(folder / "pending.tmp", path)
@@ -347,21 +415,29 @@ def validation_loss(p, stage, pipeline, model, diffusion, records, device):
             if discrete:
                 times = torch.stack([torch.rand((), device=device, generator=g) for g in gens])
                 masks = torch.stack([torch.rand(clean.shape[1:], device=device, generator=g) for g in gens]) < times[:, None]
-                logits = model(clean.masked_fill(masks, diffusion.mask_token), times, cond)
-                losses = torch.nn.functional.cross_entropy(logits.transpose(1, 2), clean, reduction="none")
-                values = (losses * masks).sum(1) / masks.sum(1).clamp_min(1)
+                from .study_profiles import LengthMaskedDiffusion
+                if isinstance(diffusion, LengthMaskedDiffusion):
+                    values = diffusion.losses(model, clean, cond, times, masks)
+                else:
+                    logits = model(clean.masked_fill(masks, diffusion.mask_token), times, cond)
+                    losses = torch.nn.functional.cross_entropy(logits.transpose(1, 2), clean, reduction="none")
+                    values = (losses * masks).sum(1) / masks.sum(1).clamp_min(1)
             else:
                 indices = torch.stack([torch.randint(diffusion.steps, (), device=device, generator=g) for g in gens])
                 noise = torch.stack([torch.randn(clean.shape[1:], device=device, generator=g) for g in gens])
                 noisy = diffusion.add_noise(clean, noise, indices)
-                values = (model(noisy, indices.float() / (diffusion.steps - 1), cond) - noise).square().flatten(1).mean(1)
+                target = noise if diffusion.prediction_type == "epsilon" else clean
+                values = (model(noisy, indices.float() / (diffusion.steps - 1), cond) - target).square().flatten(1).mean(1)
             if not torch.isfinite(values).all():
                 raise PilotError("Non-finite validation loss", 3)
             total += values.sum().item()
     return total / (len(records) * p["training"]["validation_draws_per_condition"])
 
 
-def train_model(p, stage, pipeline, method, label, data, directory, device, budget, *, pause_update=None):
+def train_model(p, stage, pipeline, method, label, data, directory, device, budget, *, pause_update=None, profile_id=None):
+    if p["revision"] == "3.1":
+        budget.check(directory)
+        budget.reserve(directory, 65536, refresh=True)
     directory.mkdir(parents=True, exist_ok=True)
     source = p["pipelines"][pipeline]["source"]
     cfg, training = p["pilot"][stage], p["training"]
@@ -369,25 +445,28 @@ def train_model(p, stage, pipeline, method, label, data, directory, device, budg
     validation = data["sources"][source]["validation"][:cfg["validation_conditions"]]
     identity = {"protocol_sha256": digest(p), "stage": stage, "pipeline": pipeline, "method": method,
                 "model_seed": label, "data_sha256": digest([rows, validation]), "device": str(device)}
+    if p["revision"] == "3.1":
+        identity["profile_id"] = profile_id
     config_path = directory / "configuration.json"
     if config_path.exists() and read_json(config_path) != identity:
         raise PilotError("Run configuration/data mismatch")
     atomic_json(config_path, identity)
-    initial = seed(p, stage, "initialization", source=source, pipeline=pipeline, model_seed=label)
-    model, diffusion = model_and_diffusion(p, pipeline, device, initial)
+    initial = seed(p, stage, "initialization", source=source, pipeline=pipeline, model_seed=label, profile_id=profile_id)
+    model, diffusion = model_and_diffusion(p, pipeline, device, initial, profile_id=profile_id)
     optimizer = torch.optim.Adam(model.parameters(), lr=training["learning_rate"], betas=tuple(training["betas"]),
                                  eps=training["eps"], weight_decay=training["weight_decay"], foreach=False, fused=False)
     encoder, _, _ = codecs(p["pipelines"][pipeline])
     state = {"identity": identity, "epoch": 1, "offset": 0, "update": 0, "best_loss": None,
              "best_epoch": None, "curve": [], "training_update_seconds": [], "validation_seconds": [],
-             "checkpoint_seconds": []}
+             "checkpoint_seconds": [], "full_loop_update_seconds": [],
+             "full_loop_timing_excludes": ["validation", "checkpoint"]}
 
     def save(best=False):
         synchronize(device)
         started = time.monotonic()
         state.update(model=model.state_dict(), optimizer=optimizer.state_dict(), cpu_rng=torch.get_rng_state(),
                      device_rng=torch.mps.get_rng_state() if device.type == "mps" else torch.get_rng_state())
-        save_checkpoint(directory, state, best=best)
+        save_checkpoint(directory, state, best=best, budget=budget)
         state["checkpoint_seconds"].append(time.monotonic() - started)
 
     if (directory / "checkpoints" / "LATEST.json").exists():
@@ -414,6 +493,7 @@ def train_model(p, stage, pipeline, method, label, data, directory, device, budg
             event(directory, kind="epoch", epoch=epoch, order_sha256=digest(order), donor_sha256=digest(donors),
                   same_condition_fraction=sum(rows[i][0] == rows[donors[i]][0] for i in range(len(rows))) / len(rows))
         while state["offset"] < len(rows):
+            loop_started = time.monotonic()
             budget.check(directory)
             indices = order[state["offset"]:state["offset"] + training["batch_size"]]
             synchronize(device)
@@ -439,6 +519,7 @@ def train_model(p, stage, pipeline, method, label, data, directory, device, budg
             state["offset"] += len(indices)
             state["training_update_seconds"].append(seconds)
             event(directory, kind="update", epoch=epoch, update=state["update"], loss=loss.item(), seconds=seconds)
+            state.setdefault("full_loop_update_seconds", []).append(time.monotonic() - loop_started)
             if pause_update == state["update"]:
                 save()
                 raise RecoveryPause("optimizer boundary")
@@ -467,12 +548,20 @@ def train_model(p, stage, pipeline, method, label, data, directory, device, budg
 
 
 @torch.no_grad()
-def sample(p, pipeline, model, diffusion, targets, seeds, device, *, to_cpu=True):
+def sample(p, pipeline, model, diffusion, targets, seeds, device, *, to_cpu=True, profile_id=None, length_seeds=None):
     """Batch model forwards with an independent Torch RNG for every trajectory."""
     cond = condition(targets, device)
     gens = [generator(device, value) for value in seeds]
     _, _, shape = codecs(p["pipelines"][pipeline])
     model.eval()
+    if p["revision"] == "3.1":
+        from .study_profiles import profile_ids, sample_independent
+        if profile_id not in profile_ids(p, pipeline):
+            raise PilotError("Explicit registered profile required for v3.1 sampling", 2)
+        length_gens = [generator(device, value) for value in length_seeds] if length_seeds is not None else None
+        value = sample_independent(model, diffusion, cond, shape, p["model_profiles"][profile_id]["sampling_steps"],
+                                   gens, length_generators=length_gens)
+        return value.cpu() if to_cpu else value
     if isinstance(diffusion, GaussianDiffusion):
         steps = p["models"]["gaussian"]["sampling_steps"]
         times = torch.linspace(diffusion.steps - 1, 0, steps, device=device).round().long().unique_consecutive()
@@ -514,12 +603,19 @@ def evaluation_jobs(p, stage, targets):
 
 
 def evaluate(p, stage, pipeline, method, label, targets, directory, model, diffusion, checkpoint,
-             batch_size, device, budget, *, source=None, pause_after=None):
+             batch_size, device, budget, *, source=None, pause_after=None, profile_id=None):
+    if p["revision"] == "3.1":
+        budget.check(directory)
+        budget.reserve(directory, 2 ** 20, refresh=True)
     directory.mkdir(parents=True, exist_ok=True)
     source = source or p["pipelines"][pipeline]["source"]
     run_id = f"{stage}/{pipeline or source}/{method}/{label}"
+    if profile_id is not None:
+        run_id += f"/{profile_id}"
     jobs = evaluation_jobs(p, stage, targets)
     config = {"protocol": digest(p), "run_id": run_id, "targets": targets, "batch_size": batch_size, "checkpoint": checkpoint}
+    if p["revision"] == "3.1":
+        config["profile_id"] = profile_id
     config_sha = digest(config)
     config_path = directory / "evaluation.json"
     if config_path.exists() and digest(read_json(config_path)) != config_sha:
@@ -543,15 +639,24 @@ def evaluate(p, stage, pipeline, method, label, targets, directory, model, diffu
                 if any(stored[key]["config_sha256"] != config_sha for key in keys):
                     raise PilotError("Ledger configuration checksum mismatch")
                 continue
+            loop_started = time.monotonic()
             budget.check(directory)
             values = [y if variant == "normal" else y ^ 4095 for _, y, variant, _ in batch]
-            seeds = [seed(p, stage, "generation" if pipeline else "random", source=source, pipeline=pipeline,
+            namespace = "generation-payload" if profile_id in {"D0", "D1"} else "generation" if pipeline else "random"
+            seeds = [seed(p, stage, namespace, source=source, pipeline=pipeline,
                           method=method, model_seed=label, unit_id=unit, attempt=attempt) for unit, _, _, attempt in batch]
+            length_seeds = ([seed(p, stage, "generation-length", source=source, pipeline=pipeline,
+                                 method=method, model_seed=label, unit_id=unit, attempt=attempt)
+                             for unit, _, _, attempt in batch] if profile_id == "D1" else None)
             synchronize(device)
             started = time.monotonic()
-            samples = sample(p, pipeline, model, diffusion, values, seeds, device) if pipeline else None
+            samples = sample(p, pipeline, model, diffusion, values, seeds, device,
+                             profile_id=profile_id, length_seeds=length_seeds) if pipeline else None
             synchronize(device)
             generation_seconds = time.monotonic() - started
+            if p["revision"] == "3.1":
+                raw_bytes = samples.numel() * samples.element_size() if samples is not None else 0
+                budget.reserve(directory, len(batch) * 16384 + raw_bytes + 65536)
             rows = []
             for index, ((unit, original, variant, attempt), target, rng_seed) in enumerate(zip(batch, values, seeds)):
                 if pipeline:
@@ -571,6 +676,12 @@ def evaluate(p, stage, pipeline, method, label, targets, directory, model, diffu
                        "verifier_kind": "synthetic_nibbles", "verifier_calls": int(payload is not None), "md5_calls": 0,
                        "rng_identity": str(rng_seed), "checkpoint_sha256": checkpoint, "config_sha256": config_sha,
                        "generation_seconds_per_candidate": generation_seconds / len(batch)}
+                if p["revision"] == "3.1":
+                    row.update(profile_id=profile_id,
+                               sampling_nfe=p["model_profiles"][profile_id]["sampling_nfe_per_candidate"] if pipeline else 0)
+                    if length_seeds is not None:
+                        row.update(length_rng_identity=str(length_seeds[index]),
+                                   sampled_length=int((samples[index] == decoder.eos).nonzero()[0].item()))
                 rows.append(row)
                 if pipeline and variant == "normal" and attempt == 1 and unit in {u for u, _ in targets[:16]}:
                     raw = directory / "raw"
@@ -582,7 +693,7 @@ def evaluate(p, stage, pipeline, method, label, targets, directory, model, diffu
             with connection:
                 connection.executemany("INSERT INTO candidates VALUES (?,?,?,?,?)", [(*key, canonical(row).decode()) for key, row in zip(keys, rows)])
             event(directory, kind="inference_batch", candidates=len(rows), generation_seconds=generation_seconds,
-                  total_seconds=time.monotonic() - started)
+                  total_seconds=time.monotonic() - started, full_loop_seconds=time.monotonic() - loop_started)
         records = [json.loads(row[0]) for row in connection.execute("SELECT record FROM candidates ORDER BY rowid")]
         if len(records) != len(jobs):
             raise PilotError("Missing ledger rows")
@@ -603,6 +714,11 @@ def evaluate(p, stage, pipeline, method, label, targets, directory, model, diffu
                    "success_at_k": {str(k): sum(any(by_key[(unit, "normal", a)]["success"] for a in range(1, k + 1)) for unit, _ in targets) / len(targets)
                                     for k in (1, 10, 100) if k <= p["pilot"][stage]["k"]},
                    "measured_k": p["pilot"][stage]["k"], "batch_size": batch_size}
+        if p["revision"] == "3.1":
+            metrics.update(profile_id=profile_id, sampling_nfe=sum(r["sampling_nfe"] for r in records),
+                           conditional_accuracy_given_valid=(sum(r["success"] for r in records) / sum(r["valid"] for r in records)
+                                                             if any(r["valid"] for r in records) else None),
+                           warnings=["JOINT_SUCCESS_ZERO"] if metrics["normal_joint"] == 0 else [])
         atomic_json(directory / "metrics.json", metrics)
         connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         return metrics
@@ -632,9 +748,14 @@ def preflight(p, directory, device, budget):
     synchronize(device)
     require("device_tensor", (value.square().sum().cpu().item() == 1240), str(device))
     require("font", glyph_table_checksum() == p["codecs"]["cgge"]["font_sha256"])
-    for filename, kind in (("models.py", "gaussian"), ("discrete.py", "discrete")):
-        require(f"source_{filename}", file_hash(Path(__file__).with_name(filename)) == p["models"][kind]["reference_source_sha256"])
+    v31 = p["revision"] == "3.1"
+    if v31:
+        budget.reserve(directory, 8 * 2 ** 20, refresh=True)
+    else:
+        for filename, kind in (("models.py", "gaussian"), ("discrete.py", "discrete")):
+            require(f"source_{filename}", file_hash(Path(__file__).with_name(filename)) == p["models"][kind]["reference_source_sha256"])
     count = 0
+    registered = {}
     for pipeline in p["pipeline_order"]:
         budget.check()
         cfg = p["pipelines"][pipeline]
@@ -661,15 +782,30 @@ def preflight(p, directory, device, budget):
             bad[1] = 0
             require(f"mask_rejected_{pipeline}", not decoder.decode(bad).valid)
         require(f"shape_rejected_{pipeline}", not decoder.decode(encoded[:1]).valid)
-        model, diffusion = model_and_diffusion(p, pipeline, device, 0)
-        spec = p["models"][cfg["model"]]
-        expected = spec["expected_parameters"] if cfg["model"] == "gaussian" else spec[f"expected_parameters_{cfg['source']}"]
-        require(f"parameters_{pipeline}", parameter_count(model) == expected, expected)
-        with torch.no_grad():
-            x = encoded[None].to(device)
-            output = model(x, torch.zeros(1, device=device), condition([0], device))
-            require(f"model_input_{pipeline}", bool(torch.isfinite(output).all()) and x.shape[1:] == shape)
-        del model, diffusion
+        from .study_profiles import LengthMaskedDiffusion, profile_ids
+        for profile_id in profile_ids(p, pipeline) if v31 else [None]:
+            model, diffusion = model_and_diffusion(p, pipeline, device, 0, profile_id=profile_id)
+            spec = p["baseline_reference_models" if v31 else "models"][cfg["model"]]
+            expected = spec["expected_parameters"] if cfg["model"] == "gaussian" else spec[f"expected_parameters_{cfg['source']}"]
+            if profile_id in {"G1", "G2"}:
+                expected += 2 * 3 * 3 * p["model_profiles"][profile_id]["width"]
+            elif profile_id == "D1":
+                expected += p["model_profiles"][profile_id]["width"] + 12 * 28 + 28
+            name = f"{pipeline}/{profile_id}" if v31 else pipeline
+            require(f"parameters_{name}", parameter_count(model) == expected, expected)
+            with torch.no_grad():
+                x = encoded[None].to(device)
+                cond = condition([0], device)
+                if isinstance(diffusion, LengthMaskedDiffusion):
+                    cond = diffusion.payload_condition(cond, diffusion.lengths(x))
+                output = model(x, torch.zeros(1, device=device), cond)
+                require(f"model_input_{name}", bool(torch.isfinite(output).all()) and x.shape[1:] == shape)
+            if v31:
+                from .study_v31 import profile_checks
+                detail = profile_checks(p, pipeline, profile_id, model, diffusion, device)
+                require(f"sampler_{name}", detail["passed"], detail)
+                registered[name] = {"parameters": parameter_count(model), "profile_id": profile_id}
+            del model, diffusion
     require("clean_fixture_total", count == 1214, count)
     vectors = {b"": "d41d8cd98f00b204e9800998ecf8427e", b"abc": "900150983cd24fb0d6963f7d28e17f72", b"a" * 100: hashlib.md5(b"a" * 100).hexdigest()}
     require("independent_md5", all(MD5Tracer().trace(x)["digest"] == expected == hashlib.md5(x).hexdigest() for x, expected in vectors.items()))
@@ -710,6 +846,9 @@ def preflight(p, directory, device, budget):
         require("missing_row_detected", connection.execute("SELECT COUNT(*) FROM candidates").fetchone()[0] != 100)
     finally:
         connection.close()
+    if v31:
+        require("profile_matrix", len(registered) == p["pilot"]["P0"]["model_profile_pipeline_pairs"])
+        atomic_json(directory / "model_profiles.json", registered)
     return {"status": "PASS", "clean_roundtrips": count, "checks": len(checks), "statistics_calibration": "NOT_RUN"}
 
 
@@ -729,17 +868,17 @@ def logical_ledger(directory):
     return [{key: value for key, value in row.items() if key not in {"generation_seconds_per_candidate"}} for row in rows]
 
 
-def recovery_check(p, pipeline, data, directory, reference, model, diffusion, checksum, state, device, budget, batch_size, *, train=True):
+def recovery_check(p, pipeline, data, directory, reference, model, diffusion, checksum, state, device, budget, batch_size, *, train=True, profile_id=None):
     result_path = directory / "recovery.json"
     if result_path.exists():
         return read_json(result_path)
     if train:
         replay = directory / "training"
         try:
-            train_model(p, "P1", pipeline, "main", 0, data, replay, device, budget, pause_update=5)
+            train_model(p, "P1", pipeline, "main", 0, data, replay, device, budget, pause_update=5, profile_id=profile_id)
         except RecoveryPause:
             pass
-        _, _, recovered, _ = train_model(p, "P1", pipeline, "main", 0, data, replay, device, budget)
+        _, _, recovered, _ = train_model(p, "P1", pipeline, "main", 0, data, replay, device, budget, profile_id=profile_id)
         replay_best, _ = load_checkpoint(replay, best=True)
         original_best, _ = load_checkpoint(reference, best=True)
         if not all(equal_tensors(recovered[k], state[k]) for k in ("model", "optimizer", "update", "best_epoch", "best_loss")) or not equal_tensors(replay_best["model"], original_best["model"]):
@@ -747,13 +886,13 @@ def recovery_check(p, pipeline, data, directory, reference, model, diffusion, ch
     targets = stage_targets(p, data, "P1", p["pipelines"][pipeline]["source"])
     baseline = reference if train else directory / "reference"
     if not train:
-        evaluate(p, "P1", pipeline, "main", 0, targets, baseline, model, diffusion, checksum, batch_size, device, budget)
+        evaluate(p, "P1", pipeline, "main", 0, targets, baseline, model, diffusion, checksum, batch_size, device, budget, profile_id=profile_id)
     replay = directory / "generation"
     try:
-        evaluate(p, "P1", pipeline, "main", 0, targets, replay, model, diffusion, checksum, batch_size, device, budget, pause_after=7)
+        evaluate(p, "P1", pipeline, "main", 0, targets, replay, model, diffusion, checksum, batch_size, device, budget, pause_after=7, profile_id=profile_id)
     except RecoveryPause:
         pass
-    evaluate(p, "P1", pipeline, "main", 0, targets, replay, model, diffusion, checksum, batch_size, device, budget)
+    evaluate(p, "P1", pipeline, "main", 0, targets, replay, model, diffusion, checksum, batch_size, device, budget, profile_id=profile_id)
     if logical_ledger(replay) != logical_ledger(baseline):
         raise PilotError(f"Generation recovery diverged for {pipeline}")
     result = {"status": "PASS", "training_update_5": "PASS" if train else "not_repeated",
@@ -884,12 +1023,20 @@ def execute_models(p, stage, root, data, device, budget):
     cfg = p["pilot"][stage]
     summaries, profiles = {}, {}
     resources = read_json(root / "resources.json") if stage == "P3" else None
-    for pipeline in p["pipeline_order"]:
+    matrix = [(pipeline, None) for pipeline in p["pipeline_order"]]
+    if p["revision"] == "3.1":
+        from .study_profiles import profile_ids
+        if stage != "P1":
+            raise PilotError("v3.1 P2/P3 execution is not implemented", 2)
+        matrix = [(pipeline, profile_id) for pipeline in p["pipeline_order"] for profile_id in profile_ids(p, pipeline)]
+    for pipeline, profile_id in matrix:
         source = p["pipelines"][pipeline]["source"]
         targets = stage_targets(p, data, stage, source)
         for label in cfg["model_seeds"]:
             for method in cfg["methods"]:
                 name = f"{pipeline}/{label}/{method}"
+                if profile_id is not None:
+                    name = f"{pipeline}/{profile_id}/{label}/{method}"
                 directory = root / "pilot" / stage / "runs" / name
                 complete = directory / "complete.json"
                 if complete.exists():
@@ -900,15 +1047,19 @@ def execute_models(p, stage, root, data, device, budget):
                         profiles[pipeline] = read_json(directory / "profile.json")
                     continue
                 print(f"[{stage}] {name}: training/evaluation", file=sys.stderr, flush=True)
-                model, diffusion, state, checkpoint = train_model(p, stage, pipeline, method, label, data, directory, device, budget)
+                model, diffusion, state, checkpoint = train_model(p, stage, pipeline, method, label, data, directory, device, budget, profile_id=profile_id)
                 batch = cfg.get("inference_batch", cfg.get("probe_inference_batch")) if stage != "P3" else resources["pipelines"][pipeline]["batch_size"]
-                metrics = evaluate(p, stage, pipeline, method, label, targets, directory, model, diffusion, checkpoint, batch, device, budget)
+                metrics = evaluate(p, stage, pipeline, method, label, targets, directory, model, diffusion, checkpoint, batch, device, budget, profile_id=profile_id)
                 summary = {"pipeline": pipeline, "method": method, "model_seed": label, "updates": state["update"],
                            "best_epoch": state["best_epoch"], "best_validation_loss": state["best_loss"], "metrics": metrics}
-                atomic_json(directory / "training.json", {"update": state["update"], "best_epoch": state["best_epoch"], "curve": state["curve"]})
+                if profile_id is not None:
+                    summary["profile_id"] = profile_id
+                atomic_json(directory / "training.json", {"update": state["update"], "best_epoch": state["best_epoch"], "curve": state["curve"],
+                                                           "full_loop_update_seconds": state.get("full_loop_update_seconds", []),
+                                                           "full_loop_timing_excludes": ["validation", "checkpoint"]})
                 if stage == "P1" and method == "main":
                     summary["recovery"] = recovery_check(p, pipeline, data, directory / "recovery", directory, model,
-                                                         diffusion, checkpoint, state, device, budget, batch)
+                                                         diffusion, checkpoint, state, device, budget, batch, profile_id=profile_id)
                 if stage == "P2":
                     profiles[pipeline] = profile(p, pipeline, model, diffusion, state, data, directory, device, budget)
                     summary["recovery"] = recovery_check(p, pipeline, data, directory / "selected_batch_recovery", directory,
@@ -941,6 +1092,9 @@ def execute_models(p, stage, root, data, device, budget):
 
 
 def run_pilot(p, args):
+    v31 = p["revision"] == "3.1"
+    if v31 and (args.stage not in {"P0", "P1"} or not args.development):
+        raise PilotError("v3.1 currently supports development P0/P1 only (--development). P2, E0, P3, audit and main/calibration implementation must finish before formal execution.", 2)
     if os.environ.get("PYTORCH_ENABLE_MPS_FALLBACK") == "1":
         raise PilotError("Unset PYTORCH_ENABLE_MPS_FALLBACK: v3 forbids silent CPU fallback", 2)
     try:
@@ -970,6 +1124,9 @@ def run_pilot(p, args):
             atomic_json(root / "gates.json", {})
             atomic_json(root / "analysis_validation.json", {"status": "NOT_RUN", "note": "Pilot CLI does not perform main-study statistical calibration."})
             atomic_json(manifest_path, manifest)
+            if v31:
+                from .study_v31 import readiness
+                atomic_json(root / "implementation_readiness.json", readiness())
         gates = read_json(root / "gates.json")
         for number in range(int(args.stage[1])):
             previous = f"P{number}"
@@ -989,6 +1146,8 @@ def run_pilot(p, args):
                 raise PilotError("Stage already complete; use report or a new study directory", 2)
             if not args.resume:
                 raise PilotError("Stage already exists; exact continuation requires --resume", 2)
+            if v31 and (state["status"] == "RUNNING" or state.get("exit_code") == 5):
+                raise PilotError("Unknown unaccounted time after an abrupt stop, or an exhausted hard budget: v3.1 exact continuation is blocked", 4)
             if state.get("resume_attempts", 0) >= 1 or state.get("exit_code") == 4:
                 raise PilotError("Resume allowance exhausted or integrity failure; investigate without replacing results", 4)
             state["resume_attempts"] = state.get("resume_attempts", 0) + 1
@@ -1011,6 +1170,8 @@ def run_pilot(p, args):
                     if path.exists():
                         raise PilotError("Unsealed synthetic dataset exists")
                     data = make_data(p)
+                    if v31:
+                        budget.reserve(None, len(canonical(data)) + 65536, refresh=True)
                     atomic_json(path, data)
                     manifest["data_sha256"] = file_hash(path)
                     atomic_json(manifest_path, manifest)
@@ -1035,6 +1196,8 @@ def run_pilot(p, args):
             raise
         finally:
             budget.tick()
+            if v31:
+                write_report(root, p, acquire_lock=False)
         write_report(root, p, acquire_lock=False)
         return {"stage": args.stage, "status": result["status"], "development_only": args.development,
                 "workdir": str(root), "report": str(root / "report.md"), "exit_code": result.get("exit_code", 0)}
@@ -1051,7 +1214,8 @@ def write_report(root, p, *, acquire_lock=True):
     if manifest["identity"]["protocol_sha256"] != digest(p) or digest(read_json(root / "protocol.frozen.json")) != digest(p):
         raise PilotError("Report protocol mismatch")
     gates = read_json(root / "gates.json")
-    lines = ["# v3 Pilot 실행 보고", "", f"Protocol: {p['protocol_id']}",
+    v31 = p["revision"] == "3.1"
+    lines = [f"# v{p['revision']} Pilot 실행 보고", "", f"Protocol: {p['protocol_id']}",
              f"Development only: {manifest['identity']['development']}", "",
              "| 단계 | 실행 상태 | 판정 | Active seconds |", "|---|---|---|---:|"]
     for stage in ("P0", "P1", "P2", "P3"):
@@ -1071,8 +1235,44 @@ def write_report(root, p, *, acquire_lock=True):
         for name, run in summary["runs"].items():
             m = run["metrics"]
             lines.append(f"| {name} | {m['normal_joint']} | {m['flipped_joint']} | {m['wrong_original']} | {run['qualified']} |")
+    progress = {}
+    for stage in ("P1", "P2", "P3"):
+        directory = root / "pilot" / stage / "runs"
+        paths = {path.parent for path in directory.rglob("complete.json")}
+        paths |= {path.parent for path in directory.rglob("configuration.json")
+                  if not any("recovery" in part for part in path.relative_to(directory).parts)}
+        if v31 and stage == "P1":
+            from .study_profiles import profile_ids
+            paths |= {directory / pipeline / profile_id / str(label) / method
+                      for pipeline in p["pipeline_order"] for profile_id in profile_ids(p, pipeline)
+                      for label in p["pilot"][stage]["model_seeds"] for method in p["pilot"][stage]["methods"]}
+        elif not v31:
+            cfg = p["pilot"][stage]
+            paths |= {directory / pipeline / str(label) / method for pipeline in p["pipeline_order"]
+                      for label in cfg["model_seeds"] for method in cfg["methods"]}
+        if not paths:
+            continue
+        lines += ["", f"## {stage} run 상태 (stage gate와 별도)", "",
+                  "| Run | 실행 상태 | 정상 joint | 반전 joint |", "|---|---|---:|---:|"]
+        for path in sorted(paths):
+            name = str(path.relative_to(directory))
+            completed = path / "complete.json"
+            metrics = {}
+            if completed.exists():
+                saved = read_json(completed)
+                verify_seal(path, saved["sha256"])
+                metrics = saved["summary"]["metrics"]
+                status = "COMPLETE"
+            else:
+                status = "INCOMPLETE" if (path / "configuration.json").exists() else "NOT_RUN"
+            progress[f"{stage}/{name}"] = status
+            lines.append(f"| {name} | {status} | {metrics.get('normal_joint', '—')} | {metrics.get('flipped_joint', '—')} |")
+    if v31:
+        from .study_v31 import readiness
+        lines += ["", "v3.1 구현: IMPLEMENTATION_IN_PROGRESS. 현재 P0/P1 결과는 개발 검사이며 formal PoC gate가 아니다.",
+                  "남은 구현: " + ", ".join(readiness()["remaining"]) + "."]
     lines += ["", "본실험: NOT_IMPLEMENTED / NOT_RUN. 통계 calibration: NOT_RUN.",
               "Pilot 실행 완료와 합성 과제 성능 통과는 별도 판정이다. Development 결과는 v3 GPU 적격성 증거가 아니다.", ""]
     (root / "report.md").write_text("\n".join(lines))
     return {"status": "REPORT_WRITTEN", "report": str(root / "report.md"), "pilot_gates": {key: value["status"] for key, value in gates.items()},
-            "main_ready": False, "exit_code": 0}
+            "main_ready": False, "run_progress": progress, "exit_code": 0}
