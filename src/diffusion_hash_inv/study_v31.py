@@ -7,11 +7,12 @@ from .study_profiles import LengthMaskedDiffusion
 
 def readiness():
     return {"status": "IMPLEMENTATION_IN_PROGRESS", "implementation_ready": False,
+            "development_model_backends": ["torch", "mlx"],
             "model_profiles": {name: "IMPLEMENTED" for name in ("G0", "G1", "G2", "D0", "D1")},
-            "development_pilot": {"P0": "IMPLEMENTED", "P1": "IMPLEMENTED"},
+            "development_pilot": {"P0": "IMPLEMENTED", "P1": "IMPLEMENTED", "P2": "IMPLEMENTED"},
             "formal_pilot": "BLOCKED_IMPLEMENTATION",
-            "remaining": ["P0 main-boundary/budget fixtures", "P2A/P2B selection and diagnostics",
-                          "resource profiling and final seal", "exposure audit", "E0 production MD5 rehearsal",
+            "remaining": ["P0 main-boundary/budget fixtures",
+                          "E0 resource measurements and final seal", "exposure audit", "E0 production MD5 rehearsal",
                           "P3 qualification", "main M0-M3", "full statistical calibration",
                           "independent run failure continuation"],
             "poc_qualified": False, "main_ready": False, "study_complete": False}
@@ -23,9 +24,9 @@ def plan(p, stage, device, development):
             "device": device, "dry_run": True, "device_checked": False,
             "settings": ({key: p["pilot"][key] for key in ("P2A", "P2B")} if stage == "P2" else p["pilot"][stage]),
             "pipelines": p["pipeline_order"], "model_profiles": p["model_profiles"],
-            "executable": development and stage in {"P0", "P1"},
+            "executable": development and stage in {"P0", "P1", "P2"},
             "readiness": readiness(), "wall_cap_seconds": p["execution"]["hard_stage_active_wall_seconds"][stage],
-            "note": "Only development P0/P1 are implemented. No experiment was run; formal gates remain blocked."}
+            "note": "Development P0/P1/P2 are implemented. P2 requires new-code P0/P1 in the same workdir. No experiment was run; formal gates remain blocked."}
 
 
 @torch.no_grad()

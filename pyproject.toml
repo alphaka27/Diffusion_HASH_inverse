@@ -13,6 +13,9 @@ dependencies = [
     "torch>=2.0",
 ]
 
+[project.optional-dependencies]
+mlx = ["mlx>=0.32.2,<0.33; platform_system == 'Darwin' and platform_machine == 'arm64'"]
+
 [project.scripts]
 hash-trace = "diffusion_hash_inv.cli:main"
 hash-inverse-experiment = "diffusion_hash_inv.experiment_cli:main"

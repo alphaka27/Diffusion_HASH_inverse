@@ -6,7 +6,7 @@ import sys
 
 
 def parser():
-    result = argparse.ArgumentParser(description="v3.0 Pilot P0–P3; v3.1 development P0/P1 and read-only plans. Main-study commands are not implemented.")
+    result = argparse.ArgumentParser(description="v3.0 Pilot P0–P3; v3.1 development P0/P1/P2 with PyTorch or native MLX. P2 runs A/B and profile selection; main-study commands are not implemented.")
     commands = result.add_subparsers(dest="command", required=True)
     pilot = commands.add_parser("pilot", help="execute one Pilot stage, checking prerequisites")
     report = commands.add_parser("report", help="verify and summarize existing Pilot artifacts")
@@ -14,7 +14,8 @@ def parser():
         command.add_argument("--protocol", type=Path, required=True, help="frozen v3.0/v3.1 protocol JSON (not ExperimentConfig)")
         command.add_argument("--workdir", type=Path, required=True, help="study output directory; use the same directory for P0–P3")
     pilot.add_argument("--stage", required=True, choices=("P0", "P1", "P2", "P3"))
-    pilot.add_argument("--device", default="mps", choices=("mps", "cpu"), help="explicit backend; cpu requires --development")
+    pilot.add_argument("--backend", default="torch", choices=("torch", "mlx"), help="model/autograd backend; mlx requires the optional mlx dependency")
+    pilot.add_argument("--device", choices=("mps", "gpu", "cpu"), help="default: torch=mps, mlx=gpu; cpu requires --development")
     pilot.add_argument("--development", action="store_true", help="development-only namespace; never confers v3 GPU qualification")
     pilot.add_argument("--threads", type=int, default=1, help="PyTorch CPU threads, positive integer; frozen for continuation (default: 1)")
     pilot.add_argument("--resume", action="store_true", help="one exact continuation of an interrupted stage; never overwrite a completed stage")
@@ -30,11 +31,17 @@ def main(argv=None):
         if args.command == "report":
             result = write_report(args.workdir, protocol)
         else:
+            args.device = args.device or ("gpu" if args.backend == "mlx" else "mps")
+            if args.backend == "torch" and args.device == "gpu":
+                raise PilotError("PyTorch uses --device mps or cpu", 2)
+            if args.backend == "mlx" and protocol["revision"] != "3.1":
+                raise PilotError("MLX is implemented for v3.1 development only", 2)
             if args.threads < 1:
                 raise PilotError("--threads must be positive", 2)
             if args.device == "cpu" and not args.development:
                 raise PilotError("CPU execution requires --development and cannot qualify a v3 GPU Pilot", 2)
             result = plan(protocol, args.stage, args.device, args.development) if args.dry_run else run_pilot(protocol, args)
+            result["backend"] = args.backend
         print(json.dumps(result, indent=2, ensure_ascii=False, allow_nan=False))
         return result.get("exit_code", 0)
     except PilotError as error:

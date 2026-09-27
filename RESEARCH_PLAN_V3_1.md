@@ -1,7 +1,7 @@
 # v3.1 실험 계획 — PoC 검증과 본실험의 정상 완료
 
 **Protocol:** `dhi-v3.1-20260925` · **Revision:** 3.1 · **작성일:** 2026-09-25 KST  
-**상태:** 계획 작성 완료 / 수정 모델·개발 P0/P1 구현 / 정식 PoC·본실험 미실행  
+**상태:** 계획 작성 완료 / 수정 모델·개발 P0/P1/P2 구현 / 정식 PoC·본실험 미실행
 **구현 현황(2026-09-26):** [V3_1_IMPLEMENTATION.md](V3_1_IMPLEMENTATION.md)  
 **기계 판독 명세:** [poc-v3.1-protocol.json](examples/poc-v3.1-protocol.json)  
 **근거:** [v3 실패 상세 분석](LATEST_EXPERIMENT_ANALYSIS_KO.md), [개선 제안](EXPERIMENT_IMPROVEMENT_PROPOSAL_KO.md)
@@ -10,7 +10,7 @@
 
 v3.1의 목적은 **다섯 pipeline 전체에서 PoC를 검증하고, 본실험의 학습·평가·통계 분석·비용 보고를 정상적으로 끝내는 것**이다. 본실험에서 random보다 유의하게 우수해야 실험 완료로 인정하는 것은 아니다. 성능 부적격·비유의·실행 실패를 구분한다.
 
-이 계획은 실험 시행에 필요한 구현과 검증의 계약이다. 현재 CLI는 고정된 3.0/3.1 JSON과 v3.1 개발 P0/P1을 지원한다. P2 이후 및 정식 v3.1 실행은 미구현 계약이 남아 있어 차단된다. 개발 검사나 JSON 검산으로 정식 실험 gate가 PASS가 되지 않는다. 기존 v3의 결과·checkpoint·누적 시간을 수정하지 않는다.
+이 계획은 실험 시행에 필요한 구현과 검증의 계약이다. 현재 CLI는 고정된 3.0/3.1 JSON과 v3.1 개발 P0/P1/P2를 지원한다. P3 이후 및 정식 v3.1 실행은 미구현 계약이 남아 있어 차단된다. 개발 검사나 JSON 검산으로 정식 실험 gate가 PASS가 되지 않는다. 기존 v3의 결과·checkpoint·누적 시간을 수정하지 않는다.
 
 | 상태 | v3.1 정의 |
 |---|---|
@@ -244,15 +244,15 @@ Run별 SQLite WAL/FULL, `(run_id,unit_id,variant,attempt)` unique key와 batch t
 
 | 작업 | 완료해야 할 사항 | 현재 상태 |
 |---|---|---|
-| I0 | v3.1 schema/profile dispatch, G1/G2/D1, 공통 sampler 정합성, 진단, 전체 주기 예산, 부분 보고 | 일부 구현; 모델·개발 P0/P1·예산 기반·부분 보고 완료, P2 진단/자원 확정 및 독립 run 오류 처리 남음 |
+| I0 | v3.1 schema/profile dispatch, G1/G2/D1, 공통 sampler 정합성, 진단, 전체 주기 예산, 부분 보고 | 일부 구현; 모델·개발 P0/P1/P2·진단·잠정 자원·부분 보고 완료; E0 최종 자원 확정과 정식 경로 오류 처리 남음 |
 | I1 | Exposure/ownership, 실제 MD5 train/evaluate, trial ledger, M3 family 분석, full calibration, E0 경로 | 구현 필요 |
-| I2 | 등록13조합 P0/P1, 순서가 고정된 P2A/B 선택·profile 봉인 | 개발 P0 및 축소 P1 검사 통과; 정식 단계와 P2 미실행 |
+| I2 | 등록13조합 P0/P1, 순서가 고정된 P2A/B 선택·profile 봉인 | 개발 P0/P1 실행 및 P2A/B 구현; 원본 규모 P2와 정식 단계 미실행 |
 | I3 | E0 리허설, 자원 최종 봉인, audit feasibility/calibration, P3 전체 적격성 | 미실행 |
 | I4 | M0–M3 전체 실행·완전성 및 통계 보고 | 미실행 |
 
 권장 흐름은 **I0/I1 구현 → P0 → P1 → P2 → E0 → 자원·감사·calibration 확정 → P3 → M0 → M1 → M2 → M3**다. Exposure 조사와 통계 구현/검산은 P2를 기다리지 않고 진행한다. 본실험 경로의 구현 누락을 P3 후에 발견하지 않도록 I1을 선행한다.
 
-향후 CLI 계약은 `pilot --stage P0/P1/P2/P3`, `rehearse`, `audit --inventory`, `validate --suite statistics`, `prepare`, `train`, `evaluate`, `report`다. P2가 내부적으로 A/B와 profile 선택을 관리한다. 공통 `--protocol`, `--workdir`, 명시적 `--device mps`, 검증된 exact `--resume`, 쓰기 없는 `--dry-run`을 지원해야 한다. 임의 epochs/K/profile 선택으로 고정 계약을 우회하지 않는다. **현재는 개발 P0/P1, Pilot dry-run 및 report를 지원하며 전체 v3.1 계약은 미완성이다.**
+향후 CLI 계약은 `pilot --stage P0/P1/P2/P3`, `rehearse`, `audit --inventory`, `validate --suite statistics`, `prepare`, `train`, `evaluate`, `report`다. P2가 내부적으로 A/B와 profile 선택을 관리한다. 공통 `--protocol`, `--workdir`, 명시적 `--device mps`, 검증된 exact `--resume`, 쓰기 없는 `--dry-run`을 지원해야 한다. 임의 epochs/K/profile 선택으로 고정 계약을 우회하지 않는다. **현재는 개발 P0/P1/P2, Pilot dry-run 및 report를 지원하며 전체 v3.1 계약은 미완성이다.**
 
 Exit0은 요청한 실행 계약 완료이며 과학적 우위를 뜻하지 않는다. 설정/선행 gate/적격성 미충족2, runtime/numerical3, 무결성4, hard resource5, 사용자 중단130을 유지한다. Soft 초과는 exit5가 아니다. 보고 명령은 부분 결과도 생성할 수 있고 전체 완료 여부는 별도 필드로 반환한다.
 

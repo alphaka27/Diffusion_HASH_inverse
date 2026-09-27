@@ -54,7 +54,7 @@ class LengthMaskedDiffusion(MaskedDiffusion):
             raise ValueError("D1 external condition contains only twelve public bits")
         return torch.cat((condition, lengths[:, None].to(condition.dtype) / 31), 1)
 
-    def losses(self, model, clean, condition, times, masks):
+    def losses(self, model, clean, condition, times, masks, *, return_components=False):
         lengths = self.lengths(clean)
         masks = masks & (torch.arange(32, device=clean.device)[None] < lengths[:, None])
         logits = model(clean.masked_fill(masks, self.mask_token), times,
@@ -65,13 +65,16 @@ class LengthMaskedDiffusion(MaskedDiffusion):
         # Non-payload positions never contribute, including when no token is masked.
         payload = nn.functional.cross_entropy(logits.transpose(1, 2),
                                               clean.clamp_max(self.mask_token - 3), reduction="none")
-        return (nn.functional.cross_entropy(length_logits, lengths - 4, reduction="none")
-                + (payload * masks).sum(1) / masks.sum(1).clamp_min(1))
+        length_ce = nn.functional.cross_entropy(length_logits, lengths - 4, reduction="none")
+        payload_ce = (payload * masks).sum(1) / masks.sum(1).clamp_min(1)
+        total = length_ce + payload_ce
+        return (total, {"length_ce": length_ce.mean(), "payload_ce": payload_ce.mean()}) if return_components else total
 
-    def loss(self, model, clean, condition, *, generator):
+    def loss(self, model, clean, condition, *, generator, return_components=False):
         times = torch.rand((len(clean),), device=self.device, generator=generator)
         masks = torch.rand(clean.shape, device=self.device, generator=generator) < times[:, None]
-        return self.losses(model, clean, condition, times, masks).mean()
+        values = self.losses(model, clean, condition, times, masks, return_components=return_components)
+        return (values[0].mean(), values[1]) if return_components else values.mean()
 
     @torch.no_grad()
     def sample(self, model, condition, shape, *, sampling_steps, generator,
