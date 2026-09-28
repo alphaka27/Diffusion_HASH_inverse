@@ -1,24 +1,78 @@
-# v5-claude 실험 계획 — 연구의 최종 결론을 내리는 실험
+# v5 실험 계획 — 연구의 최종 결론을 내리는 실험
 
-**Protocol:** `dhi-v5-claude-20260928` · **Master seed:** `2026092806` · **작성일:** 2026-09-28 KST
-**상태:** `PLANNED_NOT_IMPLEMENTED`
+**Protocol:** `dhi-v5-20260928` · **Master seed:** `2026092806` · **작성일:** 2026-09-28 KST
+**상태:** `PLANNED_NOT_IMPLEMENTED` · 다른 작업자에게 넘길 때는 [인계 안내](#인계-안내-codex-등-다른-작업자용)부터 읽는다.
 
 이 문서의 수치는 세 종류로 나뉜다.
 
 - **기존 archive에서 읽은 값.**
 - **계획 작성 중 새로 측정한 값.** §1.2의 D0 진단과 §1.3의 처리량 측정이다. Synthetic 모델만 사용했으며 MD5 호출은 0회다. v4 산출물은 읽기만 했다.
-- **설계 검산값.** [검산 스크립트](scripts/validate_research_plan_v5_claude.py)의 가상 계산 결과다.
+- **설계 검산값.** [검산 스크립트](scripts/validate_research_plan_v5.py)의 가상 계산 결과다.
 
 새 MD5 test 접근, v4 산출물 변경, v4-claude 구현은 하지 않았다.
 
-**요약.** v5-claude는 이 연구의 마지막 버전이다. 결과가 무엇이든 **연구 가설에 대한 최종 판정을 내리고 연구를 종료**하도록 설계했다. 이전 버전은 모두 결론 없이 끝났다(형식 실패, 적격성 차단, 노출 감사 미완, 자원 한도). 이 계획은 그 경로를 하나씩 막는다.
+**요약.** v5는 이 연구의 마지막 버전이다. 결과가 무엇이든 **연구 가설에 대한 최종 판정을 내리고 연구를 종료**하도록 설계했다. 이전 버전은 모두 결론 없이 끝났다(형식 실패, 적격성 차단, 노출 감사 미완, 자원 한도). 이 계획은 그 경로를 하나씩 막는다.
 
 1. **v4 차단의 원인을 확인했다(D0).** 같은 v4 모델의 epoch-100 checkpoint는 조건 정확도 460–469/512를 냈다. 등록 규칙이 고른 epoch 11은 125–176/512였다. 기계는 작동했다. 부족했던 것은 checkpoint 선택 규칙이다. 그래서 v5는 매 update마다 새로 해시한 쌍으로 학습하고, 최종 checkpoint를 고정 사용한다.
 2. **Sampler를 벡터화한다.** 현재 sampler는 후보마다 난수를 Python loop로 뽑는다. 그래서 batch를 키워도 약 450 후보/s에 머문다. `mx.vmap` 버전은 기존 출력과 **bitwise로 같고** 약 17,500 후보/s(37배)다. 이 여유로 주 시험의 검정력을 4배로 높였다. 최소 관심 효과는 0.5%p에서 **0.25%p**로, trials는 16,384에서 **65,536**으로 바뀐다.
 3. **양성 결과도 최종 결론이 되게 한다.** 양성이면 다른 digest window에서 내부 재현(Stage R)을 해야 "지지"로 판정한다. 계산 우위(C4)는 분석식과 실측 처리량으로 함께 판정한다.
 4. **"더 큰 모델이면?"이라는 반론에 답한다.** 3.5배 큰 모델에 4배 많은 데이터를 쓰는 규모 탐침(Stage S)을 추가했다.
 
-관련 문서: [원본 계획](RESEARCH_PLAN.md) · [v4 계획](RESEARCH_PLAN_V4.md) · [v4-claude 계획](RESEARCH_PLAN_V4_CLAUDE.md) · [연구 가능성 검토](RESEARCH_FEASIBILITY_REVIEW_KO.md) · [설계 계산 JSON](local_experiment_archive/analyses/v5-claude-design-20260928/design_calculation.json) · [D0·처리량 측정](local_experiment_archive/analyses/v5-claude-d0-20260928/)
+관련 문서: [원본 계획](RESEARCH_PLAN.md) · [v4 계획](RESEARCH_PLAN_V4.md) · [v4-claude 계획](RESEARCH_PLAN_V4_CLAUDE.md) · [연구 가능성 검토](RESEARCH_FEASIBILITY_REVIEW_KO.md) · [설계 계산 JSON](local_experiment_archive/analyses/v5-design-20260928/design_calculation.json)(로컬 전용) · [D0·처리량 측정](local_experiment_archive/analyses/v5-d0-20260928/)(로컬 전용)
+
+---
+
+## 인계 안내 (Codex 등 다른 작업자용)
+
+이 절은 이 계획을 저장소만 받은 작업자에게 넘기기 위한 요약이다. 명세의 기준은 이 문서의 §3–§16이다. v4-claude 계획과 충돌하면 이 문서가 우선한다.
+
+### 현재 상태 (2026-09-28)
+
+| 항목 | 상태 |
+|---|---|
+| 계획 문서, 설계 검산 스크립트 | 완료, 커밋됨 |
+| D0 진단, 처리량 측정 | 완료. 결과는 로컬 archive에만 있고, 수치는 §1.2·§1.3에 전부 인용됨 |
+| §15의 구현 | **시작 전** |
+| 노출 감사(§12.1) | **시작 전.** `examples/v4-exposure-inventory.json`은 빈 템플릿 |
+| Stage A–S 실행 | **시작 전.** MD5 조건 데이터는 아직 하나도 만들지 않음 |
+
+### 저장소에 없는 자료
+
+`local_experiment_archive/`는 `.gitignore` 대상이다. 이 문서에서 그 아래를 가리키는 링크는 모두 작성자 컴퓨터에만 있다. 필요한 값은 다음 위치에 인용되어 있다.
+
+| 로컬 전용 자료 | 문서 안의 위치 |
+|---|---|
+| v4 V1 실행 기록, D0 재평가 | §1.1, §1.2 |
+| 처리량, 벡터화 sampler 시제품 결과, Transformer proxy 시간 | §1.3 |
+| 설계 계산 JSON | §6.3, §8.3, §11, §13 |
+| MD5 PoC·toy 결과 | §1.1, [연구 가능성 검토](RESEARCH_FEASIBILITY_REVIEW_KO.md) |
+
+[검산 스크립트](scripts/validate_research_plan_v5.py)는 archive가 없으면 기록된 측정값을 대신 쓴다. 출력의 `measurement_sources`에 어느 쪽을 썼는지 남긴다. 두 경우의 출력은 같다.
+
+### 착수 전에 사람이 정할 항목
+
+1. **주 window(§12.1).** 노출 감사를 수행해 W1을 쓸지, 감사 없이 W2를 쓸지 정한다. 이 결정을 `window.json`에 기록하기 전에는 MD5 조건 데이터를 만들지 않는다.
+2. **모델 코드.** §15는 기존 `mlx_models`의 D1-S를 재사용한다고 되어 있다. 모델을 MLX로 새로 구현하기로 하면, §5.1의 "기존 sampler와 bitwise 동일" 게이트를 무엇으로 대체할지 먼저 정한다.
+3. **자원.** 실행 기계(Apple Silicon, MLX/Metal)와 §13의 hard cap(필수 경로 50시간)을 확인한다.
+4. **커밋 범위.** [NEW_EXPERIMENT_PLAN.md](NEW_EXPERIMENT_PLAN.md)의 규칙을 따른다. 코드, 테스트, 고정 설정, 계획만 커밋한다. 후보 원장, 배열, checkpoint, 결과 보고서는 커밋하지 않는다.
+
+### 반드시 지킬 제약
+
+- v3.1·v4 실행기와 `local_experiment_archive/runs/` 아래 산출물은 수정하지 않는다. 기존 `mlx_models.sample`도 바꾸지 않는다(§15).
+- 결과를 본 뒤 규칙, seed, 학습량, sampler, trial을 바꾸지 않는다. 사전 등록된 분기만 허용한다(§3 원칙 2).
+- Stage C를 B·S보다 먼저 실행한다(§13).
+- 실패, 차단, 자원 초과를 MD5 효과의 증거로 해석하지 않는다. §14.1의 `NOT_ESTABLISHED_*`로 기록한다.
+
+### 작업 순서와 완료 기준
+
+| 순서 | 작업 | 완료 기준 |
+|---|---|---|
+| 1 | §15의 구현 항목 1–7 | §5.1의 A-impl 게이트와 §12.2의 무결성 검사를 테스트로 통과 |
+| 2 | 판정기 calibration | §12.3의 통과 조건과 planted-lift fixture 통과 |
+| 3 | A-prof, A-dev, 봉인 | `protocol.frozen.json`, `window.json`, fallback 기록(§13) |
+| 4 | A-Q (필요 시 §5.4 보완) | Q와 A\* 결정 |
+| 5 | C → (확장) → (R) → B → S | 각 단계 봉인과 §16의 산출물 |
+| 6 | 최종 보고 | §14.2 구성의 `FINAL_REPORT_KO.md`, `decision.json` |
 
 ---
 
@@ -50,7 +104,7 @@
 
 ### 1.2 D0 진단 — v4 V1 실패의 원인 (신규 실측)
 
-v4 V1의 세 seed checkpoint를 V1 acceptance 512 조건에 대해 등록 sampler와 batch 4로 다시 평가했다. v4 study 폴더는 읽기만 했다. 결과는 [`d0_summary.json`](local_experiment_archive/analyses/v5-claude-d0-20260928/d0_summary.json)에 있다.
+v4 V1의 세 seed checkpoint를 V1 acceptance 512 조건에 대해 등록 sampler와 batch 4로 다시 평가했다. v4 study 폴더는 읽기만 했다. 결과는 [`d0_summary.json`](local_experiment_archive/analyses/v5-d0-20260928/d0_summary.json)(로컬 전용)에 있다.
 
 | Seed | Epoch 11 (등록 규칙이 선택): 정상 / 반전 joint | Epoch 100 (최종): 정상 / 반전 joint | 기준 |
 |---|---:|---:|---:|
@@ -67,12 +121,12 @@ v4 V1의 세 seed checkpoint를 V1 acceptance 512 조건에 대해 등록 sample
 
 | 항목 | 값 | 출처 |
 |---|---:|---|
-| 현재 D1-S sampler, batch 64 / 256 / 1024 / 4096 | 414 / 476 / 406 / 398 후보/s | [`throughput.json`](local_experiment_archive/analyses/v5-claude-d0-20260928/throughput.json) |
-| `vmap` 벡터화 D1-S sampler, batch 1024 | **17,565 후보/s** | [`vectorized_sampler_check.json`](local_experiment_archive/analyses/v5-claude-d0-20260928/vectorized_sampler_check.json) |
+| 현재 D1-S sampler, batch 64 / 256 / 1024 / 4096 | 414 / 476 / 406 / 398 후보/s | [`throughput.json`](local_experiment_archive/analyses/v5-d0-20260928/throughput.json) |
+| `vmap` 벡터화 D1-S sampler, batch 1024 | **17,565 후보/s** | [`vectorized_sampler_check.json`](local_experiment_archive/analyses/v5-d0-20260928/vectorized_sampler_check.json) |
 | 벡터화 출력 = 기존 `mlx_models.sample` 출력 | 256/256 bitwise 동일 | 같은 파일 |
 | Batch 구성 불변성(후보 하나만 따로 생성해도 같은 출력) | 동일 | 같은 파일 |
 | MD5 + 앞 12 bits, Python 단일 core | 2,104,757 /s | `throughput.json` |
-| Transformer proxy d=192, 4 layers (1,823,714 params) | update 0.0199 s (batch 256), 약 1,418 후보/s | [`transformer_timing.txt`](local_experiment_archive/analyses/v5-claude-d0-20260928/transformer_timing.txt) |
+| Transformer proxy d=192, 4 layers (1,823,714 params) | update 0.0199 s (batch 256), 약 1,418 후보/s | [`transformer_timing.txt`](local_experiment_archive/analyses/v5-d0-20260928/transformer_timing.txt) |
 | Transformer proxy d=256, 8 layers (6,372,962 params) | update 0.0592 s, 약 455 후보/s | 같은 파일 |
 
 현재 sampler가 batch 크기와 무관하게 느린 이유는 `mlx_models.sample`이 매 step마다 `mx.stack([mx.random.categorical(row, key=k) for ...])` 형태로 **후보별 kernel을 따로 호출**하기 때문이다. `mx.vmap`으로 바꾸면 난수 identity와 출력이 그대로 보존된다. Transformer 수치는 일반 MLX Transformer로 잰 proxy다. 실제 모델은 A-prof에서 다시 측정해 봉인한다.
@@ -87,7 +141,7 @@ v4 V1의 세 seed checkpoint를 V1 acceptance 512 조건에 대해 등록 sample
 
 ## 2. v4-claude 대비 변경점
 
-| 항목 | v4-claude | v5-claude | 근거 |
+| 항목 | v4-claude | v5 | 근거 |
 |---|---|---|---|
 | 결론 구조 | `CONTINUE` / `CONCLUDE_*` | C1–C4 판정 카드 + 종합 판정. **모든 경로가 연구 종료** | 최종 결론 요구 |
 | D0 | 선택 사항, 미실행 | **실행 완료.** 선택 규칙이 원인임을 확인 | §1.2 |
@@ -398,7 +452,7 @@ v4 V0를 재사용하고 다음을 추가한다.
 
 주 판정(C)을 먼저 확보한다. 보조인 B·S가 자원을 먼저 쓰지 않게 한다.
 
-**예상 실행량과 시간** (D1-T proxy 기준, [설계 계산](local_experiment_archive/analyses/v5-claude-design-20260928/design_calculation.json)):
+**예상 실행량과 시간** (D1-T proxy 기준, [설계 계산](local_experiment_archive/analyses/v5-design-20260928/design_calculation.json), 로컬 전용이며 검산 스크립트로 재생성 가능):
 
 | 단계 | Learned runs | Learned 후보 | 예상 학습 | 예상 생성 | Hard cap |
 |---|---:|---:|---:|---:|---:|
@@ -443,7 +497,7 @@ v4 V0를 재사용하고 다음을 추가한다.
 | **`FINAL_REJECTED`** | C1 PASS, C3 `REJECTED_*` | "해시 조건 diffusion 생성의 Success@100 이득은 Random 대비 {U_R} 이하, Shuffled 대비 {U_S} 이하이며, 사전 정한 최소 관심 효과 0.25%p를 {두 비교 모두 / 조건 기여 / prior 대비} 배제한다. 같은 기계는 synthetic 조건과 step-reduced MD5 r ≤ {r*_gen}에서는 조건을 이용했다. 12배 규모에서 지평선 이동은 {SCALE_SHIFT}. 계산 우위는 없다." Stage I 가설 기각으로 연구 종료 |
 | **`FINAL_NOT_ESTABLISHED`** | C3 `NOT_ESTABLISHED_*` (UNRESOLVED, NOT_REPLICATED, INTEGRITY, BY_BUDGET) 또는 C1 FAIL (UNTESTABLE) | "사전 규칙으로 이득을 입증하지 못했다. 이득의 상한은 {구간}이다(측정된 경우). 사유는 {사유 코드}다." 추가 증액 없이 연구 종료. UNTESTABLE이면 "현재 기계 계열로는 질문을 검정할 수 없었고, MD5 효과는 측정되지 않았다"를 명시 |
 
-어느 판정이든 **v5-claude 이후 같은 질문의 revision은 없다.** `PIVOT_SUPPORTED`나 CLP_64 이상 신호는 원래 연구의 지속이 아니다. 새 연구를 제안할 근거일 뿐이다.
+어느 판정이든 **v5 이후 같은 질문의 revision은 없다.** `PIVOT_SUPPORTED`나 CLP_64 이상 신호는 원래 연구의 지속이 아니다. 새 연구를 제안할 근거일 뿐이다.
 
 ### 14.2 최종 보고서 필수 내용
 
@@ -469,14 +523,14 @@ v4 V0를 재사용하고 다음을 추가한다.
 
 **신규:**
 
-1. `mlx_models.sample_vectorized`: `vmap` 난수의 discrete sampler. 기존 `sample`과 bitwise parity 테스트를 둔다. 프로토타입은 [`vectorized_sampler_check.py`](local_experiment_archive/analyses/v5-claude-d0-20260928/vectorized_sampler_check.py)에 있다.
+1. `mlx_models.sample_vectorized`: `vmap` 난수의 discrete sampler. 기존 `sample`과 bitwise parity 테스트를 둔다. 시제품은 [`vectorized_sampler_check.py`](local_experiment_archive/analyses/v5-d0-20260928/vectorized_sampler_check.py)(로컬 전용)에 있다. 저장소만 받은 경우 명세는 §4.3과 §5.1이다.
 2. `hashing`: NumPy 벡터화 `H12_r^W`와 참조 일치 테스트.
 3. 새 쌍 data stream: NumPy 벡터화 prior sampling, train group rejection, 결정적 재개, 학습 메시지 hash set.
 4. `mlx_models`: D1-T, D1-T-L (같은 호출 계약).
 5. Batch 내 Shuffled, MC derangement 생성기.
 6. CLP scorer와 대칭성 fixture.
 7. 판정기: Stage C(§6.3), R(§7), ladder·S 검정, C4 규칙, 종합 판정(§14.1). Production calibration과 planted-lift fixture를 포함한다.
-8. `study_v5c` CLI: `plan | audit | run --stage {A,C,R,B,S} | report`. 단계 봉인, resume, cap, fallback, window 결정을 기록한다. 수정된 protocol JSON은 거부한다.
+8. `study_v5` CLI: `plan | audit | run --stage {A,C,R,B,S} | report`. 단계 봉인, resume, cap, fallback, window 결정을 기록한다. 수정된 protocol JSON은 거부한다.
 
 v3.1, v4 실행기와 산출물은 수정하지 않는다. 벡터화 sampler는 새 함수로 추가한다. 기존 `sample`은 바꾸지 않는다.
 
@@ -492,21 +546,21 @@ v3.1, v4 실행기와 산출물은 수정하지 않는다. 벡터화 sampler는 
 **설계 검산 재현** (가상 계산과 저장된 측정값만 사용한다. 실제 실험 명령이 아니다):
 
 ```sh
-.venv/bin/python scripts/validate_research_plan_v5_claude.py
+.venv/bin/python scripts/validate_research_plan_v5.py
 ```
 
-출력은 `local_experiment_archive/analyses/v5-claude-design-20260928/design_calculation.json`이다. 내용은 D0 판정, Stage C·R의 가상 작동 특성, ladder 검정력, C4 산술, 실행량·시간 산술이다.
+출력은 `local_experiment_archive/analyses/v5-design-20260928/design_calculation.json`이다. Archive가 없는 저장소에서도 실행되며, 이때는 기록된 측정값을 쓴다. 내용은 D0 판정, Stage C·R의 가상 작동 특성, ladder 검정력, C4 산술, 실행량·시간 산술이다.
 
-**D0와 처리량 측정 재현** (synthetic 모델만 사용, MD5 test 접근 없음):
-
-```sh
-.venv/bin/python local_experiment_archive/analyses/v5-claude-d0-20260928/d0.py
-```
+**D0와 처리량 측정 재현** (로컬 전용: v4 V1 checkpoint와 스크립트가 archive에 있어야 한다. synthetic 모델만 사용, MD5 test 접근 없음):
 
 ```sh
-.venv/bin/python local_experiment_archive/analyses/v5-claude-d0-20260928/throughput.py
+.venv/bin/python local_experiment_archive/analyses/v5-d0-20260928/d0.py
 ```
 
 ```sh
-.venv/bin/python local_experiment_archive/analyses/v5-claude-d0-20260928/vectorized_sampler_check.py
+.venv/bin/python local_experiment_archive/analyses/v5-d0-20260928/throughput.py
+```
+
+```sh
+.venv/bin/python local_experiment_archive/analyses/v5-d0-20260928/vectorized_sampler_check.py
 ```

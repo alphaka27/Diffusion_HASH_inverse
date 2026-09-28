@@ -1,7 +1,9 @@
-"""Design checks for RESEARCH_PLAN_V5_CLAUDE.md.
+"""Design checks for RESEARCH_PLAN_V5.md.
 
-Trains no model and opens no MD5 test pool. It reads three small measurement files written by the
-V5 D0 diagnostic (local_experiment_archive/analyses/v5-claude-d0-20260928) and computes:
+Trains no model and opens no MD5 test pool. It reads the small measurement files written by the V5 D0
+diagnostic (local_experiment_archive/analyses/v5-d0-20260928). That archive is gitignored, so in a
+clean checkout the values recorded on 2026-09-28 (RECORDED below, also quoted in the plan §1.2-§1.3) are
+used instead and the output says which source was used. It computes:
 1. D0 verdicts against the v4 V1 thresholds,
 2. Monte Carlo operating characteristics of the Stage C rule (T=65,536, delta=0.25pp, one extension look),
 3. operating characteristics of the positive-branch replication on a fresh digest window,
@@ -18,8 +20,8 @@ from statistics import NormalDist
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
-D0 = ROOT / "local_experiment_archive/analyses/v5-claude-d0-20260928"
-OUT = ROOT / "local_experiment_archive/analyses/v5-claude-design-20260928"
+D0 = ROOT / "local_experiment_archive/analyses/v5-d0-20260928"
+OUT = ROOT / "local_experiment_archive/analyses/v5-design-20260928"
 Q = 12
 P1 = 2 ** -Q
 K = 100
@@ -35,10 +37,37 @@ Z_LADDER = NormalDist().inv_cdf(1 - 0.01 / len(LADDER))
 GROUPS = {"test": 1024, "validation": 256, "train": 4096 - 1024 - 256}
 UPDATES, BATCH = 40000, 256
 UPDATES_L = 160000
+# Measurements recorded on 2026-09-28 (MLX/Metal, float32); used when the local archive is absent.
+RECORDED = {
+    "d0_summary": {"thresholds": {"joint_min": 461, "of": 512, "wrong_max": 25}, "results": {
+        f"{seed}/{tag}": {"normal_joint": n, "flipped_joint": f, "normal_valid": 512, "flipped_valid": 512,
+                          "wrong_original": 0, "md5_calls": 0}
+        for seed, tag, n, f in [(0, "epoch11", 176, 167), (0, "epoch100", 469, 460), (1, "epoch11", 160, 151),
+                                (1, "epoch100", 469, 469), (2, "epoch11", 125, 134), (2, "epoch100", 462, 466)]}},
+    "throughput": {"md5_h12_per_second_python_single_core": 2104757,
+                   "random_method_candidates_per_second_python_single_core": 86768,
+                   "d1s_candidates_per_second_batch_64": 414, "d1s_candidates_per_second_batch_256": 476,
+                   "d1s_candidates_per_second_batch_1024": 406, "d1s_candidates_per_second_batch_4096": 398},
+    "vectorized_sampler_check": {"bitwise_parity_256": True, "batch_composition_invariance": True,
+                                 "vectorized_d1s_candidates_per_second_batch_1024": 17565},
+    "transformer_timing": ("d=192 layers=4 params=1823714 update_s_batch256=0.0199 forward_s_batch4096=0.0876 "
+                           "est_candidates_per_s_33nfe=1418\n"
+                           "d=256 layers=8 params=6372962 update_s_batch256=0.0592 forward_s_batch4096=0.2726 "
+                           "est_candidates_per_s_33nfe=455"),
+}
+SOURCES = {}
+
+
+def measured(name, suffix=".json"):
+    path = D0 / (name + suffix)
+    SOURCES[name] = "archive" if path.exists() else "recorded_2026-09-28"
+    if not path.exists():
+        return RECORDED[name]
+    return json.loads(path.read_text()) if suffix == ".json" else path.read_text()
 
 
 def d0_verdicts():
-    summary = json.loads((D0 / "d0_summary.json").read_text())
+    summary = measured("d0_summary")
     t = summary["thresholds"]
     rows = {}
     for key, r in summary["results"].items():
@@ -125,10 +154,10 @@ def ladder_sensitivity():
 
 
 def throughput():
-    tp = json.loads((D0 / "throughput.json").read_text())
-    vec = json.loads((D0 / "vectorized_sampler_check.json").read_text())
+    tp = measured("throughput")
+    vec = measured("vectorized_sampler_check")
     rows = {}
-    for line in (D0 / "transformer_timing.txt").read_text().splitlines():
+    for line in measured("transformer_timing", ".txt").splitlines():
         m = re.search(r"d=(\d+) layers=(\d+) params=(\d+) update_s_batch256=([\d.]+) forward_s_batch4096=([\d.]+) "
                       r"est_candidates_per_s_33nfe=(\d+)", line)
         if m:
@@ -206,6 +235,7 @@ def main():
         "ladder": ladder_sensitivity(),
         "compute_advantage": compute_advantage(tp),
         "arithmetic": arithmetic(tp),
+        "measurement_sources": SOURCES,
     }
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / "design_calculation.json").write_text(json.dumps(result, indent=1))
