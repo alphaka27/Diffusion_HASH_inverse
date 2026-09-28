@@ -1,0 +1,126 @@
+{
+  "protocol_id": "dhi-v4-decision-20260928",
+  "revision": "4",
+  "master_seed": 2026092804,
+  "source": {
+    "name": "printable",
+    "min_byte": 33,
+    "max_byte": 126,
+    "min_length": 4,
+    "max_length": 31
+  },
+  "hash": "md5_full_digest_first_12_bits_big_endian_payload_only",
+  "backend": "mlx",
+  "device": "gpu",
+  "precision": "float32",
+  "concurrent_runs": 1,
+  "model": {
+    "width": 128,
+    "embedding_dim": 16,
+    "factorized": true,
+    "condition_output": true,
+    "prefix_balanced_loss": false,
+    "sampling_steps": 32,
+    "nfe": 33,
+    "temperature": 1
+  },
+  "training": {
+    "batch_size": 64,
+    "learning_rate": 0.001,
+    "betas": [
+      0.9,
+      0.999
+    ],
+    "eps": 1e-08,
+    "weight_decay": 0,
+    "validation_draws": 4,
+    "checkpoint_every": 100
+  },
+  "V1": {
+    "seeds": [
+      0,
+      1,
+      2
+    ],
+    "train_groups": 3072,
+    "validation_groups": 512,
+    "test_groups": 512,
+    "train_messages": 10000,
+    "epochs": 100,
+    "validation_every": 10,
+    "trials": 512,
+    "k": 1,
+    "joint_min": 461,
+    "wrong_max": 25
+  },
+  "E0": {
+    "seeds": [
+      99
+    ],
+    "train_groups": 64,
+    "validation_groups": 32,
+    "test_groups": 32,
+    "train_messages": 256,
+    "epochs": 2,
+    "validation_every": 1,
+    "trials": 32,
+    "k": 100
+  },
+  "MAIN": {
+    "seeds": [
+      0,
+      1,
+      2
+    ],
+    "train_groups": 1536,
+    "validation_groups": 512,
+    "test_groups": 1024,
+    "reserve_groups": 1024,
+    "train_messages": 10000,
+    "epochs": 100,
+    "validation_every": 10,
+    "trials": 16384,
+    "k": 100
+  },
+  "draw_cap": 1000000,
+  "historical_exposure_lower_bound": 1885,
+  "statistics": {
+    "delta": 0.01,
+    "tail": 0.0020833333333333333,
+    "repetitions": 20000
+  },
+  "resources": {
+    "preparation_seconds": 86400,
+    "main_seconds": 259200,
+    "total_seconds": 345600,
+    "run_seconds": 86400,
+    "storage_gib": 64,
+    "rss_gib": 64,
+    "gpu_gib": 64,
+    "disk_free_gib": 10,
+    "time_multiplier": 1.5,
+    "storage_multiplier": 2,
+    "batches": [
+      1,
+      4,
+      16,
+      64
+    ],
+    "warmup_updates": 20,
+    "measurement_updates": 100,
+    "measurement_windows": 3,
+    "max_resumes_per_run": 1
+  },
+  "seed_fields": [
+    "protocol_id",
+    "master_seed",
+    "task",
+    "namespace",
+    "method",
+    "model_seed",
+    "epoch",
+    "trial",
+    "attempt"
+  ],
+  "seed_conversion": "UTF8 compact JSON array; SHA256 first 8 bytes big endian unsigned; Random/NumPy integer and MLX random.key(uint64)"
+}

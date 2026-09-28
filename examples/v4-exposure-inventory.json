@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "reviewer": "",
+  "reviewed_scopes": {
+    "local_runs": false,
+    "external_runs": false,
+    "q8_raw_or_full_digest": false,
+    "q_ge_12": false,
+    "development_rehearsals": false,
+    "cross_source_reuse": false
+  },
+  "unresolved": [
+    "Inventory local/external evaluations, including missing artifacts, before sealing."
+  ],
+  "entries": [],
+  "entry_example": {
+    "id": "replace-with-run-id",
+    "scope": "local_runs",
+    "purpose": "evaluation",
+    "source": "printable",
+    "prefixes12": [],
+    "evidence": [
+      {
+        "path": "/absolute/evidence.json",
+        "sha256": ""
+      }
+    ],
+    "notes": "Include selection/development and linked cross-source exposure; q>=12 projects to leading 12 bits."
+  }
+}
