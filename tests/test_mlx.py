@@ -44,12 +44,21 @@ def import_reference_weights(model, reference):
 
 
 @pytest.mark.parametrize("device", ["cpu", "gpu"])
-def test_all_profiles_forward_loss_gradient_and_adam_match_reference(device):
+@pytest.mark.parametrize("amendment", [None, "p2fix", "p2struct"])
+def test_all_profiles_forward_loss_gradient_and_adam_match_reference(device, amendment):
     if device == "gpu" and not mx.metal.is_available():
         pytest.skip("native Metal access required")
     backend.resolve_device(device)
     torch.set_num_threads(1)
     p = protocol()
+    if amendment:
+        revised = pilot.load_protocol(SPEC.with_name(f'poc-v3.1-{amendment}-protocol.json'))
+        p['profile_selection'] = revised['profile_selection']
+        p['model_profiles'] = deepcopy(revised['model_profiles'])
+        for spec in p['model_profiles'].values():
+            spec['sampling_steps'] = 2
+            if spec['family'] == 'gaussian':
+                spec['diffusion_steps'] = 10
     for pipeline in p["pipeline_order"]:
         cfg = p["pipelines"][pipeline]
         encoder, _, shape = pilot.codecs(cfg)
@@ -68,12 +77,17 @@ def test_all_profiles_forward_loss_gradient_and_adam_match_reference(device):
             if not diffusion.discrete:
                 x_t = clean_t.float() * 2 - 1
                 x = mx.array(x_t.numpy())
-                np.testing.assert_allclose(np.array(model(x, times, cond)), reference(x_t, times_t, cond_t).detach().numpy(), atol=3e-6, rtol=3e-5)
+                mc = diffusion.payload_condition(cond, diffusion.lengths(x)) if profile == 'G3' else cond
+                tc = reference_diff.payload_condition(cond_t, reference_diff.lengths(x_t)) if profile == 'G3' else cond_t
+                np.testing.assert_allclose(np.array(model(x, times, mc)), reference(x_t, times_t, tc).detach().numpy(), atol=3e-6, rtol=3e-5)
                 indices_t = torch.tensor([1, 8])
                 noise_t = torch.ones_like(x_t) * .125
-                noisy_t = reference_diff.add_noise(x_t, noise_t, indices_t)
-                target = noise_t if profile != "G2" else x_t
-                expected = (reference(noisy_t, indices_t.float() / 9, cond_t) - target).square().flatten(1).mean(1)
+                if getattr(reference_diff, 'loss_regions', None):
+                    expected = reference_diff.losses(reference, x_t, cond_t, indices_t, noise_t)
+                else:
+                    noisy_t = reference_diff.add_noise(x_t, noise_t, indices_t)
+                    target = noise_t if profile != 'G2' else x_t
+                    expected = (reference(noisy_t, indices_t.float() / 9, cond_t) - target).square().flatten(1).mean(1)
                 noise_inputs = mx.array([1, 8]), mx.array(noise_t.numpy())
             else:
                 x = mx.array(clean_t.numpy(), dtype=mx.int32)
@@ -84,7 +98,7 @@ def test_all_profiles_forward_loss_gradient_and_adam_match_reference(device):
                     expected, parts = reference_diff.losses(reference, clean_t, cond_t, times_t, masks_t, return_components=True)
                     native_values, native_parts = diffusion.losses(model, x, cond, times, masks, return_components=True)
                     np.testing.assert_allclose(np.array(native_values), expected.detach().numpy(), atol=4e-6, rtol=4e-5)
-                    for name in ("length_ce", "payload_ce"):
+                    for name in parts:
                         np.testing.assert_allclose(np.array(native_parts[name]), parts[name].detach().numpy(), atol=4e-6, rtol=4e-5)
                 else:
                     logits = reference(clean_t.masked_fill(masks_t, reference_diff.mask_token), times_t, cond_t)

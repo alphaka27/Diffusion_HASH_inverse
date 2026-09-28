@@ -28,6 +28,8 @@ def clean_batch(encoder, rows, diffusion):
         diffusion.validate_clean(clean)
     else:
         clean = clean * 2 - 1
+        if getattr(diffusion, "factorized", False):
+            diffusion.validate_clean(clean)
     return clean
 
 
@@ -117,11 +119,11 @@ def profile_checks(p, pipeline, profile_id, model, diffusion, encoded):
         diffusion.validate_clean(clean)
     else:
         clean = clean * 2 - 1
-    model_cond = diffusion.payload_condition(cond[:1], diffusion.lengths(clean)) if profile_id == "D1" else cond[:1]
+    model_cond = diffusion.payload_condition(cond[:1], diffusion.lengths(clean)) if getattr(diffusion, "factorized", False) else cond[:1]
     output = model(clean, mx.zeros((1,)), model_cond)
     output_shape = (1, 32, diffusion.mask_token) if diffusion.discrete else clean.shape
     model_input_valid = models.finite(output) and output.shape == output_shape
-    length_seeds = [181, 182] if profile_id == "D1" else None
+    length_seeds = [181, 182] if getattr(diffusion, "factorized", False) else None
     steps = p["model_profiles"][profile_id]["sampling_steps"]
     one = models.sample(model, diffusion, cond[:1], shape, steps=steps, seeds=[81],
                         length_seeds=length_seeds[:1] if length_seeds else None)

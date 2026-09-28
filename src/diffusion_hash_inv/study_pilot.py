@@ -34,6 +34,8 @@ from .models import GaussianDiffusion, ImageUNet, parameter_count
 PROTOCOL_SHA256 = "8e3ceefe3c833202273af82411f797b37349d1a648ec868f2d874989c9116fa1"
 PROTOCOL_V31_SHA256 = "d2b3a09e97a4243fa4a27e62d3b35f39618502c7bbfb678f1b244aa52674d7c4"
 PROTOCOL_V31_P2A10K_SHA256 = "5c89245cc1b1d712492a6dacf84c0c1a5696b22f92d46d10983b50d91c28f41c"
+PROTOCOL_V31_P2FIX_SHA256 = "e761b641e7f46cb4cdcd2f135c6be4cc4a90057fd5362b4fdf25e6d1239db3e0"
+PROTOCOL_V31_P2STRUCT_SHA256 = "6e2f450767b586bba0e7069c0df9c9bc24d8a4e870cda1e2ad85308cd15d3916"
 GIB = 1024 ** 3
 
 
@@ -85,8 +87,8 @@ def load_protocol(path):
     except (OSError, ValueError) as error:
         raise PilotError(f"Cannot read protocol: {error}", 2) from error
     # A whitelist prevents silently ignoring a changed scientific field or typo.
-    if digest(value) not in {PROTOCOL_SHA256, PROTOCOL_V31_SHA256, PROTOCOL_V31_P2A10K_SHA256}:
-        raise PilotError("Unsupported/modified protocol. Only frozen v3.0, v3.1 and the v3.1 P2A-10k amendment are accepted; amendments require implementation review.", 2)
+    if digest(value) not in {PROTOCOL_SHA256, PROTOCOL_V31_SHA256, PROTOCOL_V31_P2A10K_SHA256, PROTOCOL_V31_P2FIX_SHA256, PROTOCOL_V31_P2STRUCT_SHA256}:
+        raise PilotError("Unsupported/modified protocol. Only frozen v3.0/v3.1 and registered P2A-10k/P2-fix/P2-struct amendments are accepted; amendments require implementation review.", 2)
     return value
 
 
@@ -455,9 +457,12 @@ def validation_loss(p, stage, pipeline, model, diffusion, records, device):
             else:
                 indices = torch.stack([torch.randint(diffusion.steps, (), device=device, generator=g) for g in gens])
                 noise = torch.stack([torch.randn(clean.shape[1:], device=device, generator=g) for g in gens])
-                noisy = diffusion.add_noise(clean, noise, indices)
-                target = noise if diffusion.prediction_type == "epsilon" else clean
-                values = (model(noisy, indices.float() / (diffusion.steps - 1), cond) - target).square().flatten(1).mean(1)
+                if getattr(diffusion, "loss_regions", None):
+                    values = diffusion.losses(model, clean, cond, indices, noise)
+                else:
+                    noisy = diffusion.add_noise(clean, noise, indices)
+                    target = noise if diffusion.prediction_type == "epsilon" else clean
+                    values = (model(noisy, indices.float() / (diffusion.steps - 1), cond) - target).square().flatten(1).mean(1)
             if not torch.isfinite(values).all():
                 raise PilotError("Non-finite validation loss", 3)
             total += values.sum().item()
@@ -567,7 +572,7 @@ def train_model(p, stage, pipeline, method, label, data, directory, device, budg
                 loss, components = train_step(clean, cond, noise_seed)
             else:
                 optimizer.zero_grad(set_to_none=True)
-                if profile_id == "D1":
+                if getattr(diffusion, "factorized", False):
                     loss, components = diffusion.loss(model, clean, cond, generator=generator(device, noise_seed), return_components=True)
                 else:
                     loss = diffusion.loss(model, clean, cond, generator=generator(device, noise_seed))
@@ -610,7 +615,7 @@ def train_model(p, stage, pipeline, method, label, data, directory, device, budg
             save(best=improved)
     if epoch_callback:
         epoch_callback(epochs)
-    best, checksum = load_checkpoint(directory, best=not final_only)
+    best, checksum = load_checkpoint(directory, best=not final_only and cfg.get("selection_checkpoint") != "final_epoch")
     if native_mlx:
         state["model"] = model.parameters()
         mlx.load_weights(model, best["model"])
@@ -622,13 +627,13 @@ def train_model(p, stage, pipeline, method, label, data, directory, device, budg
 
 
 @torch.no_grad()
-def sample(p, pipeline, model, diffusion, targets, seeds, device, *, to_cpu=True, profile_id=None, length_seeds=None):
+def sample(p, pipeline, model, diffusion, targets, seeds, device, *, to_cpu=True, profile_id=None, length_seeds=None, trace=None):
     """Batch model forwards with an independent backend RNG for every trajectory."""
     if getattr(diffusion, "backend", None) == "mlx":
         from . import mlx_backend as mlx
         shape = codecs(p["pipelines"][pipeline])[2]
         values = mlx.models.sample(model, diffusion, mlx.models.condition(targets), shape,
-                                    steps=p["model_profiles"][profile_id]["sampling_steps"], seeds=seeds, length_seeds=length_seeds)
+                                    steps=p["model_profiles"][profile_id]["sampling_steps"], seeds=seeds, length_seeds=length_seeds, trace=trace)
         return mlx.to_codec_tensor(values) if to_cpu else values
     cond = condition(targets, device)
     gens = [generator(device, value) for value in seeds]
@@ -640,7 +645,7 @@ def sample(p, pipeline, model, diffusion, targets, seeds, device, *, to_cpu=True
             raise PilotError("Explicit registered profile required for v3.1 sampling", 2)
         length_gens = [generator(device, value) for value in length_seeds] if length_seeds is not None else None
         value = sample_independent(model, diffusion, cond, shape, p["model_profiles"][profile_id]["sampling_steps"],
-                                   gens, length_generators=length_gens)
+                                   gens, length_generators=length_gens, trace=trace)
         return value.cpu() if to_cpu else value
     if isinstance(diffusion, GaussianDiffusion):
         steps = p["models"]["gaussian"]["sampling_steps"]
@@ -731,11 +736,31 @@ def evaluate(p, stage, pipeline, method, label, targets, directory, model, diffu
                           method=method, model_seed=label, unit_id=unit, attempt=attempt, profile_id=profile_id) for unit, _, _, attempt in batch]
             length_seeds = ([seed(p, stage, "generation-length", source=source, pipeline=pipeline,
                                  method=method, model_seed=label, unit_id=unit, attempt=attempt)
-                             for unit, _, _, attempt in batch] if profile_id == "D1" else None)
+                             for unit, _, _, attempt in batch] if getattr(diffusion, "factorized", False) else None)
+            prefix_reveals = [[] for _ in batch]
+
+            def record_reveals(step, fraction, logits, tokens, revealed):
+                array = lambda x: np.array(x) if budget.backend == "mlx" else x.detach().cpu().numpy()
+                scores, selected, visible = array(logits), array(tokens), array(revealed)
+                probabilities = np.exp(scores - scores.max(-1, keepdims=True))
+                probabilities /= probabilities.sum(-1, keepdims=True)
+                offset = 33 if source == "printable" else 0
+                for i, position in zip(*np.nonzero(visible)):
+                    y = values[i]
+                    expected = f"{y:03x}".encode() if source == "printable" else bytes([y >> 8, (y >> 4) & 15, y & 15])
+                    token = int(selected[i, position])
+                    prefix_reveals[i].append({"position": int(position), "step": step, "mask_fraction": fraction,
+                                              "expected_byte": expected[position], "sampled_byte": token + offset,
+                                              "argmax_byte": int(scores[i, position].argmax()) + offset,
+                                              "correct_probability": float(probabilities[i, position, expected[position] - offset]),
+                                              "sampled_probability": float(probabilities[i, position, token])})
+
+            trace_enabled = profile_id == "D1" and cfg.get("record_prefix_reveals", False)
             synchronize(device)
             started = time.monotonic()
             samples = sample(p, pipeline, model, diffusion, values, seeds, device,
-                             profile_id=profile_id, length_seeds=length_seeds) if pipeline else None
+                             profile_id=profile_id, length_seeds=length_seeds,
+                             trace=record_reveals if trace_enabled else None) if pipeline else None
             synchronize(device)
             generation_seconds = time.monotonic() - started
             if p["revision"] == "3.1":
@@ -765,8 +790,15 @@ def evaluate(p, stage, pipeline, method, label, targets, directory, model, diffu
                                backend=budget.backend,
                                sampling_nfe=p["model_profiles"][profile_id]["sampling_nfe_per_candidate"] if pipeline else 0)
                     if length_seeds is not None:
+                        sampled_length = (int((samples[index] == decoder.eos).nonzero()[0].item()) if isinstance(decoder, TokenCodec)
+                                          else int((samples[index, 1] > 0).sum().item()) // (8 * (decoder.config.image_width // decoder.config.cols))
+                                          - int(p["pipelines"][pipeline]["representation"] == "bgv"))
                         row.update(length_rng_identity=str(length_seeds[index]),
-                                   sampled_length=int((samples[index] == decoder.eos).nonzero()[0].item()))
+                                   sampled_length=sampled_length)
+                    if trace_enabled:
+                        if sorted(x["position"] for x in prefix_reveals[index]) != [0, 1, 2]:
+                            raise PilotError("Missing or repeated prefix reveal diagnostic")
+                        row["prefix_reveals"] = prefix_reveals[index]
                 rows.append(row)
                 if pipeline and variant == "normal" and attempt == 1 and unit in {u for u, _ in targets[:16]}:
                     raw = directory / "raw"
@@ -894,10 +926,16 @@ def preflight(p, directory, device, budget):
             model, diffusion = model_and_diffusion(p, pipeline, device, 0, profile_id=profile_id, backend=budget.backend)
             spec = p["baseline_reference_models" if v31 else "models"][cfg["model"]]
             expected = spec["expected_parameters"] if cfg["model"] == "gaussian" else spec[f"expected_parameters_{cfg['source']}"]
-            if profile_id in {"G1", "G2"}:
+            if profile_id in {"G1", "G2", "G3"}:
                 expected += 2 * 3 * 3 * p["model_profiles"][profile_id]["width"]
             elif profile_id == "D1":
                 expected += p["model_profiles"][profile_id]["width"] + 12 * 28 + 28
+            if profile_id == "G3":
+                expected += p["model_profiles"][profile_id]["width"] * 3 + 12 * 28 + 28
+            if v31 and p["model_profiles"][profile_id].get("condition_output"):
+                profile = p["model_profiles"][profile_id]
+                expected += ((profile["width"] * 3 + 1) * math.prod(shape) if cfg["model"] == "gaussian"
+                             else (profile["model_condition_dim"] + 1) * 32 * (encoder.vocabulary_size - 1))
             name = f"{pipeline}/{profile_id}" if v31 else pipeline
             actual_parameters = sum(value.size for _, value in mlx.tree_flatten(model.parameters())) if native_mlx else parameter_count(model)
             require(f"parameters_{name}", actual_parameters == expected, expected)
@@ -907,7 +945,9 @@ def preflight(p, directory, device, budget):
             else:
                 x = encoded[None].to(device)
                 cond = condition([0], device)
-                if isinstance(diffusion, LengthMaskedDiffusion):
+                if profile_id == "G3":
+                    x = x * 2 - 1
+                if getattr(diffusion, "factorized", False):
                     cond = diffusion.payload_condition(cond, diffusion.lengths(x))
                 with torch.no_grad():
                     output = model(x, torch.zeros(1, device=device), cond)

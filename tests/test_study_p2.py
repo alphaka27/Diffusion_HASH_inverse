@@ -106,10 +106,48 @@ def test_10k_amendment_preserves_data_rng_and_final_gate(tmp_path, capsys):
         pilot.load_protocol(tmp_path / 'modified.json')
 
 
+def test_p2fix_protocol_and_region_loss(tmp_path):
+    p = pilot.load_protocol(SPEC.with_name('poc-v3.1-p2fix-protocol.json'))
+    old = pilot.load_protocol(SPEC.with_name('poc-v3.1-p2a10k-protocol.json'))
+    assert p['profile_selection']['gaussian_order'] == ['G2']
+    assert p['profile_selection']['discrete_order'] == ['D1']
+    assert p['pilot']['P2B']['selection_checkpoint'] == 'final_epoch'
+    assert p['codecs'] == old['codecs'] and p['synthetic'] == old['synthetic']
+    for stage in ('P2A', 'P2B'):
+        for key in ('normal_joint_min', 'flipped_joint_min', 'wrong_original_max', 'optimizer_updates_per_run'):
+            assert p['pilot'][stage][key] == old['pilot'][stage][key]
+    from diffusion_hash_inv.study_profiles import RegionGaussianDiffusion
+    for pipeline in ('P-G-BGV', 'P-G-CGGE'):
+        encoder = pilot.codecs(p['pipelines'][pipeline])[0]
+        clean = torch.stack([encoder.encode(b'000!'), encoder.encode(b'f' * 31)]) * 2 - 1
+        model, diffusion = pilot.model_and_diffusion(p, pipeline, torch.device('cpu'), 0, profile_id='G2')
+        assert model.condition_output is not None
+        class Fixed(torch.nn.Module):
+            def forward(self, value, time, condition):
+                return clean + 1
+        loss = diffusion.losses(Fixed(), clean, pilot.condition([0, 4095], torch.device('cpu')),
+                                torch.tensor([0, 999]), torch.zeros_like(clean))
+        # Unit squared error in every nonempty region, independent of its area.
+        expected = [5., 4.] if pipeline == 'P-G-BGV' else [4., 4.]
+        assert loss.tolist() == expected
+        with pytest.raises(ValueError, match='region loss'):
+            RegionGaussianDiffusion(10, device=torch.device('cpu'), prediction_type='epsilon', loss_regions='bgv')
+    p['model_profiles']['D1']['condition_output'] = False
+    pilot.atomic_json(tmp_path / 'modified.json', p)
+    with pytest.raises(pilot.PilotError, match='Unsupported/modified'):
+        pilot.load_protocol(tmp_path / 'modified.json')
+
+
 @pytest.mark.parametrize('backend', ['torch', 'mlx'])
-def test_real_phases_probe_resume_resources_and_seals(tmp_path, monkeypatch, backend):
+@pytest.mark.parametrize('final_epoch', [False, True])
+def test_real_phases_probe_resume_resources_and_seals(tmp_path, monkeypatch, backend, final_epoch):
     torch.set_num_threads(1)
     p = protocol()
+    if final_epoch:
+        p['model_profiles']['D1']['condition_output'] = True
+        p['model_profiles']['D1']['prefix_balanced_loss'] = True
+        p['pilot']['P2B']['selection_checkpoint'] = 'final_epoch'
+        p['pilot']['P2B']['record_prefix_reveals'] = True
     p['pilot']['P2A']['diagnostic_updates'] = [3, 5, 6]
     data = pilot.make_data(p)
     chosen = p2.cases(p, data)
@@ -181,6 +219,11 @@ def test_real_phases_probe_resume_resources_and_seals(tmp_path, monkeypatch, bac
         assert normal['length_rng_identity'] == flipped['length_rng_identity']
         assert normal['requested_target'] ^ flipped['requested_target'] == 4095
     b = tmp_path / 'pilot/P2/P-DISC/D1/B'
+    if final_epoch:
+        # Fixed increasing validation values force BEST to stay at epoch10.
+        # Checkpoint/resume must still evaluate the latest completed epoch.
+        values = iter((1., 2., 3.))
+        monkeypatch.setattr(pilot, 'validation_loss', lambda *args: next(values))
     original_probe = p2.probe
 
     def interrupted_probe(*args):
@@ -195,6 +238,10 @@ def test_real_phases_probe_resume_resources_and_seals(tmp_path, monkeypatch, bac
     monkeypatch.setattr(p2, 'probe', original_probe)
     result = p2.phase(p, 'P2B', 'P-DISC', 'D1', data, chosen, b, device, limits, {})
     assert result['updates'] == 320 and result['passed']
+    if final_epoch:
+        assert result['best_epoch'] == 10 and result['selected_epoch'] == 40
+        assert result['checkpoint_sha256'] == pilot.load_checkpoint(b)[1]
+        assert result['checkpoint_sha256'] != pilot.load_checkpoint(b, best=True)[1]
     assert pilot.file_hash(b / 'probes/epoch-0010/complete.json') == sealed_probe
     assert result['resources']['update_seconds'] == max(result['resources']['update_seconds_windows'])
     assert result['recovery']['status'] == 'PASS'
@@ -202,9 +249,19 @@ def test_real_phases_probe_resume_resources_and_seals(tmp_path, monkeypatch, bac
     for epoch in (10, 30, 40):
         saved = p2.completed(b / 'probes' / f'epoch-{epoch:04d}')
         assert saved['best_epoch'] <= epoch
+        if final_epoch:
+            assert saved['selected_epoch'] == epoch and saved['checkpoint_selection'] == 'final_epoch'
         assert saved['metrics']['candidates'] == 8
         diagnostics = pilot.read_json(b / 'probes' / f'epoch-{epoch:04d}' / 'diagnostics.json')
         assert len(diagnostics['rows']) == 4
+        if final_epoch:
+            for row in pilot.logical_ledger(b / 'probes' / f'epoch-{epoch:04d}'):
+                trace = row['prefix_reveals']
+                assert sorted(r['position'] for r in trace) == [0, 1, 2]
+                for r in trace:
+                    assert bytes.fromhex(row['candidate_hex'])[r['position']] == r['sampled_byte']
+                    assert 1 <= r['step'] <= p['model_profiles']['D1']['sampling_steps']
+                    assert 0 <= r['correct_probability'] <= 1
     assert p2.completed(b) == result
     execution = p2.execute(p, tmp_path, data, device, limits)
     assert execution['status'] == 'PASS'

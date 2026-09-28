@@ -174,3 +174,47 @@ done
 이번 수정에는 조건부 후속 후보인 length-head 전용 학습률, 추가 조건 주입층, Gaussian 영역별 가중 손실, argmax sampler를 적용하지 않았다. 먼저 동일 모델·sampler에서 추가 학습과 진단으로 병목을 확인한다. 기존 formal gate와 MD5 본실험 미구현 상태는 유지된다.
 
 검증 결과: 전체 pytest **138 passed, 5 skipped**. [테스트 XML](local_experiment_archive/analyses/v31-p2a10k-tests-20260927.xml)에 보존했다. 추가 검사에서 PyTorch CPU·MLX Metal의 중간 probe 중단/재개, 진단 없는 학습 대비 최종 weights/optimizer 일치, 최종 checkpoint 판정, D1 loss 구성요소의 backend 간 수치 일치, 새 명세의 seed·자료 유지와 변조 거부를 확인했다. 원본 v3.1 명세 정합성 검사 및 새 명세 CLI dry-run도 통과했다. 이 검증에서는 원본 규모 10,000-update 실험을 실행하지 않았다.
+
+## P2 실패 대응 개정 (2026-09-27)
+
+[실패 분석](/Users/choisoonwook/Experiments_local/DHI_AI_gen/V3_1_P2A10K_ANALYSIS_KO.md)에서 확인한 checkpoint 선택 문제와 잔여 조건·형식 오류에 대응한다. 새 명세는 [poc-v3.1-p2fix-protocol.json](/Users/choisoonwook/Experiments_local/DHI_AI_gen/examples/poc-v3.1-p2fix-protocol.json), protocol ID는 `dhi-v3.1-p2fix-20260927`이다. 원본 및 P2A-10k 명세는 그대로 보존하며 새 명세도 정확한 SHA-256으로 검증한다.
+
+- **P2B checkpoint:** epoch10/30 probe는 해당 epoch를 마친 최신 가중치를 사용하고, gate는 사전 고정한 최종 epoch100 가중치를 사용한다. Validation loss 최소 checkpoint도 진단용으로 보관한다. `best_epoch`와 실제 `selected_epoch`를 구분해 기록하고 최종 probe/checkpoint hash가 다르면 중단한다. 중간 성공률로 checkpoint를 고르거나 조기 종료하지 않는다. P2A의 final10,000-update 규칙은 유지한다.
+- **D1 조건 전달:** 13차원 내부 조건에서 모든 위치의 logits로 가는 학습 가능한 선형 잔차를 추가한다. 기존 denoiser와 길이 head를 유지하며, 조건을 입력 첫 층에서만 받던 병목을 줄인다. 숨은 원문·길이·검증 결과를 추가하지 않는다. 정답 prefix를 코드로 삽입하지 않는다.
+- **Gaussian 조건 전달:** 기존 time/condition embedding에서 모든 출력 픽셀로 가는 학습 가능한 선형 잔차를 추가한다. G2의 좌표 입력, x0 예측, clipping, DDIM sampling은 유지한다.
+- **Gaussian 영역별 학습:** 전체 이미지 평균 MSE를 mask·prefix3 glyph·suffix glyph·padding glyph·BGV length header의 영역별 평균 MSE 합으로 바꾼다. 각 영역 가중치는 1이고 빈 영역은 0이다. 배경·무작위 suffix의 픽셀 수가 prefix/header 오류를 희석하지 않도록 한다. Training과 validation이 같은 loss 함수를 사용하며 PyTorch·MLX 모두 구현했다. Strict decoder와 출력 threshold는 바꾸지 않았다.
+- **등록 후보:** Gaussian은 G2, Discrete는 D1만 사용해 5개 pipeline마다 한 후보를 검증한다. G0/G1/D0 구현과 이전 protocol 동작은 남겨 둔다. D0의 EOS/PAD 오류는 새 실행에서 기존 D1의 학습된 길이 기반 생성으로 대응한다. D0 자체의 unconstrained sampler가 교정됐다는 뜻은 아니다.
+
+P2A/B의 정상·반전 joint 기준, wrong-original 상한, 학습량, seed namespace, source data, temperature1, strict codec은 유지한다. 구조가 달라졌으므로 동일 seed가 이전과 동일한 초기 가중치를 뜻하지는 않는다. 신규 파라미터 수는 P0에서 검증하고 자원 비용은 새로 측정한다.
+
+이 개정은 **합성 과제 개발용**이다. Prefix3 가중 loss는 합성 과제의 알려진 구조를 사용하므로 MD5 objective에 그대로 적용하거나 formal 적격성 증거로 사용할 수 없다. 기존 P3·E0·MD5 본실험 차단은 유지된다. 모델 변경의 성능 개선 및 품질 기준 통과는 새 원본 규모 P2 실행으로 확인해야 한다.
+
+새 workdir 실행:
+
+```bash
+DHI_RUN="local_experiment_archive/runs/v31-p2fix-$(date +%Y%m%d-%H%M%S)"
+for stage in P0 P1 P2; do
+  .venv/bin/python -m diffusion_hash_inv.study_cli pilot \
+    --protocol examples/poc-v3.1-p2fix-protocol.json \
+    --workdir "$DHI_RUN" --stage "$stage" \
+    --backend mlx --device gpu --development || break
+done
+```
+
+기존 run은 코드 hash가 달라져 재개할 수 없다. 쓰기 없는 계획 확인은 새 명세에 `--stage P2 --dry-run`을 사용한다.
+
+검증: 전체 pytest **143 passed, 5 skipped** ([XML](/Users/choisoonwook/Experiments_local/DHI_AI_gen/local_experiment_archive/analyses/v31-p2fix-tests-20260927.xml)). 구버전 v3의 봉인된 `models.py`·`discrete.py`는 변경하지 않았고, 새 Torch 기능은 v3.1 전용 모듈에 구현했다. 추가 검사에서 영역별 오차의 면적 독립성·빈 영역, 새 조건 출력 층의 CPU/MLX CPU/Metal forward·loss·gradient·Adam 일치, BEST가 epoch10에 남아 있어도 최종 epoch를 평가하는 중단/재개, probe/checkpoint 일치, 변조된 명세 거부를 확인했다. 원본 v3.1 명세 정합성 및 새 명세 dry-run도 통과했다.
+
+등록된 새 명세 그대로 MLX Metal의 개발 **P0/P1 PASS**를 확인했다. Workdir은 `local_experiment_archive/runs/v31-p2fix-validation-20260927-145713`이며 [실행 보고서](/Users/choisoonwook/Experiments_local/DHI_AI_gen/local_experiment_archive/runs/v31-p2fix-validation-20260927-145713/report.md)에 보존했다. P0는 1,214개 codec 왕복과 새 5개 모델 조합을, P1은 10개 learned run·2개 Random stream 및 학습/생성 복구를 검사했다. 봉인과 최종 source hash도 대조했다. 이 작업에서는 원본 규모 P2를 실행하지 않았으므로 생성 품질 개선이나 P2 통과를 주장하지 않는다.
+
+## P2 구조·prefix 학습 개정 (2026-09-28)
+
+[최신 실행 분석](/Users/choisoonwook/Experiments_local/DHI_AI_gen/V3_1_P2FIX_ANALYSIS_KO.md)에 따른 [권장 수정안](/Users/choisoonwook/Experiments_local/DHI_AI_gen/V3_1_P2STRUCT_MODIFICATION_KO.md)을 구현했다. 새 [p2struct 명세](/Users/choisoonwook/Experiments_local/DHI_AI_gen/examples/poc-v3.1-p2struct-protocol.json)는 Gaussian G3와 Discrete D1만 등록하며, 기존 데이터·seed namespace·학습량·최종 checkpoint 규칙·품질 기준을 유지한다.
+
+- D1은 masked prefix3와 suffix CE를 각각 평균하여 length CE와 더한다. P2B ledger에는 prefix가 확정된 step·선택/정답 확률·argmax를 기록한다. 진단은 후보나 RNG 소비를 바꾸지 않는다.
+- G3는 공개 조건으로 길이를 한 번 생성하고, 그 길이의 header·연속 mask·padding을 고정한 채 payload glyph만 확산한다. 길이 head와 prefix/suffix glyph loss를 학습하며 평가 원문의 길이나 정답 prefix를 주입하지 않는다. Strict decoder는 그대로이며 전체 출력의 NaN/Inf를 검사한다.
+- PyTorch/MLX 학습·생성·진단·복구 경로와 NFE 계수를 함께 반영했다. G3는 후보당 length head 1회 + denoiser 100회로 NFE 101이다. 기존 G0–G2/D0 동작과 이전 명세·실험 결과는 보존한다.
+
+검증은 전체 **154 passed, 5 skipped** ([XML](/Users/choisoonwook/Experiments_local/DHI_AI_gen/local_experiment_archive/analyses/v31-p2struct-tests-20260927.xml)), 최종 NFE 명세 보존 검사, 연구 명세 정합성 및 P2 dry-run까지 완료했다. Skip은 CUDA 미지원 5개다. 새 길이·loss·진단 무간섭 검사와 Torch/MLX 수치 비교, 축소 P2 및 중단/복구 검사를 포함한다.
+
+최종 등록 명세로 MLX Metal 개발 **P0/P1 PASS**를 확인했다 ([보고서](/Users/choisoonwook/Experiments_local/DHI_AI_gen/local_experiment_archive/runs/v31-p2struct-validation-20260927/report.md)). P1의 10개 learned run·2개 Random stream과 다섯 모델의 학습/생성 복구가 통과했다. Source 49개와 봉인 파일 408개도 대조했다 ([무결성 결과](/Users/choisoonwook/Experiments_local/DHI_AI_gen/local_experiment_archive/analyses/v31-p2struct-validation-audit-20260928.json)). 원본 규모 P2는 아직 실행하지 않았다. P1 joint는 모두 0이므로 이 결과를 생성 품질 개선으로 해석하지 않는다. 합성 과제 개발용 개정이며 P3·E0·MD5 본실험 차단은 유지된다.

@@ -85,7 +85,7 @@ def selected_model(p, pipeline, profile_id, directory, device, backend, *, best=
     else:
         model.load_state_dict(state["model"])
     model.eval()
-    return model, diffusion, checksum, state["best_epoch"]
+    return model, diffusion, checksum, state
 
 
 @torch.no_grad()
@@ -111,15 +111,52 @@ def diagnostics(p, pipeline, profile_id, model, diffusion, data, device, budget,
               "conditions": [r[0] for r in records], "rows": []}
     model.eval()
     seed = pilot.seed(p, stage, "validation-noise", source=source, pipeline=pipeline, unit_id="diagnostics")
+    factorized = getattr(diffusion, "factorized", False)
+    lengths = diffusion.lengths(clean) if factorized else None
+    if factorized:
+        length_logits = array(model.length_head(cond))
+        if not np.isfinite(length_logits).all():
+            raise FloatingPointError("Non-finite P2 length diagnostics")
+        shifted = length_logits - length_logits.max(-1, keepdims=True)
+        log_distribution = shifted - np.log(np.exp(shifted).sum(-1, keepdims=True))
+        distribution = np.exp(log_distribution)
+        observed = array(lengths).astype(int)
+        length_ce = -log_distribution[np.arange(len(records)), observed - 4]
+        result["length_head"] = [
+            {"condition": record[0], "observed_training_length" if stage == "P2A" else "observed_length": int(observed[i]),
+             "argmax_length": int(distribution[i].argmax()) + 4,
+             "observed_length_probability": float(distribution[i, observed[i] - 4]),
+             "length_ce": float(length_ce[i]), "probabilities_lengths_4_to_31": distribution[i].tolist()}
+            for i, record in enumerate(records)]
+        if stage == "P2A" and (directory / "candidates.sqlite").exists():
+            training = dict(records)
+            result["generated_length_and_prefix"] = [
+                {"unit_id": row["unit_id"], "variant": row["variant"], "condition": row["requested_target"],
+                 "sampled_length": row["sampled_length"], "joint_success": row["success"],
+                 "matches_target_training_length": row["byte_length"] == len(bytes.fromhex(training[row["requested_target"]])),
+                 "matches_target_training_message": row["candidate_hex"] == training[row["requested_target"]],
+                 "matches_any_training_message": row["candidate_hex"] in training.values()}
+                for row in pilot.logical_ledger(directory)]
+    if factorized:
+        result["teacher_forced_length"] = True
     if not discrete:
+        model_cond = diffusion.payload_condition(cond, lengths) if factorized else cond
+        if factorized:
+            result["noise_mse_scope"] = "payload_glyph_only"
+            result["structural_mse_scope"] = "fixed_from_observed_length_not_learned_prediction"
         noise = mx.random.normal(clean.shape, key=mx.random.key(seed)) if native else torch.randn(clean.shape, device=device, generator=pilot.generator(device, seed))
         for timestep in sorted({min(t, diffusion.steps - 1) for t in (0, 100, 300, 500, 700, 999)}):
             budget.check(directory)
             index = mx.full((len(clean),), timestep, dtype=mx.int32) if native else torch.full((len(clean),), timestep, device=device, dtype=torch.long)
             clock = mx.full((len(clean),), timestep / (diffusion.steps - 1)) if native else torch.full((len(clean),), timestep / (diffusion.steps - 1), device=device)
             noisy = diffusion.add_noise(clean, noise, index)
-            output = model(noisy, clock, cond)
+            output = model(noisy, clock, model_cond)
+            if not np.isfinite(array(output)).all():
+                raise FloatingPointError("Non-finite P2 Gaussian prediction")
             reconstructed = diffusion.predicted_clean(output, noisy, index)
+            if factorized:
+                fixed, payload = diffusion.structure(lengths)
+                reconstructed = mx.where(payload, reconstructed, fixed) if native else torch.where(payload, reconstructed, fixed)
             alpha = array(diffusion.alpha_bar)[timestep]
             epsilon = output if diffusion.prediction_type == "epsilon" else (noisy - math.sqrt(alpha) * reconstructed) / math.sqrt(1 - alpha)
             x0 = array(reconstructed)
@@ -132,7 +169,9 @@ def diagnostics(p, pipeline, profile_id, model, diffusion, data, device, budget,
             bgv = p["pipelines"][pipeline]["representation"] == "bgv"
             if bgv:
                 payload_active[:, :8, :slot_width] = False
-            result["rows"].append({"timestep": timestep, "noise_mse": float(((array(epsilon) - array(noise)) ** 2).mean()),
+            noise_error = (array(epsilon) - array(noise)) ** 2
+            noise_mse = noise_error[array(payload).astype(bool)].mean() if factorized else noise_error.mean()
+            result["rows"].append({"timestep": timestep, "noise_mse": float(noise_mse),
                                    "x0_mse": float(error.mean()), "mask_mse": float(error[:, 1].mean()),
                                    "active_glyph_mse": float(error[:, 0][active].mean()),
                                    "payload_glyph_mse": float(error[:, 0][payload_active].mean()),
@@ -141,32 +180,6 @@ def diagnostics(p, pipeline, profile_id, model, diffusion, data, device, budget,
                                    "length_header_mse": float(error[:, 0, :8, :slot_width].mean()) if bgv else None,
                                    "clipping_fraction": float((np.abs(x0) > 1).mean())})
     else:
-        factorized = profile_id == "D1"
-        lengths = diffusion.lengths(clean) if factorized else None
-        if factorized:
-            length_logits = array(model.length_head(cond))
-            if not np.isfinite(length_logits).all():
-                raise FloatingPointError("Non-finite P2 length diagnostics")
-            shifted = length_logits - length_logits.max(-1, keepdims=True)
-            log_distribution = shifted - np.log(np.exp(shifted).sum(-1, keepdims=True))
-            distribution = np.exp(log_distribution)
-            observed = array(lengths).astype(int)
-            length_ce = -log_distribution[np.arange(len(records)), observed - 4]
-            result["length_head"] = [
-                {"condition": record[0], "observed_training_length" if stage == "P2A" else "observed_length": int(observed[i]),
-                 "argmax_length": int(distribution[i].argmax()) + 4,
-                 "observed_length_probability": float(distribution[i, observed[i] - 4]),
-                 "length_ce": float(length_ce[i]), "probabilities_lengths_4_to_31": distribution[i].tolist()}
-                for i, record in enumerate(records)]
-            if stage == "P2A" and (directory / "candidates.sqlite").exists():
-                training = dict(records)
-                result["generated_length_and_prefix"] = [
-                    {"unit_id": row["unit_id"], "variant": row["variant"], "condition": row["requested_target"],
-                     "sampled_length": row["sampled_length"], "joint_success": row["success"],
-                     "matches_target_training_length": row["byte_length"] == len(bytes.fromhex(training[row["requested_target"]])),
-                     "matches_target_training_message": row["candidate_hex"] == training[row["requested_target"]],
-                     "matches_any_training_message": row["candidate_hex"] in training.values()}
-                    for row in pilot.logical_ledger(directory)]
         for fraction in (.1, .5, .9, 1.):
             budget.check(directory)
             if native:
@@ -199,6 +212,13 @@ def diagnostics(p, pipeline, profile_id, model, diffusion, data, device, budget,
                 row["eos_position_mean_probability"] = ([0.] * 4 + distribution.mean(0).tolist())
                 row["length_ce"] = float(length_ce.mean())
                 row["payload_ce"] = float(((-target_log_probability * selected).sum(1) / np.maximum(selected.sum(1), 1)).mean())
+                if getattr(diffusion, "prefix_balanced_loss", False):
+                    prefix = selected & (np.arange(32)[None] < 3)
+                    suffix = selected & ~prefix
+                    row["pooled_payload_ce"] = row["payload_ce"]
+                    for name, region in (("prefix_ce", prefix), ("suffix_ce", suffix)):
+                        row[name] = float(((-target_log_probability * region).sum(1) / np.maximum(region.sum(1), 1)).mean())
+                    row["payload_ce"] = row["prefix_ce"] + row["suffix_ce"]
             else:
                 row["eos_position_mean_probability"] = probabilities[..., diffusion.mask_token - 2].mean(0).tolist()
             result["rows"].append(row)
@@ -214,13 +234,16 @@ def probe(p, pipeline, profile_id, data, chosen, directory, epoch, device, budge
     output = directory / "probes" / f"epoch-{epoch:04d}"
     if completed(output) is not None:
         return
-    model, diffusion, checksum, best_epoch = selected_model(p, pipeline, profile_id, directory, device, budget.backend)
+    use_best = cfg.get("selection_checkpoint") != "final_epoch"
+    model, diffusion, checksum, state = selected_model(p, pipeline, profile_id, directory, device, budget.backend, best=use_best)
+    selected_epoch = state["best_epoch"] if use_best else state["epoch"] - 1
     source = p["pipelines"][pipeline]["source"]
     metrics = pilot.evaluate(p, "P2B", pipeline, "main", cfg["model_seeds"][0], targets(p, data, source, "P2B", chosen),
                              output, model, diffusion, checksum, cfg["probe_inference_batch"], device, budget, profile_id=profile_id)
     diagnostics(p, pipeline, profile_id, model, diffusion, data, device, budget, output)
     warnings = quality_warnings(cfg, metrics)
-    finish(output, {"epoch": epoch, "best_epoch": best_epoch, "checkpoint_sha256": checksum,
+    finish(output, {"epoch": epoch, "best_epoch": state["best_epoch"], "selected_epoch": selected_epoch,
+                    "checkpoint_selection": "best_validation_loss" if use_best else "final_epoch", "checkpoint_sha256": checksum,
                     "metrics": metrics, "warnings": warnings, "passed": quality_gate(cfg, metrics)})
     print(f"[P2B] {pipeline}/{profile_id} epoch {epoch}: normal={metrics['normal_joint']}, flipped={metrics['flipped_joint']}; {warnings}", flush=True)
 
@@ -308,7 +331,7 @@ def resource_profile(p, pipeline, profile_id, model, diffusion, state, checksum,
         template = pilot.logical_ledger(directory / "profile" / f"batch-{selected['batch']}" / "0")[0]
         template.update(candidate_hex=payload.hex(), byte_length=31, valid=True, reason=None,
                         requested_target=4095, original_target=4095, success=True, wrong_original=True,
-                        sampled_length=31 if profile_id == "D1" else None, md5_calls=1, verifier_calls=1)
+                        sampled_length=31 if getattr(diffusion, "factorized", False) else None, md5_calls=1, verifier_calls=1)
         started = time.monotonic()
         with closing(pilot.ledger_open(stress / "candidates.sqlite")) as connection:
             for i in range(100):
@@ -405,6 +428,11 @@ def phase(p, stage, pipeline, profile_id, data, chosen, directory, device, budge
     summary = {"status": "PASS" if passed else "FAIL_QUALITY", "passed": passed, "metrics": metrics,
                "profile_id": profile_id, "stage": stage, "updates": state["update"],
                "best_epoch": state["best_epoch"], "checkpoint_sha256": checksum, "warnings": warnings}
+    if stage == "P2B":
+        summary.update(selected_epoch=final.get("selected_epoch", final["best_epoch"]),
+                       checkpoint_selection=final.get("checkpoint_selection", "best_validation_loss"))
+        if checksum != final["checkpoint_sha256"]:
+            raise pilot.PilotError("P2B final probe/checkpoint selection mismatch")
     if stage == "P2B" and passed:
         resource = resource_profile(p, pipeline, profile_id, model, diffusion, state, checksum, data, directory, device, budget)
         if resource.get("status") == "NO_ELIGIBLE_BATCH":
@@ -498,6 +526,6 @@ def report_rows(root, p, lines, progress):
                     if saved is not None:
                         m = saved["metrics"]
                         progress[f"P2/{name}/{probe_path.name}"] = "COMPLETE"
-                        detail = "diagnostic only" if suffix == "A" else f"best epoch {saved['best_epoch']}"
+                        detail = "diagnostic only" if suffix == "A" else f"selected epoch {saved.get('selected_epoch', saved['best_epoch'])}"
                         lines.append(f"| {name}/{probe_path.name} | COMPLETE ({detail}) | {m['normal_joint']} | {m['flipped_joint']} |")
     lines += ["", "P2 resources are provisional. E0/final resource seal and formal qualification remain required."]

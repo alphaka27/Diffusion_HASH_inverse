@@ -8,7 +8,7 @@ from .study_profiles import LengthMaskedDiffusion
 def readiness():
     return {"status": "IMPLEMENTATION_IN_PROGRESS", "implementation_ready": False,
             "development_model_backends": ["torch", "mlx"],
-            "model_profiles": {name: "IMPLEMENTED" for name in ("G0", "G1", "G2", "D0", "D1")},
+            "model_profiles": {name: "IMPLEMENTED" for name in ("G0", "G1", "G2", "G3", "D0", "D1")},
             "development_pilot": {"P0": "IMPLEMENTED", "P1": "IMPLEMENTED", "P2": "IMPLEMENTED"},
             "formal_pilot": "BLOCKED_IMPLEMENTATION",
             "remaining": ["P0 main-boundary/budget fixtures",
@@ -35,7 +35,7 @@ def profile_checks(p, pipeline, profile_id, model, diffusion, device):
     encoder, decoder, shape = pilot.codecs(p["pipelines"][pipeline])
     source = p["pipelines"][pipeline]["source"]
     targets, seeds = [0, 4095], [81, 82]
-    lengths = [181, 182] if profile_id == "D1" else None
+    lengths = [181, 182] if getattr(diffusion, "factorized", False) else None
     one = pilot.sample(p, pipeline, model, diffusion, targets[:1], seeds[:1], device,
                        profile_id=profile_id, length_seeds=lengths[:1] if lengths else None)
     many = pilot.sample(p, pipeline, model, diffusion, targets, seeds, device,
