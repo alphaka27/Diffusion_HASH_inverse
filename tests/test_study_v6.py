@@ -677,3 +677,511 @@ def test_calibration_production():
     result = calibrate(2000)
     assert result["production"] and result["passed"] and all(result["criteria"].values()), result
     assert result["scope"] == "production" and result["repetitions"] == 2000
+
+
+# ---------------------------------------------------------------- Phase 7: 예산, 감사, 단계 순서, 보고서, CLI
+
+def test_budget_plan_decisions():
+    from dhi_v6.protocol import budget_plan
+    q = list(registration()["pipeline_order"])
+    profile1 = {"models": {p: {"update_seconds": 0.0, "forward_rows_per_second": 1e12} for p in q},
+                "verify_rows_per_second": 1e12}
+    qualification = {"Q": q, "settings": {p: {"updates": 40000} for p in q}}
+
+    def plan(cps, a_seconds=0.0, caps=None):
+        profile2 = {"models": {p: {"sustained_cps": cps} for p in q}, "random_cps": 1e12}
+        return budget_plan(profile1, profile2, qualification, a_seconds, caps=caps)
+    fast = plan(1000)
+    assert (fast["decision"], fast["block"], fast["p_trials"], fast["stage_s"]) == ("PROCEED", 8192, 4096, True)
+    assert 1.5 * fast["estimates"]["8192"]["look2"] <= 80 * 3600
+    assert fast["estimates"]["8192"]["regen_block"] == pytest.approx(.01 * fast["estimates"]["8192"]["gen_block"])
+    assert plan(220)["block"] == 6144
+    halt = plan(100)
+    assert halt["decision"] == "HALT" and halt["required_c_hours"] > 80
+    approved = {**registration()["caps_hours"], "C": np.ceil(halt["required_c_hours"])}
+    assert plan(100, caps=approved)["decision"] == "PROCEED"
+    reduced = plan(1000, a_seconds=400000)
+    assert (reduced["p_trials"], reduced["stage_s"]) == (2048, False)
+
+
+def test_audit_v6_rules(tmp_path):
+    from dhi_v6.protocol import audit_exposure
+    for name, text in {"code/a.py": "print(1)\n", "archive/v5-C.json": "{}\n", "archive/fixture.json": "[]\n",
+                       "archive/prefix.csv": "x\n"}.items():
+        (tmp_path / name).parent.mkdir(exist_ok=True)
+        (tmp_path / name).write_text(text)
+
+    def audit(rows, complete=True):
+        path = tmp_path / "inventory.json"
+        atomic_json(path, {"schema": "v6-exposure-1", "scope_complete": complete, "scope_boundary": "fixture",
+                           "scopes": {"code": ["code"], "archive": ["archive"]}, "reviewed_files": rows,
+                           "exposed_groups": {}})
+        return audit_exposure(path)
+
+    def row(name, use, roles=(), groups=None):
+        return {"path": name, "sha256": file_hash(tmp_path / name), "condition_use": use, "window_roles": list(roles),
+                "exposed_groups": groups or {}}
+    rows = [row("code/a.py", "none"),
+            row("archive/v5-C.json", "window", [{"window": "W2", "rung": 64, "role": r} for r in ("evaluation", "training")]),
+            row("archive/fixture.json", "window", [{"window": "W3", "rung": 64, "role": "fixture"},
+                                                   {"window": "W4", "rung": 64, "role": "hash-test"}]),
+            row("archive/prefix.csv", "prefix", groups={"W3": [5, 6]})]
+    result = audit(rows)
+    assert result["certified"] and len(result["excluded"]["W2"]) == 4096
+    assert result["excluded"]["W3"] == [5, 6] and result["excluded"]["W4"] == []
+    rows[2]["window_roles"] = [{"window": "W3", "rung": 64, "role": "evaluation"}]
+    exposed = audit(rows)
+    assert not exposed["certified"] and len(exposed["excluded"]["W3"]) == 4096
+    rows[2]["window_roles"] = []
+    assert audit([*rows[:3], {**rows[3], "condition_use": "unreviewed"}])["reason"] == "UNREVIEWED_CLASSIFICATION"
+    (tmp_path / "archive/new.npy").write_bytes(b"x")
+    assert audit(rows)["reason"] == "UNREVIEWED_FILES"
+    assert audit(rows, complete=False)["reason"] == "INCOMPLETE_SCOPE"
+
+
+def test_select_steps_batch_and_qualification():
+    from dhi_v6 import study
+    cps = lambda *values: {str(b): {"candidates_per_second": v} for b, v in zip((256, 1024, 2048), values)}
+    assert study.choose_batch(cps(100, 100.5, 99)) == 256
+    assert study.choose_batch(cps(100, 102, 99)) == 1024
+    row = lambda joint, rate: {"normal_joint": joint, "flipped_joint": joint, "duplicate_rate": rate}
+    assert study.select_steps({"25": row(240, .02), "50": row(231, .014), "100": row(250, .01)}) == 50
+    assert study.select_steps({"25": row(230, .01), "50": row(230, .01), "100": row(230, .01)}) == 100
+    assert [study.profile_trials(v) for v in (1, 100000)] == [512, 30208]
+    passing = {"updates": 40000, "generation_pass": True, "clp": {"positive": True}}
+    rows = {p: [passing] * 3 for p in study.PIPELINES}
+    rows["P-DISC"] = [{**passing, "generation_pass": False}] * 3
+    rows["R-DISC"] = [{**passing, "generation_pass": False}] * 3
+    rows["P-G-CGGE"] = [passing, {**passing, "clp": {"positive": False}}, passing]
+    batches = {"25": {"batch": 1024}, "50": {"batch": 256}, "100": {"batch": 256}, "none": {"batch": 2048}}
+    profile = {"models": {p: {"by_steps": batches} for p in study.PIPELINES}}
+    steps = {p: 25 for p in study.GAUSSIAN}
+    first = study.qualification_record([{"updates": 40000, "rows": rows}], steps, profile)
+    assert first["repair_state"] == "pending" and first["C1"]["P-DISC"] == "PENDING_REPAIR"
+    assert first["Q"] == ["P-G-BGV", "P-G-CGGE", "R-G-BGV"] and first["clp_disabled"]["P-G-CGGE"]
+    assert first["settings"]["P-G-BGV"] == {"updates": 40000, "sampling_steps": 25, "batch": 1024}
+    repair = {"P-DISC": [{**passing, "updates": 80000}] * 3, "R-DISC": [{**passing, "updates": 80000, "generation_pass": False}] * 3}
+    second = study.qualification_record([*first["rounds"], {"updates": 80000, "rows": repair}], steps, profile)
+    assert second["repair_state"] == "done" and second["repair_used"]
+    assert second["Q"] == ["P-G-BGV", "P-G-CGGE", "P-DISC", "R-G-BGV"] and second["C1"]["R-DISC"] == "UNTESTABLE"
+    assert second["settings"]["P-DISC"] == {"updates": 80000, "sampling_steps": None, "batch": 2048}
+
+
+def _study_root(root):
+    from dhi_v6 import study
+    root.mkdir(parents=True)
+    sealed_json(root / "v6-study.json", {"protocol": PROTOCOL})
+    return study
+
+
+def _terminal_fixture(root, positive=(), untestable=(), replicated=True, stages="CRPS"):
+    """Sealed-stage fixture built with the production statistics; no model or MD5 data."""
+    from dhi_v6 import statistics as st
+    study = _study_root(root)
+    q = [p for p in study.PIPELINES if p not in untestable]
+    rows = {p: [{"updates": 40000, "normal_joint": 500, "flipped_joint": 498, "generation_pass": p not in untestable,
+                 "clp": {"positive": True}}] * 3 for p in study.PIPELINES}
+    atomic_json(root / "A.json", {
+        "rounds": [{"updates": 40000, "rows": rows}], "Q": q, "repair_used": bool(untestable),
+        "C1": {p: "UNTESTABLE" if p in untestable else "PASS" for p in study.PIPELINES},
+        "repair_state": "done" if untestable else "not-needed", "sampling_steps": {p: 25 for p in study.GAUSSIAN},
+        "clp_disabled": {p: False for p in study.PIPELINES},
+        "settings": {p: {"updates": 40000, "sampling_steps": 25 if p in study.GAUSSIAN else None, "batch": 1024} for p in q}})
+    zero, one = np.zeros((3, 256), dtype=int), np.ones((3, 256), dtype=int)
+    outcomes = {p: {"Main": one if p in positive else zero, "Random": zero, "Shuffled": zero} for p in q}
+    final = {**st.stage_c(outcomes, 1, budget_stop=True), "trials": 256, "active": q} if q else None
+    metrics = {"rows": 76800, "hits": 10, "valid": 76000, "duplicates": 5, "training_matches": 0, "strict_valid": 70000}
+    if "C" in stages and q:
+        sealed_json(root / "C.json", {
+            "block": 256, "looks": [final], "final": final, "budget_stop": False, "integrity": {}, "clp_partial": False,
+            "decisions": {p: final["pipelines"][p]["decision"] for p in q},
+            "clp": {p: {"z": .5, "INFO_64": False, "pooled": {"estimate": .01}} for p in q},
+            "audit": {p: {"passed": True, "top_1pct_target_hit_share": .05, "hit_only": True} for p in positive},
+            "contrasts": st.contrasts(outcomes), "metrics": {p: metrics for p in q}})
+    if "R" in stages and positive:
+        decision = "SUPPORTED" if replicated else "NOT_ESTABLISHED_NOT_REPLICATED"
+        sealed_json(root / "R.json", {"entrants": list(positive), "decisions": {p: decision for p in positive},
+                                      "results": {p: st.replication(one, zero, one if not replicated else zero, len(positive))
+                                                  for p in positive}, "budget_stop": False, "integrity": {}})
+    if "P" in stages:
+        clp = st.probe(np.tile([.9, 1.1], 128))
+        sealed_json(root / "P.json", {"trials": 4096, "partial": False, "integrity": {}, "pipelines": {
+            p: {**st.positive_control(one[0], zero[0], zero[0], clp), "INFO_4_disabled": False,
+                "success_at_100": {"Main": 1.0, "Random": 0.0, "MC": 0.0}} for p in q}})
+    if "S" in stages:
+        sealed_json(root / "S.json", {"skipped": True, "reason": "budget plan omitted Stage S"})
+    return study
+
+
+def test_terminal_report_sentences(tmp_path):
+    study = _terminal_fixture(tmp_path / "rejected")
+    decision = study.report(tmp_path / "rejected")
+    text = (tmp_path / "rejected/FINAL_REPORT_KO.md").read_text()
+    assert decision["status"] == "TERMINAL" and decision["headline"] == "FINAL_REJECTED"
+    assert "0.5%p 미만으로 배제되었다" in text and "U_R" in text and "## 9. 적용 범위와 일반화" in text
+    assert decision["pipelines"]["P-DISC"]["quality"]["duplicates_per_trial"] == 5 / 768
+    assert decision["pipelines"]["P-DISC"]["quality"]["strict_valid_rate"] is None
+    assert decision["blinding"] == {"procedure": "automatic looks; CLI shows continue/stop only"}
+    assert read_json(tmp_path / "rejected/decision.json") == decision
+    study = _terminal_fixture(tmp_path / "exceptions", untestable=["R-DISC"])
+    assert study.report(tmp_path / "exceptions")["headline"] == "FINAL_REJECTED_WITH_EXCEPTIONS"
+    assert "R-DISC(UNTESTABLE; 측정 없음)" in (tmp_path / "exceptions/FINAL_REPORT_KO.md").read_text()
+    study = _terminal_fixture(tmp_path / "supported", positive=["P-DISC"])
+    decision = study.report(tmp_path / "supported")
+    assert decision["headline"] == "FINAL_SUPPORTED" and decision["pipelines"]["P-DISC"]["C3"] == "SUPPORTED"
+    assert "W4에서 재현되었다" in (tmp_path / "supported/FINAL_REPORT_KO.md").read_text()
+    study = _terminal_fixture(tmp_path / "unreplicated", positive=["P-DISC"], replicated=False)
+    assert study.report(tmp_path / "unreplicated")["pipelines"]["P-DISC"]["C3"] == "NOT_ESTABLISHED_NOT_REPLICATED"
+
+
+def test_partial_report_is_not_rejection(tmp_path):
+    for name, kwargs in {"no-p": {"stages": "CRS"}, "no-r": {"positive": ["P-DISC"], "stages": "CPS"},
+                         "no-c": {"stages": "PS"}}.items():
+        study = _terminal_fixture(tmp_path / name, **kwargs)
+        decision = study.report(tmp_path / name)
+        text = (tmp_path / name / "FINAL_REPORT_KO.md").read_text()
+        assert (decision["status"], decision["headline"]) == ("INCOMPLETE", "NOT_FINAL")
+        assert "REJECTED" not in text and "REJECTED" not in json.dumps(decision) and "NOT_FINAL" in text
+    root = tmp_path / "budget"
+    study = _terminal_fixture(root, stages="")
+    sealed_json(root / "failure.json", {"stage": "A", "reason": "NOT_ESTABLISHED_BY_BUDGET"})
+    decision = study.report(root)
+    assert decision["headline"] == "FINAL_NOT_ESTABLISHED"
+    assert {v["C3"] for v in decision["pipelines"].values()} == {"NOT_ESTABLISHED_BY_BUDGET"}
+    assert decision["failures"][0]["stage"] == "A"
+    root = tmp_path / "empty-q"
+    study = _terminal_fixture(root, untestable=list(registration()["pipeline_order"]), stages="")
+    assert study.report(root)["headline"] == "FINAL_NOT_ESTABLISHED"
+
+
+def test_stage_order_and_blinding(tmp_path, monkeypatch, capsys):
+    from dhi_v6 import study
+    calls = []
+
+    def scenario(decision, audited, q=("P-DISC",)):
+        calls.clear()
+        root = tmp_path / f"{decision}-{audited}-{len(q)}"
+        root.mkdir()
+        monkeypatch.setattr(study, "stage_a", lambda r, phase="all": calls.append("A") or atomic_json(
+            r / "A.json", {"Q": list(q), "repair_state": "not-needed"}))
+        c = {"decisions": {"P-DISC": decision}, "audit": {"P-DISC": {"passed": audited}} if decision == "POSITIVE" else {}}
+        monkeypatch.setattr(study, "stage_c", lambda r: calls.append("C") or c)
+        for name in "RPS":
+            monkeypatch.setattr(study, f"stage_{name.lower()}", lambda r, name=name: calls.append(name))
+        monkeypatch.setattr(study, "report", lambda r: calls.append("report") or {"status": "TERMINAL", "headline": "x"})
+        study.run_all(root)
+        return list(calls)
+    assert scenario("POSITIVE", True) == ["A", "C", "R", "P", "S", "report"]
+    assert scenario("POSITIVE", False) == ["A", "C", "P", "S", "report"]
+    assert scenario("REJECTED_BOUNDED", False) == ["A", "C", "P", "S", "report"]
+    assert scenario("REJECTED_BOUNDED", False, q=()) == ["A", "report"]
+    monkeypatch.undo()
+    root = tmp_path / "order"
+    _study_root(root)
+    for stage in (study.stage_r, study.stage_p, study.stage_s):
+        with pytest.raises(ValueError, match="C.json"):
+            stage(root)
+    with pytest.raises(ValueError, match="protocol.frozen"):
+        study.stage_c(root)
+    sealed_json(root / "C.json", {"decisions": {"P-DISC": "POSITIVE"}, "audit": {"P-DISC": {"passed": True}}})
+    for stage in (study.stage_p, study.stage_s):
+        with pytest.raises(ValueError, match="Stage R"):
+            stage(root)
+    sealed_json(root / "R.json", {"entrants": ["P-DISC"]})
+    with pytest.raises(ValueError, match="P.json"):
+        study.stage_s(root)
+    root = tmp_path / "blind"
+    _study_root(root)
+    folder = root / "C/eval/P-DISC/Main-0"
+    atomic_json(folder / "block-1.json", {"rows": 819200, "elapsed_seconds": 100.0, "hits": 3000, "success_at_100": 20,
+                                         "success_at_1": 1, "top_1pct_target_hit_share": .5})
+    atomic_json(folder / "block-1.commit.json", {"committed_rows": 819200})
+    atomic_json(root / "C/looks/look-1.json", {"action": "continue", "pipelines": {"P-DISC": {"decision": "POSITIVE",
+                                                                                              "estimate": .01}}})
+    capsys.readouterr()
+    assert study.main(["status", "--root", str(root)]) == 0
+    printed = capsys.readouterr().out
+    shown = json.loads(printed)
+    assert shown["streams"]["C"] == {"completed_stream_blocks": 1, "committed_rows": 819200, "recent_rows_per_second": 8192.0}
+    for word in ("hits", "success", "estimate", "lower", "upper", "POSITIVE", "REJECTED", "continue", "share"):
+        assert word not in printed
+
+
+def test_cli_preconditions(tmp_path, capsys):
+    from dhi_v6 import study
+    other = tmp_path / "other"
+    other.mkdir()
+    (other / "notes.txt").write_text("not a study")
+    with pytest.raises(SystemExit):
+        study.main(["run", "--root", str(other), "--stage", "A"])
+    root = tmp_path / "study"
+    with pytest.raises(SystemExit):
+        study.main(["run", "--root", str(root), "--stage", "C", "--phase", "impl"])
+    with pytest.raises(ValueError, match="A-impl"):
+        study.main(["run", "--root", str(root), "--stage", "A", "--phase", "prof1"])
+    assert read_json(root / "v6-study.json") == {"protocol": PROTOCOL}
+    with pytest.raises(ValueError, match="HALT"):
+        study.main(["approve-caps", "--root", str(root), "--stage", "C", "--hours", "120", "--reason", "fixture"])
+    atomic_json(root / "halt.json", {"decision": "HALT"})
+    assert study.main(["approve-caps", "--root", str(root), "--stage", "C", "--hours", "120", "--reason", "fixture"]) == 0
+    from dhi_v6.protocol import effective_caps
+    assert effective_caps(root)["C"] == 120
+    (root / "C").mkdir()
+    with pytest.raises(ValueError, match="MD5"):
+        study.main(["approve-caps", "--root", str(root), "--stage", "C", "--hours", "130", "--reason", "again"])
+    assert study.main(["report", "--root", str(root)]) == 0
+    assert read_json(root / "decision.json")["headline"] == "NOT_FINAL"
+    atomic_json(root / "failure.json", {"stage": "A", "reason": "NOT_ESTABLISHED_BY_BUDGET"})
+    with pytest.raises(RuntimeError, match="terminal failure"):
+        study.main(["run", "--root", str(root), "--stage", "all"])
+    capsys.readouterr()
+    assert study.main(["plan"]) == 0
+    assert json.loads(capsys.readouterr().out) == registration()
+
+
+@pytest.mark.metal
+def test_stage_a_paths_small(tmp_path):
+    run_metal('''
+import sys
+from pathlib import Path
+import numpy as np
+from dhi_v6 import data, runtime, study
+from dhi_v6.protocol import read_json
+root = Path(sys.argv[1])
+class Free:
+    def check(self):
+        pass
+folder = study.a_q_folder(root, "P-DISC", 0, 4)
+runtime.train(folder, "P-DISC", "A-Q", 0, data.synthetic_split(), updates=4, task="synthetic", batch_size=8,
+              checkpoint_every=2, diagnostic_pairs=2)
+row = study.qualify_seed(root, "P-DISC", 0, 4, None, 2048, Free())
+assert row["batch"] == 512 and row["md5_calls"] == 0 and not row["generation_pass"]
+assert row["normal_valid"] == row["flipped_valid"] == 512 and row["clp"]["threshold"] == 3.26
+assert read_json(folder / "qualification.json") == row == study.qualify_seed(root, "P-DISC", 0, 4, None, 2048, Free())
+try:
+    study.qualify_seed(root, "P-DISC", 0, 4, 25, 2048, Free())
+    raise AssertionError("changed steps accepted")
+except ValueError:
+    pass
+
+def fake(model, labels, keys, steps, batch):
+    return [b"%03X" % int(y) + b"ZZZZ" for y in labels], None, None
+rows = study.dev_rows(None, "P-G-BGV", Free(), generator=fake)
+assert rows["25"]["normal_joint"] == rows["25"]["flipped_joint"] == 256 and rows["25"]["duplicate_rate"] == .99
+assert study.select_steps(rows) == 25
+
+study._TRAINING_FIXTURE[:] = [np.sort(np.frombuffer(data.rng("fixture").bytes(16 * 1000), dtype="V16"))]
+model, _ = study.load_trained(folder, "P-DISC", "A-Q", 0)
+result = study.sustained(root / "prof", Free(), pipeline="P-DISC", model=model, batch=256, cps=1, warmup=0, measure=0)
+assert result["blocks"] == 1 and result["candidates"] == 51200 and result["sustained_cps"] > 0
+assert not (root / "prof").exists()
+random = study.sustained(root / "random", Free(), source="R", warmup=0, measure=0)
+assert random["candidates"] == 204800 and random["sustained_cps"] > 0
+''', tmp_path)
+
+
+@pytest.mark.metal
+def test_quick_check_cli(tmp_path):
+    run_metal('''
+import sys
+from pathlib import Path
+from dhi_v6 import study
+from dhi_v6.protocol import read_json
+root = Path(sys.argv[1])
+assert study.main(["check", "--root", str(root), "--quick"]) == 0
+result = read_json(root / "quick-check.json")
+assert result["quick"] and not result["passed"] and result["quick_paths_passed"] and not result["certifies_study"]
+assert not (root / "A-impl.json").exists()
+''', tmp_path / "quick")
+
+
+@pytest.mark.metal
+def test_md5_stage_flow_on_validation_fixture(tmp_path):
+    """C/R/P/S runners end to end at fixture scale. Every split's test pool is replaced by its validation groups."""
+    run_metal('''
+import sys
+from pathlib import Path
+import numpy as np
+from dhi_v6 import data, protocol, study
+from dhi_v6 import statistics as st
+from dhi_v6.protocol import BudgetExceeded, atomic_json, freeze, read_json, sealed_json, source_manifest
+
+real_split, real_stage_c = data.split, st.stage_c
+def split(window, rung, excluded=()):
+    groups = real_split(window, rung, excluded)
+    return {"test": groups["validation"], "validation": groups["validation"], "train": groups["train"]}
+data.split = split
+study.RANDOM_BATCH = 64
+study.REG["stage_c"]["clp_pairs_per_seed"] = 64
+study.REG["stage_r"]["trials"] = 64
+study.REG["stage_p"]["clp_pairs"] = 64
+study.REG["stage_s"].update(model="D1-S", updates=2, trials=64, clp_pairs=64)
+
+def fixture(root):
+    root.mkdir(parents=True)
+    sealed_json(root / "v6-study.json", {"protocol": study.PROTOCOL})
+    settings = {"P-DISC": {"updates": 2, "sampling_steps": None, "batch": 64}}
+    by_steps = {"none": {"batch": 64, "candidates_per_second": 50000.0}}
+    atomic_json(root / "A-impl.json", {"passed": True, "quick": False, "source": source_manifest(),
+                                       "gates": {"G9": {"production": True, "passed": True, "repetitions": 2000}}})
+    atomic_json(root / "A-prof-1.json", {"models": {p: {"by_steps": by_steps, "update_seconds": .01} for p in study.PIPELINES},
+                                         "scale": {"by_steps": by_steps}, "md5_per_second": 1e6,
+                                         "verify_rows_per_second": 1e6})
+    atomic_json(root / "A-prof-2.json", {"fixture": True})
+    atomic_json(root / "A-dev.json", {"fixture": True})
+    atomic_json(root / "A.json", {"Q": ["P-DISC"], "C1": {p: "PASS" if p == "P-DISC" else "UNTESTABLE" for p in study.PIPELINES},
+                                  "repair_state": "done", "repair_used": False, "settings": settings, "rounds": [],
+                                  "clp_disabled": {p: False for p in study.PIPELINES}})
+    atomic_json(root / "budget-plan.json", {"decision": "PROCEED", "block": 64, "p_trials": 64, "stage_s": True,
+                                            "pipelines": settings})
+    atomic_json(root / "exposure-audit.json", {"certified": True, "excluded": {"W1": [], "W2": list(range(4096)),
+                                                                               "W3": [], "W4": []}})
+    freeze(root)
+    return root
+
+# Budget exhausted during block 2: look 1 becomes final, CLP_64 is marked partial.
+class Limited(protocol.Budget):
+    def check(self):
+        super().check()
+        if self.stage == "C" and (self.root / "C/looks/look-1.json").exists():
+            raise BudgetExceeded("fixture cap")
+study.Budget = Limited
+root = fixture(Path(sys.argv[1]) / "budget")
+c = study.stage_c(root)
+assert c["budget_stop"] and c["final"]["look"] == 1 and c["final"]["budget_stop"] and c["clp_partial"]
+assert c["decisions"]["P-DISC"] in ("NOT_ESTABLISHED_BY_BUDGET", "REJECTED_BOUNDED", "REJECTED_NO_CONDITION_GAIN",
+                                    "REJECTED_NO_RANDOM_ADVANTAGE", "POSITIVE")
+assert [look["action"] for look in c["looks"]] == ["continue"] and not (root / "C/looks/look-2.json").exists()
+study.Budget = protocol.Budget
+
+# Forced POSITIVE at look 1: artifact audit, CLP_64, R entry, P, S and the terminal report.
+def forced(outcomes, look, *, budget_stop=False):
+    result = real_stage_c(outcomes, look, budget_stop=budget_stop)
+    result["pipelines"]["P-DISC"]["decision"] = "POSITIVE"
+    return {**result, "action": "stop"}
+st.stage_c = forced
+root = fixture(Path(sys.argv[1]) / "positive")
+c = study.stage_c(root)
+audit = c["audit"]["P-DISC"]
+assert c["decisions"] == {"P-DISC": "POSITIVE"} and audit["passed"]
+assert audit["successful_payloads"] == c["metrics"]["P-DISC"]["hits"] and audit["rehash_mismatches"] == 0
+assert c["clp"]["P-DISC"]["pooled"]["trials"] == 3 * 64 and audit["INFO_64"] == c["clp"]["P-DISC"]["INFO_64"]
+assert study.stage_c(root) == c and study.replication_entrants(c) == ["P-DISC"]
+r = study.stage_r(root)
+assert r["entrants"] == ["P-DISC"] and r["decisions"]["P-DISC"] in ("SUPPORTED", "NOT_ESTABLISHED_NOT_REPLICATED")
+p = study.stage_p(root)
+assert not p["partial"] and set(p["pipelines"]["P-DISC"]) >= {"GEN_4", "INFO_4", "comparisons", "success_at_100"}
+s = study.stage_s(root)
+assert not s["skipped"] and not s["partial"] and set(s["success_at_100"]) == {"Main", "MC", "Random"}
+assert (root / "S/runs/P-DISC-D1-S/Main-0/u2/complete.json").exists()
+decision = study.report(root)
+assert decision["status"] == "TERMINAL" and decision["pipelines"]["P-DISC"]["C3"] == r["decisions"]["P-DISC"]
+assert decision["pipelines"]["P-DISC"]["C4"]["rho"] == 20.0 and decision["pipelines"]["P-DISC"]["audit"]["passed"]
+text = (root / "FINAL_REPORT_KO.md").read_text()
+assert "Stage R(W4 재현)" in text and "## 8. Stage S" in text
+status = study.status(root)
+assert status["c_looks_sealed"] == 1 and status["streams"]["C"]["completed_stream_blocks"] == 9
+assert status["streams"]["R"]["committed_rows"] == 9 * 6400 and not status["failure"]
+''', tmp_path)
+
+
+def test_stage_a_orchestration(tmp_path, monkeypatch, capsys):
+    """Phase order, repair budget, HALT and cap approval, and Stage A budget exhaustion with fake phase work."""
+    from dhi_v6 import study
+    from dhi_v6.protocol import BudgetExceeded, effective_caps
+    calls = []
+    q = list(study.PIPELINES)
+    speed = {"cps": 1000.0}
+    by_steps = {"25": {"batch": 1024, "candidates_per_second": 1e5}, "none": {"batch": 2048, "candidates_per_second": 1e5}}
+
+    def once(name, value):
+        return lambda r: (r / name).exists() or atomic_json(r / name, value(r) if callable(value) else value)
+    writes = {
+        "impl": once("A-impl.json", lambda r: {"passed": True, "quick": False, "source": source_manifest(),
+                                               "gates": {"G9": {"production": True, "passed": True, "repetitions": 2000}}}),
+        "prof1": once("A-prof-1.json", {"models": {p: {"update_seconds": 0.0, "forward_rows_per_second": 1e12,
+                                                       "by_steps": by_steps} for p in q},
+                                        "verify_rows_per_second": 1e12, "md5_per_second": 1e6}),
+        "train": lambda r: None,
+        "dev": once("A-dev.json", {"pipelines": {}}),
+        "evaluate": once("A.json", lambda r: {"Q": q[:-1], "repair_state": "pending", "repair_used": False,
+                                              "C1": {**{p: "PASS" for p in q[:-1]}, q[-1]: "PENDING_REPAIR"},
+                                              "settings": {p: {"updates": 40000} for p in q[:-1]}}),
+        "repair": lambda r: atomic_json(r / "A.json", {**read_json(r / "A.json"), "Q": q, "repair_state": "done",
+                                                       "repair_used": True, "C1": {p: "PASS" for p in q},
+                                                       "settings": {p: {"updates": 40000} for p in q}}),
+        "prof2": lambda r: atomic_json(r / "A-prof-2.json", {"models": {p: {"sustained_cps": speed["cps"]} for p in q},
+                                                             "random_cps": 1e12}),
+    }
+
+    def fake(name):
+        def run(r, budget):
+            calls.append((name, budget.stage))
+            if name == "train" and speed.get("exhaust"):
+                raise BudgetExceeded("fixture cap")
+            writes[name](r)
+        return run
+    for name in writes:
+        monkeypatch.setattr(study, f"phase_{name}", fake(name))
+    root = tmp_path / "study"
+    audit = {"certified": True, "excluded": {"W1": [], "W2": list(range(4096)), "W3": [], "W4": []}}
+
+    speed["cps"] = 100.0
+    root.mkdir()
+    sealed_json(root / "v6-study.json", {"protocol": PROTOCOL})
+    atomic_json(root / "exposure-audit.json", audit)
+    assert study.main(["run", "--root", str(root), "--stage", "A"]) == 3
+    assert [c for c in calls] == [("impl", "A"), ("prof1", "A"), ("train", "A"), ("dev", "A"), ("evaluate", "A"),
+                                  ("repair", "A_repair"), ("prof2", "A")]
+    assert read_json(root / "budget-plan.json")["decision"] == "HALT" and (root / "halt.json").exists()
+    assert study.status(root)["halt"] and "A_repair" in read_json(root / "budget.json")["seconds"]
+    hours = float(np.ceil(read_json(root / "budget-plan.json")["required_c_hours"]))
+    assert study.main(["approve-caps", "--root", str(root), "--stage", "C", "--hours", str(hours), "--reason", "fixture"]) == 0
+    calls.clear()
+    assert study.main(["run", "--root", str(root), "--stage", "A"]) == 0
+    assert ("repair", "A_repair") not in calls
+    frozen = read_json(root / "protocol.frozen.json")
+    assert frozen["caps"]["C"] == hours == effective_caps(root)["C"] and "cap-override.json" in frozen["artifacts"]
+    assert frozen["settings"]["decision"] == "PROCEED" and frozen["Q"] == q and not study.status(root)["halt"]
+    assert study.stage_a(root) == frozen
+
+    speed.update(cps=1000.0, exhaust=True)
+    calls.clear()
+    root = tmp_path / "exhausted"
+    root.mkdir()
+    sealed_json(root / "v6-study.json", {"protocol": PROTOCOL})
+    assert study.main(["run", "--root", str(root), "--stage", "A"]) == 2
+    failure = read_json(root / "failure.json")
+    assert (failure["stage"], failure["phase"], failure["reason"]) == ("A", "train", "NOT_ESTABLISHED_BY_BUDGET")
+    decision = read_json(root / "decision.json")
+    assert decision["status"] == "TERMINAL" and decision["headline"] == "FINAL_NOT_ESTABLISHED"
+    assert "A_repair" not in read_json(root / "budget.json")["seconds"]
+    with pytest.raises(RuntimeError, match="terminal failure"):
+        study.main(["run", "--root", str(root), "--stage", "A"])
+
+
+@pytest.mark.metal
+def test_profiling_helpers_small(tmp_path):
+    run_metal('''
+import sys
+from pathlib import Path
+from dhi_v6 import study
+root = Path(sys.argv[1])
+class Free:
+    def check(self):
+        pass
+study.REG["profiling"].update(train_warmup_updates=1, train_timed_updates=2, burst_seconds=0.05)
+study.REG["generation"]["batch_options"] = [64, 128]
+study.FORWARD_SECONDS = 0.05
+for pipeline, architecture in (("P-G-BGV", None), ("R-G-BGV", None), ("P-G-CGGE", None), ("R-DISC", None), ("P-DISC", "D1-T-L")):
+    model, seconds = study._timed_updates(pipeline, architecture, root / "scratch", Free())
+    assert seconds > 0 and study._forward_rows(model, pipeline) > 0
+    options = [25] if pipeline in study.GAUSSIAN else [None]
+    profile = study._generation_profile(model, pipeline, options, Free())
+    row = profile["25" if pipeline in study.GAUSSIAN else "none"]
+    assert set(row["batches"]) == {"64", "128"} and row["batch"] in (64, 128) and row["candidates_per_second"] > 0
+    assert all(v["peak_memory"] > 0 for v in row["batches"].values())
+assert study._md5_rate() > 0
+written, verified = study._ledger_rates(root / "ledger", Free(), trials=512)
+assert written > 0 and verified > 0
+''', tmp_path)
