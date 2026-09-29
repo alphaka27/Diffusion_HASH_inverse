@@ -1,0 +1,189 @@
+{
+  "protocol": "dhi-followup-f1-20260929",
+  "status": "PLAN_ONLY_NOT_REGISTERED_NOT_EXECUTED",
+  "estimand": "Equal mixture of the three frozen Main/Shuffled checkpoint pairs, uniform draws from the original W2 test pool, fresh independent candidate randomness.",
+  "provenance": {
+    "v5_run": "local_experiment_archive/runs/v5-study-certified",
+    "v5_official_decision": "FINAL_NOT_ESTABLISHED",
+    "v5_reason": "NOT_ESTABLISHED_BY_BUDGET",
+    "v5_protocol_sha256": "2c6587581c4c7266c6c5a731a3b122344914dfbe07f285645fedbb91da9a50b4",
+    "source_manifest": {
+      "__init__.py": "e43aa463a56d022a86b1a7fb28f8f9ebfe2543eb52afa2c7820c4e465b8de401",
+      "checks.py": "65e10a5c0b77539b1237ac35db04e64b517929410ad150f52563213e15f244d7",
+      "data.py": "b703c9a8f7f0379426be9927d466eda37600956be5800ce2d3fffd787cb2091b",
+      "models.py": "603a061103d06aa151889a199ad6e4e66e6c207f2d14bf02f33ae50709171cc2",
+      "protocol.py": "90d5917d6b7bcd211dc9d4366617bd7a887b673e5f1b854d2f47a1074d23d68e",
+      "runtime.py": "684652a03c911c0da5d120f7012b01441f533dbe365fcfed8fbe111bfa50cd9d",
+      "statistics.py": "f05263364eac8675bd44f927426a966776e13b463852367f562a88b01562b8ac",
+      "study.py": "b4de05abca811d4371b3e3c001dc4c90a8864da9f3e67daa8fecad734d3c81f9"
+    },
+    "environment": {
+      "machine": "arm64",
+      "packages": {
+        "mlx": "0.32.2",
+        "numpy": "2.5.3"
+      },
+      "platform": "macOS-27.0-arm64-arm-64bit",
+      "python": "3.12.4 (main, Jul 17 2024, 17:27:53) [Clang 15.0.0 (clang-1500.3.9.4)]"
+    },
+    "checkpoints": [
+      {
+        "method": "Main",
+        "training_seed_id": 0,
+        "path": "local_experiment_archive/runs/v5-study-certified/C/W2-r64/D1-T/Main-0/checkpoint-00040000.safetensors",
+        "sha256": "2df7aba8be10a1befc6bdb38a9b508802a7747398baf404b8170dbeca640f9f0",
+        "update": 40000,
+        "training_ledger_path": "local_experiment_archive/runs/v5-study-certified/C/W2-r64/D1-T/Main-0/training.sqlite",
+        "training_ledger_sha256": "76c566b754e57e02e97c7e31bf4450ecc86f3bf393ed6957d7396a34239c399e"
+      },
+      {
+        "method": "Main",
+        "training_seed_id": 1,
+        "path": "local_experiment_archive/runs/v5-study-certified/C/W2-r64/D1-T/Main-1/checkpoint-00040000.safetensors",
+        "sha256": "1bd8254a2f98125f8c4d08f0d33a2ed5d80de96fb69019cd613d2cd0807c7e22",
+        "update": 40000,
+        "training_ledger_path": "local_experiment_archive/runs/v5-study-certified/C/W2-r64/D1-T/Main-1/training.sqlite",
+        "training_ledger_sha256": "72c9a0da7250bc20070c2bd4cc18bb1861747fc554a4c55b81a0aa961f6b64eb"
+      },
+      {
+        "method": "Main",
+        "training_seed_id": 2,
+        "path": "local_experiment_archive/runs/v5-study-certified/C/W2-r64/D1-T/Main-2/checkpoint-00040000.safetensors",
+        "sha256": "6a470ac0ab64b4f2b4a6a5ed92aca0ccb1e823b8f831b6d76794ecf23b9ed5b2",
+        "update": 40000,
+        "training_ledger_path": "local_experiment_archive/runs/v5-study-certified/C/W2-r64/D1-T/Main-2/training.sqlite",
+        "training_ledger_sha256": "9a1096daf4c5122c31a19c76c6619ffbb4701ca351af5eed141b5420f6f1dfe5"
+      },
+      {
+        "method": "Shuffled",
+        "training_seed_id": 0,
+        "path": "local_experiment_archive/runs/v5-study-certified/C/W2-r64/D1-T/Shuffled-0/checkpoint-00040000.safetensors",
+        "sha256": "1d8566e49d28f911fe84c598ed0a0cc3f3c100f160a64f0e08d7f4f91f9f7f06",
+        "update": 40000,
+        "training_ledger_path": "local_experiment_archive/runs/v5-study-certified/C/W2-r64/D1-T/Shuffled-0/training.sqlite",
+        "training_ledger_sha256": "2877b6fd743b40ff7bc980ffedd8e2c93e8ad4449c9042ded178b28bc91aea00"
+      },
+      {
+        "method": "Shuffled",
+        "training_seed_id": 1,
+        "path": "local_experiment_archive/runs/v5-study-certified/C/W2-r64/D1-T/Shuffled-1/checkpoint-00040000.safetensors",
+        "sha256": "0f9872582430e3b2dbe945af63bb18b6976b7369595d306a5fc0d5f618f00b03",
+        "update": 40000,
+        "training_ledger_path": "local_experiment_archive/runs/v5-study-certified/C/W2-r64/D1-T/Shuffled-1/training.sqlite",
+        "training_ledger_sha256": "6dab67dff31979ba36bf21139222e12fde0978775d26aac6bc088e315d69e3fd"
+      },
+      {
+        "method": "Shuffled",
+        "training_seed_id": 2,
+        "path": "local_experiment_archive/runs/v5-study-certified/C/W2-r64/D1-T/Shuffled-2/checkpoint-00040000.safetensors",
+        "sha256": "5eb32058b79b6da0f8c3a2c0518fc6084f0d44125ce94fbc28cbd788131de4ff",
+        "update": 40000,
+        "training_ledger_path": "local_experiment_archive/runs/v5-study-certified/C/W2-r64/D1-T/Shuffled-2/training.sqlite",
+        "training_ledger_sha256": "a6fc8c2e973b20de8ad159a5ac52be66d7a967c40ab617dc707b0bc9cb84ee44"
+      }
+    ],
+    "groups_path": "local_experiment_archive/runs/v5-study-certified/C/groups-W2-r64.json",
+    "groups_sha256": "8c36561479765dd353a2142619a97ba244d9a88f73ce3dce247021fd15ba3c3b"
+  },
+  "design": {
+    "window": "W2",
+    "rung": 64,
+    "q": 12,
+    "test_groups": 1024,
+    "trials": 393216,
+    "k": 100,
+    "methods": [
+      "Main",
+      "Shuffled",
+      "Random"
+    ],
+    "training_seed_ids": [
+      0,
+      1,
+      2
+    ],
+    "checkpoint_selection": "iid uniform with replacement once per trial; same selected seed for Main and Shuffled",
+    "target_sampling": "iid uniform with replacement independently per trial; shared by all three methods",
+    "main_analysis": "pooled trial differences; no post-stratification or balancing",
+    "training_updates_added": 0,
+    "sampling_batch": 1024,
+    "reverse_intervals": 32,
+    "nfe": 33,
+    "temperature": 1.0,
+    "precision": "float32",
+    "backend": "mlx",
+    "looks": 1,
+    "extensions": 0,
+    "old_outcomes_included": false,
+    "extra_mc_or_clp": false
+  },
+  "rng": {
+    "evaluation_seed": null,
+    "seed_draw_rule": "After immutable registration receipt, draw secrets.token_hex(32) once; log and commit before schedule generation. Never redraw.",
+    "namespace_fields": [
+      "F1 protocol",
+      "seed root",
+      "purpose",
+      "method",
+      "training seed id",
+      "global trial id",
+      "attempt id"
+    ],
+    "separate_purposes": [
+      "test-schedule",
+      "test-candidates",
+      "validation-preflight",
+      "calibration",
+      "implementation-fixture"
+    ],
+    "candidate_key_requirement": "Reuse the frozen V5 sampler and key derivation; include a new F1 protocol and root seed in every evaluation namespace. Verify no old namespace/ordinal identity is replayed. IID claims assume independent pseudorandom streams; a hash or new namespace is not a mathematical proof of independence."
+  },
+  "inference": {
+    "delta": 0.0025,
+    "family_alpha": 0.05,
+    "comparisons": [
+      "Random",
+      "Shuffled"
+    ],
+    "tails_per_comparison": 2,
+    "tail_alpha": 0.0125,
+    "method": "Maurer-Pontil 2009 Theorem 4 empirical Bernstein, range [-1,1]",
+    "log_factor": "ln(2 / 0.0125)",
+    "radius": "sqrt(2 * sample_variance * ln(160) / N) + 14 * ln(160) / (3 * (N-1))",
+    "clip_interval": [
+      -1,
+      1
+    ],
+    "strict_thresholds": true,
+    "positive_vs_zero_is_separate_flag": true,
+    "scope": "conditional on frozen models and fixed known test pool; not new-training-seed or new-window generalization"
+  },
+  "resources": {
+    "preflight_hours_cap": 4,
+    "evaluation_hours_cap": 48,
+    "safety_factor": 1.5,
+    "max_predicted_evaluation_hours": 32,
+    "disk_gib": 64,
+    "rss_gib": 64,
+    "gpu_gib": 64,
+    "minimum_free_disk_gib": 20,
+    "operational_pause_calendar_days_max": 7,
+    "preflight_learned_candidates_per_stream": 2097152,
+    "preflight_random_candidates": 1048576,
+    "failure_policy": "Terminal INCOMPLETE/INTEGRITY/RESOURCE outcome, never a scientific rejection; no sample-size reduction or cap increase after test starts.",
+    "preflight_checkpoint_seed_id": 1,
+    "preflight_warmup_seconds": 600
+  },
+  "gates_before_registration": [
+    "frozen sampler parity, namespace isolation, batch and resume invariance",
+    "old manifests and checkpoints unchanged",
+    "end-to-end validation-only timing and disk gate",
+    "production-path statistical fixture and calibration gate",
+    "recoverability and global trial identity gate",
+    "independent implementation review; reviewer named in registration receipt"
+  ],
+  "references": {
+    "confidence_bound": "https://www.learningtheory.org/colt2009/papers/012.pdf",
+    "preregistration": "https://help.osf.io/article/330-welcome-to-registrations"
+  }
+}

@@ -23,6 +23,7 @@ hash-inverse-validate = "diffusion_hash_inv.validation_cli:main"
 hash-inverse-g1 = "diffusion_hash_inv.positive_control:main"
 hash-inverse-study = "diffusion_hash_inv.study_cli:main"
 hash-inverse-v4 = "diffusion_hash_inv.study_v4:main"
+hash-inverse-v5 = "dhi_v5.study:main"
 
 [dependency-groups]
 dev = ["pytest>=8"]
