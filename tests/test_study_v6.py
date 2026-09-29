@@ -339,3 +339,120 @@ def test_prototype_and_strict_decoders():
         codecs.encode(payload, [4], "cgge", "R")
     with pytest.raises(FloatingPointError):
         codecs.decode(a * np.nan, [4], "cgge", "P")
+
+
+def run_metal(code, *args):
+    import os
+    import subprocess
+    import sys
+    available = subprocess.run([sys.executable, "-c", "import mlx.core as mx; a=mx.ones((64,64)); mx.eval(a@a); assert mx.default_device()==mx.gpu"], capture_output=True, text=True)
+    if available.returncode:
+        if os.environ.get("DHI_V6_REQUIRE_METAL") == "1":
+            pytest.fail("Required Metal unavailable: " + available.stderr)
+        pytest.skip("Metal unavailable")
+    result = subprocess.run([sys.executable, "-c", code, *map(str, args)], capture_output=True, text=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+    print(result.stdout, end="")
+
+
+@pytest.mark.metal
+def test_parameter_counts():
+    run_metal('''
+from dhi_v6.models import make_model, parameter_count
+expected = {"P-DISC":508668,"R-DISC":1252572,"P-G-BGV":910638,"R-G-BGV":910638,"P-G-CGGE":513326}
+for p, count in expected.items():
+    assert parameter_count(make_model(p,"A-Q",0)) == count
+assert parameter_count(make_model("P-DISC","S",0,"D1-T-L")) == 6415308
+''')
+
+
+@pytest.mark.metal
+def test_d1s_parity_with_v5():
+    run_metal('''
+import numpy as np
+from mlx.utils import tree_flatten
+from dhi_v5 import models as old
+from dhi_v6 import models, data
+reference=old.make_model("D1-S",("v6-parity",))
+model=models.make_model("P-DISC","A-Q",0)
+model.load_weights(tree_flatten(reference.parameters()))
+labels=np.array(data.synthetic_split()["acceptance"][:256])
+keys=models.candidate_keys(("A-Q","P-DISC","normal",0),np.arange(256))
+assert np.array_equal(old.sample(reference,labels,keys),models.sample_tokens(model,labels,keys))
+''')
+
+
+@pytest.mark.metal
+def test_g3u_forward_parity_with_v31():
+    run_metal('''
+import numpy as np
+import mlx.core as mx
+from mlx.utils import tree_flatten
+from diffusion_hash_inv.mlx_models import ImageUNet, LengthGaussianDiffusion
+from dhi_v6 import models, codecs, data
+for p,rep in (("P-G-BGV","bgv"),("P-G-CGGE","cgge")):
+    model=models.make_model(p,"A-Q",0)
+    reference=ImageUNet(codecs.SHAPES[rep],32,coordinates=True,condition_output=True,factorized_length=True)
+    reference.load_weights(tree_flatten(model.parameters()))
+    lengths=mx.array(np.tile(np.arange(4,32),3)[:64].astype(np.int32))
+    fixed,mask=models.structure(lengths,rep)
+    oldfixed,oldmask=LengthGaussianDiffusion(1000,prediction_type="sample",loss_regions=rep).structure(lengths)
+    cpu_fixed,cpu_mask=codecs.structure(np.asarray(lengths),rep)
+    assert np.array_equal(np.asarray(fixed),np.asarray(oldfixed)) and np.array_equal(np.asarray(mask),np.asarray(oldmask))
+    assert np.array_equal(np.asarray(fixed),cpu_fixed) and np.array_equal(np.asarray(mask),cpu_mask)
+    x=mx.random.normal((64,*codecs.SHAPES[rep]),key=mx.random.key(10))
+    t=mx.full((64,),.4)
+    c=mx.concatenate((mx.array(data.condition_bits(np.arange(64))),lengths[:,None]/31),axis=1)
+    assert np.array_equal(np.asarray(model(x,t,c)),np.asarray(reference(x,t,c)))
+''')
+
+
+@pytest.mark.metal
+def test_samplers_reference_and_invariance():
+    run_metal('''
+import numpy as np
+from dhi_v6 import models, data, codecs
+labels=np.array(data.synthetic_split()["acceptance"][:256])
+for p in ("P-DISC","R-DISC"):
+    model=models.make_model(p,"A-Q",0)
+    keys=models.candidate_keys(("A-Q",p,"normal",0),np.arange(256))
+    reference=models.sample_tokens_reference(model,labels,keys)
+    for batch in (64,128,256):
+        actual=np.concatenate([models.sample_tokens(model,labels[i:i+batch],keys[i:i+batch]) for i in range(0,256,batch)])
+        assert np.array_equal(actual,reference),(p,batch)
+for p in ("P-G-BGV","P-G-CGGE","R-G-BGV"):
+    model=models.make_model(p,"A-Q",0)
+    keys=models.candidate_keys(("A-Q",p,"normal",0),np.arange(256))
+    images,lengths=models.sample_images(model,labels,keys)
+    for batch in (64,128):
+        pieces=[models.sample_images(model,labels[i:i+batch],keys[i:i+batch]) for i in range(0,256,batch)]
+        assert np.array_equal(images,np.concatenate([x[0] for x in pieces])),(p,batch)
+        assert np.array_equal(lengths,np.concatenate([x[1] for x in pieces]))
+    reference,rl=models.sample_images_reference(model,labels[:64],keys[:64])
+    assert np.array_equal(lengths[:64],rl)
+    error=np.max(np.abs(reference-images[:64]))
+    assert error <= 1e-3,(p,error)
+    a=codecs.decode(reference,rl,model.representation,model.src)[0]
+    b=codecs.decode(images[:64],rl,model.representation,model.src)[0]
+    assert sum(x==y for x,y in zip(a,b))>=63,(p,error)
+model=models.make_model("P-DISC","S",0,"D1-T-L")
+keys=models.candidate_keys(("A-Q","scale","normal",0),np.arange(8))
+assert np.array_equal(models.sample_tokens(model,labels[:8],keys),models.sample_tokens_reference(model,labels[:8],keys))
+''')
+
+
+@pytest.mark.metal
+def test_clp_antisymmetry():
+    run_metal('''
+import numpy as np
+from dhi_v6 import models, data, codecs
+from dhi_v6.protocol import registration
+for p,spec in registration()["pipelines"].items():
+    model=models.make_model(p,"A-Q",0)
+    payload,lengths,labels,_=data.fresh_batch(("clp","A-Q","fixture",spec["source"],0),0,8,data.synthetic_split()["validation"],task="synthetic")
+    clean=data.encode(payload,lengths,spec["source"]) if spec["representation"]=="tokens" else codecs.encode(payload,lengths,spec["representation"],spec["source"])
+    keys=models.candidate_keys(("clp-corruption","A-Q","fixture",p,0),np.arange(4))
+    d=models.clp_pairs(model,clean,lengths,labels,keys)
+    opposite=models.clp_pairs(model,clean,lengths,labels.reshape(-1,2)[:,::-1].reshape(-1),keys)
+    assert np.array_equal(d,-opposite),p
+''')
