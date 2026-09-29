@@ -1,0 +1,210 @@
+"""등록값과 JSON 봉인. 공통 함수는 dhi_v5/protocol.py에서 복사했다."""
+import hashlib
+import importlib.metadata
+import json
+import os
+from pathlib import Path
+import platform
+import sys
+
+from . import MASTER_SEED, PROTOCOL
+
+
+def canonical(value):
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+
+
+def file_hash(path):
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as stream:
+        while chunk := stream.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def read_json(path):
+    path = Path(path)
+    seal = path.with_name(path.name + ".sha256")
+    if seal.exists() and seal.read_text().strip() != file_hash(path):
+        raise ValueError(f"Sealed JSON was modified: {path}")
+    return json.loads(path.read_text())
+
+
+def atomic_json(path, value):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + ".tmp")
+    with temporary.open("wb") as stream:
+        stream.write(canonical(value) + b"\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+    temporary.replace(path)
+
+
+def sealed_json(path, value):
+    path = Path(path)
+    if path.exists():
+        if read_json(path) != value:
+            raise ValueError(f"Refusing to change sealed artifact: {path}")
+    else:
+        atomic_json(path, value)
+    seal = path.with_name(path.name + ".sha256")
+    if not seal.exists():
+        seal.write_text(file_hash(path) + "\n")
+
+
+def registration():
+    return {
+        'adam': {'betas': [0.9, 0.999], 'bias_correction': True, 'eps': 1e-08, 'weight_decay': 0},
+        'backend': 'mlx',
+        'budget': {'look2_safety': 1.5, 'next_block_safety': 1.2},
+        'calibration_repetitions': 2000,
+        'caps_gib': {'disk': 64, 'free': 20, 'gpu': 64, 'rss': 64},
+        'caps_hours': {'A': 24,
+                       'A_repair': 12,
+                       'C': 80,
+                       'P': 10,
+                       'R': 36,
+                       'S': 10,
+                       'required': 114,
+                       'required_with_repair': 126},
+        'clp': {'common_draws_within_pair': True, 'draws': 8, 'gaussian_t': 'uniform-integer-0-999'},
+        'contrast_alpha': 0.05,
+        'contrasts': [['P-G-BGV', 'P-G-CGGE'], ['P-G-BGV', 'P-DISC'], ['P-G-CGGE', 'P-DISC'], ['R-G-BGV', 'R-DISC'],
+                      ['P-G-BGV', 'R-G-BGV'], ['P-DISC', 'R-DISC']],
+        'decoders': {'bgv': 'nearest-source-byte-prototype-on-4x4-block-means-tie-smallest',
+                     'cgge': 'nearest-glyph-prototype-mse-tie-smallest',
+                     'strict_diagnostic': {'bgv_bit_threshold': 0.5, 'cgge_max_mse': 0.1},
+                     'tokens': 'payload-states-only'},
+        'dev_selection': {'default_steps': 100,
+                          'duplicate_tolerance': 0.005,
+                          'joint_min': 231,
+                          'of': 256,
+                          'rule': 'smallest-steps-passing-joint-both-variants-and-duplicates-within-tolerance-of-100'},
+        'dtype': 'float32',
+        'generation': {'batch_multiple': 64, 'batch_options': [256, 1024, 2048]},
+        'groups': {'test': 1024, 'train': 2816, 'validation': 256},
+        'hash_gate': {'messages_per_source': 100000, 'rungs': [4, 5, 6, 7, 8, 10, 12, 16, 32, 64]},
+        'implementation': 'independent-v6',
+        'k': 100,
+        'ledger': {'commit_batches': 8,
+                   'commit_seconds': 30,
+                   'record_bytes': 36,
+                   'regeneration_batch': 64,
+                   'regeneration_fraction': 0.01},
+        'length_max': 31,
+        'length_min': 4,
+        'master_seed': MASTER_SEED,
+        'models': {'D1-S': {'embedding': 16,
+                            'grad_clip': None,
+                            'hidden': 128,
+                            'intervals': 32,
+                            'lr': 0.001,
+                            'nfe': 33,
+                            'parameters': {'P': 508668, 'R': 1252572},
+                            'warmup': 0},
+                   'D1-T-L': {'dim': 256,
+                              'ffn': 1024,
+                              'grad_clip': 1.0,
+                              'heads': 8,
+                              'intervals': 32,
+                              'layers': 8,
+                              'lr': 0.00075,
+                              'nfe': 33,
+                              'parameters': 6415308,
+                              'warmup': 1000},
+                   'G3-U': {'beta_end': 0.02,
+                            'beta_start': 0.0001,
+                            'condition_output': True,
+                            'coordinates': True,
+                            'diffusion_steps': 1000,
+                            'grad_clip': 1.0,
+                            'loss': 'length-ce-plus-uniform-payload-glyph-mse',
+                            'lr': 0.001,
+                            'parameters': {'bgv': 910638, 'cgge': 513326},
+                            'prediction': 'x0',
+                            'sampler': 'ddim-eta0',
+                            'sampling_steps_options': [25, 50, 100],
+                            'warmup': 1000,
+                            'width': 32,
+                            'x0_clip': [-1, 1]}},
+        'pipeline_order': ['P-G-BGV', 'P-G-CGGE', 'P-DISC', 'R-G-BGV', 'R-DISC'],
+        'pipelines': {'P-DISC': {'model': 'D1-S', 'representation': 'tokens', 'source': 'P'},
+                      'P-G-BGV': {'model': 'G3-U', 'representation': 'bgv', 'source': 'P'},
+                      'P-G-CGGE': {'model': 'G3-U', 'representation': 'cgge', 'source': 'P'},
+                      'R-DISC': {'model': 'D1-S', 'representation': 'tokens', 'source': 'R'},
+                      'R-G-BGV': {'model': 'G3-U', 'representation': 'bgv', 'source': 'R'}},
+        'profiling': {'burst_seconds': 60,
+                      'last_window_seconds': 300,
+                      'measure_seconds': 900,
+                      'tie_relative': 0.01,
+                      'train_timed_updates': 50,
+                      'train_warmup_updates': 10,
+                      'warmup_seconds': 600},
+        'protocol': PROTOCOL,
+        'qualification': {'acceptance': 512,
+                          'clp_pairs': 4096,
+                          'clp_z': 3.26,
+                          'joint_min': 461,
+                          'seeds': [0, 1, 2],
+                          'valid': 512,
+                          'wrong_max': 25},
+        'retry_limit': 1,
+        'sources': {'P': {'byte_max': 126, 'byte_min': 33, 'states': 94},
+                    'R': {'byte_max': 255, 'byte_min': 0, 'states': 256}},
+        'stage_c': {'alpha': 0.05,
+                    'alpha_share': [0.1, 0.4, 0.5],
+                    'block': 8192,
+                    'clp_pairs_per_seed': 65536,
+                    'delta': 0.005,
+                    'fallback_block': 6144,
+                    'family': {'controls': 2, 'pipelines': 5, 'sides': 2},
+                    'info_alpha': 0.01,
+                    'looks': 3,
+                    'seeds': [0, 1, 2]},
+        'stage_p': {'alpha': 0.01,
+                    'clp_pairs': 16384,
+                    'fallback_trials': 2048,
+                    'rung': 4,
+                    'seed': 0,
+                    'trials': 4096,
+                    'window': 'W1'},
+        'stage_r': {'alpha_one_sided': 0.025, 'seeds': [0, 1, 2], 'trials': 16384, 'window': 'W4'},
+        'stage_s': {'alpha_one_sided': 0.0005,
+                    'clp_pairs': 65536,
+                    'model': 'D1-T-L',
+                    'optional': True,
+                    'pipeline': 'P-DISC',
+                    'rung': 64,
+                    'seed': 0,
+                    'trials': 4096,
+                    'updates': 160000,
+                    'window': 'W3'},
+        'synthetic': {'P': 'uppercase-ASCII-hex-prefix-3',
+                      'R': 'nibble-byte-prefix-3',
+                      'acceptance': 512,
+                      'dev': 256,
+                      'diversity_candidates': 100,
+                      'diversity_conditions': 64},
+        'temperature': 1,
+        'tokens': {'P': {'eos': 95, 'mask': 96, 'pad': 94, 'vocab': 97},
+                   'R': {'eos': 257, 'mask': 258, 'pad': 256, 'vocab': 259}},
+        'training': {'batch': 256,
+                     'checkpoint_every': 4000,
+                     'diagnostic_clp_pairs': 256,
+                     'remediation_updates': 80000,
+                     'scale_updates': 160000,
+                     'updates': 40000},
+        'window_roles': {'forbidden': ['W2'], 'positive_control': 'W1', 'primary': 'W3', 'replication': 'W4'},
+        'windows': {'W1': 116, 'W2': 0, 'W3': 52, 'W4': 84},
+    }
+
+
+def source_manifest():
+    root = Path(__file__).parent
+    return {p.name: file_hash(p) for p in sorted(root.glob("*.py"))}
+
+
+def environment():
+    return {"python": sys.version, "platform": platform.platform(), "machine": platform.machine(),
+            "packages": {name: importlib.metadata.version(name) for name in ("numpy", "mlx")}}
