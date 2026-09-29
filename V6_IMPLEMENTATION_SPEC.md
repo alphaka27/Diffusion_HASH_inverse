@@ -705,6 +705,8 @@ look2(T_b)  = train_C + 2 × (gen_block + regen_block + verify_block) + clp_C
 | `test_stage_order_and_blinding` | C가 P·S보다 먼저, R은 감사된 `POSITIVE`에서만, `status`에 결과 필드 없음 |
 | `test_partial_report_is_not_rejection` | 미완료 보고서가 기각으로 표시되지 않음 |
 
+**Metal 테스트 규칙.** MLX가 필요한 테스트는 `@pytest.mark.metal`을 붙이고 V5처럼 subprocess로 실행한다. Metal을 쓸 수 없으면 skip하지만, 환경변수 `DHI_V6_REQUIRE_METAL=1`이면 skip 대신 실패한다. 구현 완료는 이 변수를 켠 실행에서 skip이 0개일 때만 인정한다. 샌드박스에서 Metal 테스트가 조용히 skip되어 통과처럼 보이는 것을 막기 위한 규칙이다.
+
 ---
 
 ## 18. 구현 순서와 완료 기준
@@ -716,7 +718,9 @@ look2(T_b)  = train_C + 2 × (gen_block + regen_block + verify_block) + clp_C
 | 3 | `runtime.py` 학습(segment, digest 저장소, 재개, 이어 학습) | G5·G6 게이트 통과 |
 | 4 | `runtime.py` 평가 stream, 원장, 검증기, 재생성 감사 | G8 게이트 통과 |
 | 5 | `statistics.py` 판정 엔진, calibration, 설계 스크립트 일치 | G9 게이트, 판정 테스트 통과 |
-| 6 | `study.py` 단계 실행기, 예산 계획, 노출 감사 v6, CLI, 보고서 | 단계 순서·블라인드·보고서 테스트 통과 |
+| 6 | `study.py` 단계 실행기, 예산 계획, 노출 감사 v6, CLI, 보고서, 사용 문서 `V6_CLI.md`(구현 결정 절 포함) | 단계 순서·블라인드·보고서 테스트 통과 |
 | 7 | 정식 A-impl 실행(`run --stage A --phase impl`) | `A-impl.json` PASS. 이후 계획 §14 순서대로 실행 |
 
 작업 1–6은 MD5 조건 데이터를 만들지 않는다. 작업 7 이후의 순서, cap, fallback은 계획을 따른다.
+
+로컬 Codex로 구현할 때의 phase 분할(위 작업 2를 codec과 모델로 나눈 7개 phase), 금지 사항, 실행 명령, 완료 기준, 요청 문구는 [CODEX_HANDOFF_V6.md](CODEX_HANDOFF_V6.md)에 있다.
