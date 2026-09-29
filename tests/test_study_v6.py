@@ -835,13 +835,23 @@ def test_terminal_report_sentences(tmp_path):
 
 
 def test_partial_report_is_not_rejection(tmp_path):
-    for name, kwargs in {"no-p": {"stages": "CRS"}, "no-r": {"positive": ["P-DISC"], "stages": "CPS"},
-                         "no-c": {"stages": "PS"}}.items():
+    # Before C (and R for an audited POSITIVE) the headline is not decided and nothing reads as rejection.
+    for name, kwargs in {"no-r": {"positive": ["P-DISC"], "stages": "CPS"}, "no-c": {"stages": "PS"}}.items():
         study = _terminal_fixture(tmp_path / name, **kwargs)
         decision = study.report(tmp_path / name)
         text = (tmp_path / name / "FINAL_REPORT_KO.md").read_text()
         assert (decision["status"], decision["headline"]) == ("INCOMPLETE", "NOT_FINAL")
         assert "REJECTED" not in text and "REJECTED" not in json.dumps(decision) and "NOT_FINAL" in text
+    # After C and R the headline is final while P and S are pending, and it equals the terminal headline.
+    study = _terminal_fixture(tmp_path / "headline", stages="CR")
+    early = study.report(tmp_path / "headline")
+    text = (tmp_path / "headline" / "FINAL_REPORT_KO.md").read_text()
+    assert (early["status"], early["headline"], early["pending"]) == ("HEADLINE_FINAL", "FINAL_REJECTED", ["P", "S"])
+    assert "HEADLINE_FINAL" in text and "Stage P는 진행 중이다" in text and "Stage P)는 진행 중이다" in text
+    full = _terminal_fixture(tmp_path / "full").report(tmp_path / "full")
+    assert (full["status"], full["pending"]) == ("TERMINAL", [])
+    assert full["headline"] == early["headline"]
+    assert {p: v["intervals"] for p, v in full["pipelines"].items()} == {p: v["intervals"] for p, v in early["pipelines"].items()}
     root = tmp_path / "budget"
     study = _terminal_fixture(root, stages="")
     sealed_json(root / "failure.json", {"stage": "A", "reason": "NOT_ESTABLISHED_BY_BUDGET"})
@@ -868,12 +878,14 @@ def test_stage_order_and_blinding(tmp_path, monkeypatch, capsys):
         monkeypatch.setattr(study, "stage_c", lambda r: calls.append("C") or c)
         for name in "RPS":
             monkeypatch.setattr(study, f"stage_{name.lower()}", lambda r, name=name: calls.append(name))
-        monkeypatch.setattr(study, "report", lambda r: calls.append("report") or {"status": "TERMINAL", "headline": "x"})
+        monkeypatch.setattr(study, "report", lambda r: calls.append("report") or {"status": "TERMINAL", "headline": "x",
+                                                                                   "pending": []})
         study.run_all(root)
         return list(calls)
-    assert scenario("POSITIVE", True) == ["A", "C", "R", "P", "S", "report"]
-    assert scenario("POSITIVE", False) == ["A", "C", "P", "S", "report"]
-    assert scenario("REJECTED_BOUNDED", False) == ["A", "C", "P", "S", "report"]
+    # The headline report follows C (and R); P and S come after it.
+    assert scenario("POSITIVE", True) == ["A", "C", "R", "report", "P", "S", "report"]
+    assert scenario("POSITIVE", False) == ["A", "C", "report", "P", "S", "report"]
+    assert scenario("REJECTED_BOUNDED", False) == ["A", "C", "report", "P", "S", "report"]
     assert scenario("REJECTED_BOUNDED", False, q=()) == ["A", "report"]
     monkeypatch.undo()
     root = tmp_path / "order"
@@ -1091,6 +1103,9 @@ assert c["clp"]["P-DISC"]["pooled"]["trials"] == 3 * 64 and audit["INFO_64"] == 
 assert study.stage_c(root) == c and study.replication_entrants(c) == ["P-DISC"]
 r = study.stage_r(root)
 assert r["entrants"] == ["P-DISC"] and r["decisions"]["P-DISC"] in ("SUPPORTED", "NOT_ESTABLISHED_NOT_REPLICATED")
+early = study.report(root)
+assert (early["status"], early["pending"]) == ("HEADLINE_FINAL", ["P", "S"])
+assert early["pipelines"]["P-DISC"]["C3"] == r["decisions"]["P-DISC"]
 p = study.stage_p(root)
 assert not p["partial"] and set(p["pipelines"]["P-DISC"]) >= {"GEN_4", "INFO_4", "comparisons", "success_at_100"}
 s = study.stage_s(root)
@@ -1098,6 +1113,7 @@ assert not s["skipped"] and not s["partial"] and set(s["success_at_100"]) == {"M
 assert (root / "S/runs/P-DISC-D1-S/Main-0/u2/complete.json").exists()
 decision = study.report(root)
 assert decision["status"] == "TERMINAL" and decision["pipelines"]["P-DISC"]["C3"] == r["decisions"]["P-DISC"]
+assert decision["headline"] == early["headline"] and decision["pending"] == []
 assert decision["pipelines"]["P-DISC"]["C4"]["rho"] == 20.0 and decision["pipelines"]["P-DISC"]["audit"]["passed"]
 text = (root / "FINAL_REPORT_KO.md").read_text()
 assert "Stage R(W4 재현)" in text and "## 8. Stage S" in text

@@ -59,12 +59,13 @@ Q가 비면 `prof2` 이후를 건너뛰고 연구가 끝난다(`report`). 동결
 ```sh
 caffeinate -i hash-inverse-v6 run --root "$ROOT" --stage C
 caffeinate -i hash-inverse-v6 run --root "$ROOT" --stage R   # 감사를 통과한 POSITIVE가 없으면 빈 R.json만 봉인
+hash-inverse-v6 report --root "$ROOT"                        # 종합 판정 확정(HEADLINE_FINAL)
 caffeinate -i hash-inverse-v6 run --root "$ROOT" --stage P
 caffeinate -i hash-inverse-v6 run --root "$ROOT" --stage S   # 예산 계획이 S를 생략하면 skipped로 봉인
-hash-inverse-v6 report --root "$ROOT"
+hash-inverse-v6 report --root "$ROOT"                        # 최종 보고서(TERMINAL)
 ```
 
-`run --stage all`은 A → C → (R) → P → S → report를 한 번에 실행한다.
+종합 판정은 C(감사를 통과한 POSITIVE가 있으면 R까지)가 끝나면 확정된다. P·S는 보조 단계로 그 뒤에 실행한다. `run --stage all`은 A → C → (R) → 종합 판정 보고 → P → S → 최종 보고를 한 번에 실행하며, C(와 R) 뒤에 `{"status": "HEADLINE_FINAL", "headline": …}`를 출력한다. 단계를 따로 실행하면 출력의 `headline_ready`로 판정 확정 여부를 알 수 있다.
 
 ### `HALT`와 cap 승인
 
@@ -88,7 +89,7 @@ hash-inverse-v6 run --root "$ROOT" --stage A --phase freeze
 | `run --root R --stage {A,C,R,P,S,all} [--phase …]` | 단계 실행. `--phase`는 A에만 쓴다 |
 | `approve-caps --root R --stage C --hours N --reason TEXT` | `HALT` 뒤, MD5 데이터 전에만 허용. C 증액만 가능하며 필수 경로 상한도 같이 늘어난다 |
 | `status --root R` | 진행 정보만 출력. 성공률·구간·판정은 출력하지 않는다 |
-| `report --root R` | `decision.json`, `FINAL_REPORT_KO.md`. 미완료면 `INCOMPLETE / NOT_FINAL` |
+| `report --root R` | `decision.json`, `FINAL_REPORT_KO.md`. C(필요하면 R) 전에는 `INCOMPLETE / NOT_FINAL`, 그 뒤 P·S 전에는 `HEADLINE_FINAL`(종합 판정 확정, `pending`에 남은 단계), 모두 끝나면 `TERMINAL` |
 | `check --root R [--quick]` | A-impl 게이트. `--quick`은 개발용이며 PASS를 만들지 않는다 |
 
 종료 코드는 0 정상, 1 오류, 2 예산 종결(A 단계 cap 소진, `failure.json`), 3 `HALT`다. C·R·P·S가 cap 때문에 부분 결과로 봉인되면 exit 0이고, 출력의 `budget_stop`(단계 실행) 또는 `budget_stops`(`--stage all`)로 알린다. V6 표지(`v6-study.json`)가 없는 비어 있지 않은 디렉터리는 거부한다. `failure.json`이 있으면 `run`을 거부한다. 한 root에는 한 프로세스만 쓸 수 있다(`.lock`).
@@ -113,7 +114,7 @@ hash-inverse-v6 run --root "$ROOT" --stage A --phase freeze
 
 - **잠자기 방지.** 긴 단계는 `caffeinate -i`로 실행한다. GPU 작업은 한 번에 하나만 돌린다.
 - **재개.** 같은 명령을 다시 실행하면 봉인된 단계는 검증한 뒤 건너뛴다. 중단된 run·stream은 같은 identity로 한 번만 재개한다. 같은 run이나 stream이 두 번째로 중단되면 무결성 실패다.
-- **블라인드.** 실행 중 CLI는 `{"look": j, "action": "continue" | "stop"}`만 출력한다. `status`도 진행 정보만 보여 준다. 연구가 끝나기 전에는 `C/looks/`, `*/eval/*/block-*.json`, `C.json`을 열지 않는다. 이 파일들에 결과가 들어 있다.
+- **블라인드.** C 실행 중 CLI는 `{"look": j, "action": "continue" | "stop"}`만 출력한다. `status`는 언제나 진행 정보만 보여 준다. 종합 판정이 확정되기 전(C, 필요하면 R까지)에는 `C/looks/`, `*/eval/*/block-*.json`, `C.json`을 열지 않는다. 이 파일들에 결과가 들어 있다. 판정이 확정된 뒤에는 `report`로 결과를 본다.
 - **봉인.** `.sha256`이 있는 JSON을 고치면 읽기가 거부된다. 동결 뒤에 소스·환경·registration·A 산출물이 바뀌면 C·R·P·S 실행이 거부된다. 코드 수정이 필요하면 새 root에서 A-impl부터 다시 한다.
 - **저장량.** 원장은 후보당 36 B다. Q가 5개일 때 C 블록 하나는 36 stream × 819,200행 ≈ 1.06 GB다. 학습 digest는 source-seed마다 40,000 update 기준 164 MB다. 저장량 cap은 64 GiB이고 최소 여유 디스크는 20 GiB다.
 - **처리량 참고(fixture 측정, batch 256).** D1-S stream은 검증과 재생성 감사를 포함해 약 10,000 후보/초, Random은 약 128,000 후보/초였다. D1-T-L은 약 260 후보/초로 느리다. S의 GEN(Main·MC 819,200 후보)은 이 속도면 1시간에 가깝다. 정식 값은 A-prof-1이 잰다.
@@ -145,6 +146,11 @@ hash-inverse-v6 run --root "$ROOT" --stage A --phase freeze
 - **CLP.** CLP_64는 Main seed별 65,536쌍을 따로 봉인하고, 세 seed를 모은 z > 2.8782이면 `INFO_64`다. A-Q에서 생성은 통과했는데 CLP만 실패한 파이프라인(계획 §5.3)은 CLP_64와 CLP_4를 계산하지 않고 `disabled`로 표시한다.
 - **Artifact 감사(계획 §6.5).** C `POSITIVE` 파이프라인의 모든 성공 후보를 hashlib으로 다시 해시(W3)한다. 추가로 alphabet, 학습 digest 조회, 봉인 산출물 hash를 확인하고, 상위 1% target 비중, CLP 방향, hit-only를 기록한다. 감사에 실패하면 `NOT_ESTABLISHED_INTEGRITY`다. 원인을 고친 뒤의 재생성은 자동화하지 않았다.
 - **P와 S.** P는 Q 전체의 seed 0을 쓴다(C에서 무결성 때문에 빠진 파이프라인 포함). S는 C의 W3 split을 쓰고, 생성 batch는 A-prof-1의 D1-T-L B*다.
-- **보고서.** `decision.json`은 명세 §12.14 구조에 `batch`, `audit`, `replication`, `stage_c`, `Q`를 더한다. `failures`는 목록이다. `FINAL_REPORT_KO.md`는 계획 §15.3 구성을 따르고, 결론 문장은 §15.2 사전 문장에 값을 채운다.
+- **보고서.** `decision.json`은 명세 §12.14 구조에 `batch`, `audit`, `replication`, `stage_c`, `Q`, `pending`, `release`를 더한다. `failures`는 목록이다. `FINAL_REPORT_KO.md`는 계획 §15.3 구성을 따르고, 결론 문장은 §15.2 사전 문장에 값을 채운다.
+- **종합 판정 선보고(2026-09-30 사용자 결정).** 명세 §12.14의 상태는 `TERMINAL`과 `INCOMPLETE` 둘이지만, 그 사이에 `HEADLINE_FINAL`을 둔다. 결론까지의 시간을 줄이기 위해서다.
+  - 종합 판정은 C1·C3와 R로만 정해진다. 따라서 C(감사를 통과한 POSITIVE가 있으면 R까지)가 봉인되면 확정된다.
+  - P·S는 동결된 규칙대로 자동 실행되는 보조 단계라, 판정을 먼저 공개해도 그 결과에 영향을 줄 수 없다. 판정 규칙과 등록값은 바꾸지 않았다.
+  - `HEADLINE_FINAL` 보고서는 C2(P)와 S를 "진행 중"으로 표시한다. FINAL_REJECTED 결론 문장의 r=4 구절은 P가 끝난 뒤 최종 보고서에서 채운다.
+  - 측정 기준으로 종합 판정이 12–14시간 먼저 나온다(S_G 25, 효과 없음 기준: A 시작 후 약 61–70시간).
 - **Status.** 산출물 존재 여부, stream 블록 수, 완료 행 수, 최근 처리량(최근 봉인 블록 3개), C look 봉인 수, look 3까지의 ETA 상한, stage별 사용·남은 시간, halt, failure만 출력한다. `halt`는 현재 `budget-plan.json`의 결정을 따른다.
 - **`check`(정식).** `implementation-check.json`만 쓰고 `A-impl.json`은 만들지 않는다.

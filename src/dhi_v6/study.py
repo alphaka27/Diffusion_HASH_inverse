@@ -33,6 +33,7 @@ FORWARD_SECONDS = 5
 INTEGRITY_ERRORS = (ValueError, RuntimeError, FloatingPointError)
 BLOCK_RESULT = re.compile(r"block-\d+\.json")
 BLINDING = {"procedure": "automatic looks; CLI shows continue/stop only"}
+RELEASE = "headline after C (and R when an audited POSITIVE exists); P and S follow as supplementary stages"
 
 
 class Halt(RuntimeError):
@@ -1070,6 +1071,14 @@ def terminal(root):
     return (root / "P.json").exists() and (root / "S.json").exists()
 
 
+def headline_ready(root):
+    """The registered headline depends only on C1, C3 and R; P and S cannot change it."""
+    if terminal(root):
+        return True
+    c = optional(root, "C.json")
+    return c is not None and (not replication_entrants(c) or (root / "R.json").exists())
+
+
 def pipeline_verdicts(root):
     record, c, r = optional(root, "A.json"), optional(root, "C.json"), optional(root, "R.json")
     verdicts = {}
@@ -1126,13 +1135,16 @@ def failure_list(root):
 
 def report(root):
     root = Path(root)
-    if not terminal(root):
+    if not headline_ready(root):
         decision = {"status": "INCOMPLETE", "headline": "NOT_FINAL", "progress": status(root), "blinding": BLINDING}
         atomic_json(root / "decision.json", decision)
         lines = ["# V6 최종 연구 보고서", "", "실행 상태: INCOMPLETE", "종합 판정: NOT_FINAL", "",
-                 "연구가 끝나기 전에는 판정과 구간을 공개하지 않는다(블라인드). 미완료 상태를 효과 없음이나 기각으로 해석하지 않는다."]
+                 "종합 판정은 C(감사를 통과한 POSITIVE가 있으면 R까지)가 끝나야 확정된다. 그 전에는 판정과 구간을 공개하지 "
+                 "않는다(블라인드). 미완료 상태를 효과 없음이나 기각으로 해석하지 않는다."]
         (root / "FINAL_REPORT_KO.md").write_text("\n".join(lines) + "\n")
         return decision
+    done = terminal(root)
+    pending = [] if done else [s for s in ("P", "S") if not (root / f"{s}.json").exists()]
     record, c = optional(root, "A.json") or {}, optional(root, "C.json") or {}
     p_stage, r_stage, s_stage = optional(root, "P.json") or {}, optional(root, "R.json"), optional(root, "S.json")
     verdicts = pipeline_verdicts(root)
@@ -1155,7 +1167,8 @@ def report(root):
             "C4": c4.get(p, {"decision": "NOT_EVALUATED"}), "quality": quality(c.get("metrics", {}).get(p), p)}
     budget = optional(root, "budget.json") or {"seconds": {}}
     plan = optional(root, "budget-plan.json")
-    decision = {"status": "TERMINAL", "headline": st.headline([verdicts[p] for p in PIPELINES]), "Q": record.get("Q", []),
+    decision = {"status": "TERMINAL" if done else "HEADLINE_FINAL", "pending": pending, "release": RELEASE,
+                "headline": st.headline([verdicts[p] for p in PIPELINES]), "Q": record.get("Q", []),
                 "pipelines": pipelines, "contrasts": c.get("contrasts", []),
                 "stage_c": {k: c.get(k) for k in ("block", "budget_stop", "clp_partial")},
                 "stage_r": r_stage, "stage_s": s_stage,
@@ -1215,7 +1228,8 @@ def conclusion(decision, record):
         bounds = "; ".join(f"{p} U_R {pp(rows[p]['intervals']['Random']['upper'])}, U_S "
                            f"{pp(rows[p]['intervals']['Shuffled']['upper'])}" for p in PIPELINES)
         gen4 = [p for p, v in rows.items() if v["C2"] and v["C2"].get("GEN_4")]
-        structure = (f"step-reduced MD5 r=4에서는 {', '.join(gen4)}이(가) 구조를 이용했다" if gen4
+        structure = ("step-reduced MD5 r=4 양성 대조(Stage P)는 진행 중이다" if "P" in decision["pending"] else
+                     f"step-reduced MD5 r=4에서는 {', '.join(gen4)}이(가) 구조를 이용했다" if gen4
                      else "step-reduced MD5 r=4에서 구조를 이용한 파이프라인은 없었다")
         return ("Gaussian BGV, Gaussian CGGE, Discrete token 표현과 Printable, Random Bytes source로 구성한 5개 파이프라인 "
                 "모두에서, 해시 조건 diffusion 생성의 Success@100 이득은 사전 최소 관심 효과 0.5%p 미만으로 배제되었다"
@@ -1237,13 +1251,17 @@ def render_report(root, decision, record, p_stage, s_stage):
     """Plan §15.3 layout."""
     rows = decision["pipelines"]
     prof1, prof2 = optional(root, "A-prof-1.json"), optional(root, "A-prof-2.json")
-    lines = ["# V6 최종 연구 보고서", "", "실행 상태: TERMINAL", f"종합 판정: **{decision['headline']}**", "",
+    pending = decision["pending"]
+    state = ("TERMINAL" if not pending else
+             f"HEADLINE_FINAL (종합 판정 확정. 보조 단계 {'·'.join(pending)}가 진행 중이며, 끝나면 이 보고서가 갱신된다)")
+    lines = ["# V6 최종 연구 보고서", "", f"실행 상태: {state}", f"종합 판정: **{decision['headline']}**", "",
              conclusion(decision, record), "",
              "## 1. 최종 결론 카드", "", "| 파이프라인 | C1 기계 | C2 구조 이용(r=4) | C3 연구 가설 | C4 계산 우위 |",
              "|---|---|---|---|---|"]
     for p, v in rows.items():
         c2 = v["C2"]
-        c2_text = "—" if not c2 else f"GEN_4 {yes(c2['GEN_4'])}, INFO_4 {yes(c2['INFO_4'])}"
+        c2_text = ("진행 중" if "P" in pending and v["C1"] == "PASS" else "—" if not c2
+                   else f"GEN_4 {yes(c2['GEN_4'])}, INFO_4 {yes(c2['INFO_4'])}")
         lines.append(f"| {p} | {v['C1']} | {c2_text} | {v['C3']} | {v['C4'].get('decision')} |")
     lines += ["", "## 2. 버전별 결산과 처리량", "",
               "버전별 결산과 V5 부분 결과(C1 PASS, C3 NOT_ESTABLISHED_BY_BUDGET)는 RESEARCH_PLAN_V6.md §1을 따른다.", ""]
@@ -1294,7 +1312,9 @@ def render_report(root, decision, record, p_stage, s_stage):
             lines.append(f"| {p} | {yes(v['GEN_4'])} | {'제외' if v['INFO_4_disabled'] else yes(v['INFO_4'])} | "
                          f"{interval_text(v['comparisons']['Random'])} | {interval_text(v['comparisons']['MC'])} | "
                          f"{'—' if z is None else f'{z:.2f}'} |")
-    if p_stage.get("partial") or not p_stage:
+    if "P" in pending:
+        lines.append("Stage P는 진행 중이다.")
+    elif p_stage.get("partial") or not p_stage:
         lines.append("Stage P는 예산 때문에 부분 측정되었거나 실행되지 않았다.")
     lines += ["", "## 6. C5 파이프라인 대비", "", "| 대비 | 대조 | 추정 [구간] | 분류 |", "|---|---|---|---|"]
     for row in decision["contrasts"]:
@@ -1308,7 +1328,9 @@ def render_report(root, decision, record, p_stage, s_stage):
     if not measured:
         lines.append("A-prof-1 처리량이나 Stage C 후보 수가 없어 계산하지 않았다.")
     lines += ["", "## 8. Stage S (D1-T-L 규모 탐침)", ""]
-    if not s_stage:
+    if "S" in pending:
+        lines.append("진행 중이다.")
+    elif not s_stage:
         lines.append("실행되지 않았다.")
     elif s_stage.get("skipped"):
         lines.append(f"생략: {s_stage['reason']}.")
@@ -1377,6 +1399,9 @@ def run_all(root):
         c = stage_c(root)
         if replication_entrants(c):
             stage_r(root)
+        # The headline is final once C (and R) are sealed; P and S follow as supplementary stages.
+        decision = report(root)
+        emit({"status": decision["status"], "headline": decision["headline"], "pending": decision["pending"]})
         stage_p(root)
         stage_s(root)
     return report(root)
@@ -1453,7 +1478,8 @@ def main(argv=None):
                     emit({"stage": "A", "phase": args.phase, "completed": True})
                 else:
                     {"C": stage_c, "R": stage_r, "P": stage_p, "S": stage_s}[args.stage](root)
-                    emit({"stage": args.stage, "completed": True, "budget_stop": args.stage in budget_stops(root)})
+                    emit({"stage": args.stage, "completed": True, "budget_stop": args.stage in budget_stops(root),
+                          "headline_ready": headline_ready(root)})
             except Halt as error:
                 emit({"halt": str(error)})
                 return 3
