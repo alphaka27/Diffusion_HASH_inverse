@@ -456,3 +456,53 @@ for p,spec in registration()["pipelines"].items():
     opposite=models.clp_pairs(model,clean,lengths,labels.reshape(-1,2)[:,::-1].reshape(-1),keys)
     assert np.array_equal(d,-opposite),p
 ''')
+
+
+@pytest.mark.metal
+def test_training_resume_and_continuation(tmp_path):
+    run_metal('''
+import sys
+from pathlib import Path
+import numpy as np
+from mlx.utils import tree_flatten
+from dhi_v6 import runtime, data
+from dhi_v6.protocol import read_json
+root=Path(sys.argv[1])
+def equal(a,b):
+    for (ka,va),(kb,vb) in zip(tree_flatten(a.parameters()),tree_flatten(b.parameters()),strict=True):
+        assert ka==kb and np.array_equal(np.asarray(va),np.asarray(vb)),ka
+for p in ("P-DISC","R-DISC","P-G-BGV","P-G-CGGE"):
+    kwargs=dict(pipeline=p,stage="A-Q",seed_id=0,groups=data.synthetic_split(),task="synthetic",batch_size=8,checkpoint_every=2,diagnostic_pairs=2)
+    direct=runtime.train(root/p/"direct",updates=8,**kwargs)
+    original=runtime.save_checkpoint
+    def interrupted(folder,model,optimizer,update):
+        original(folder,model,optimizer,update)
+        if update==2: raise InterruptedError("checkpoint interruption")
+    runtime.save_checkpoint=interrupted
+    try:
+        runtime.train(root/p/"resumed",updates=4,**kwargs)
+        raise AssertionError("not interrupted")
+    except InterruptedError: pass
+    finally: runtime.save_checkpoint=original
+    resumed=runtime.train(root/p/"resumed",updates=4,**kwargs)
+    four=runtime.train(root/p/"four",updates=4,**kwargs)
+    equal(resumed,four)
+    continued=runtime.train(root/p/"continued",updates=8,resume_from=root/p/"four",**kwargs)
+    equal(direct,continued)
+    assert read_json(root/p/"resumed/attempt.json")["retries"]==1
+    assert read_json(root/p/"continued/contract.json")["resume_from"]["update"]==4
+# The same source shares W1 r=64 fixture digests across two actual pipelines.
+groups=data.split("W1",64)
+kwargs=dict(stage="A-prof",seed_id=0,groups=groups,task="md5",window="W1",updates=2,batch_size=8,checkpoint_every=2,diagnostic_pairs=2,stream_root=root/"streams")
+for p in ("P-DISC","P-G-BGV"):
+    runtime.train(root/"shared"/p,p,**kwargs)
+a=runtime.verify_training(root/"shared/P-DISC")["digest_segments"]
+b=runtime.verify_training(root/"shared/P-G-BGV")["digest_segments"]
+assert a==b and len(a)==1
+path=Path(next(iter(a)))
+arr=np.load(path); arr[0]=np.void(bytes(16)); runtime.atomic_array(path,value=arr)
+try:
+    runtime.train(root/"shared/P-G-CGGE","P-G-CGGE",**kwargs)
+    raise AssertionError("digest mismatch not caught")
+except ValueError as e: assert "digest mismatch" in str(e)
+''', tmp_path)
