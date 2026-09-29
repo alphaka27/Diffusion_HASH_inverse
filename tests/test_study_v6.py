@@ -506,3 +506,83 @@ try:
     raise AssertionError("digest mismatch not caught")
 except ValueError as e: assert "digest mismatch" in str(e)
 ''', tmp_path)
+
+
+def test_ledger_commit_resume_tamper_regeneration(tmp_path):
+    from dhi_v6 import runtime
+    assert runtime.RECORD.itemsize == 36
+    assert [runtime.RECORD.fields[k][1] for k in runtime.RECORD.names] == [0, 31, 32, 33, 35]
+    targets = np.array(data.split("W1", 64)["validation"][:128])
+    options = dict(stage="A-prof", source="P", method="Random", seed_id=0, batch=256)
+    summary, result = runtime.evaluate_block(tmp_path / "direct", 1, targets, **options)
+    class Stop:
+        calls = 0
+        def check(self):
+            self.calls += 1
+            if self.calls == 12:
+                raise InterruptedError("partial block")
+    with pytest.raises(InterruptedError):
+        runtime.evaluate_block(tmp_path / "resumed", 1, targets, budget=Stop(), **options)
+    assert read_json(tmp_path / "resumed/block-1.commit.json")["committed_rows"] == 2048
+    resumed, _ = runtime.evaluate_block(tmp_path / "resumed", 1, targets, **options)
+    assert np.array_equal(summary, resumed)
+    assert (tmp_path / "direct/block-1.bin").read_bytes() == (tmp_path / "resumed/block-1.bin").read_bytes()
+    records = np.memmap(tmp_path / "resumed/block-1.bin", dtype=runtime.RECORD, mode="r+")
+    records["flags"][0] ^= 2
+    records.flush()
+    with pytest.raises(ValueError, match="flags"):
+        runtime.verify_ledger(tmp_path / "resumed/block-1.bin", targets, result["metadata"])
+    records["flags"][0] ^= 2
+    namespace = result["metadata"]["namespace"]
+    all_indices = np.arange(len(records), dtype=np.uint64)
+    chosen = all_indices[data.key_words(("regen-audit", namespace, 1), all_indices)[:, 1] % 100 == 0]
+    index = int(chosen[0])
+    records["payload"][index, 0] = 33 if records["payload"][index, 0] != 33 else 34
+    records.flush()
+    def generate(indices):
+        p, n = data.prior_candidates(namespace, indices, "P")
+        return data.messages(p, n), None, None
+    with pytest.raises(ValueError, match="Regeneration"):
+        runtime.regeneration_audit(tmp_path / "resumed/block-1.bin", namespace, 1, 0, len(records), generate)
+    meta = {"source": "P", "task": "synthetic", "rung": 64, "window": "W1", "method": "Random"}
+    ledger = runtime.Ledger(tmp_path / "fixture", 1, meta, [0, 0], batch=3, k=3)
+    ledger.append(0, [b"000!", b"000!", None])
+    ledger.append(3, [b"FFFF", b"000!", b"~~~~"])
+    ledger.commit()
+    ledger.close()
+    trials, metrics = runtime.verify_ledger(ledger.path, [0, 0], meta, k=3)
+    assert metrics["rows"] == 6 and metrics["hits"] == 3 and metrics["duplicates"] == 1
+    assert trials["at100"].tolist() == [1, 1] and trials["first"].tolist() == [0, 1]
+    training = runtime.message_digests([b"000!"])
+    ledger = runtime.Ledger(tmp_path / "match", 1, meta, [0], batch=1, k=1, training=training)
+    ledger.append(0, [b"000!"])
+    ledger.commit(); ledger.close()
+    with pytest.raises(ValueError, match="overlaps"):
+        runtime.verify_ledger(ledger.path, [0], meta, k=1, training=training)
+    with pytest.raises(ValueError):
+        runtime.trial_schedule(tmp_path / "trials.json", "A-prof", "W1", 64, targets, [], 128)
+
+
+@pytest.mark.metal
+def test_ledger_model_resume_and_regeneration(tmp_path):
+    run_metal('''
+import sys
+from pathlib import Path
+import numpy as np
+from dhi_v6 import runtime, data
+root=Path(sys.argv[1])
+model=runtime.train(root/"train","P-DISC","A-Q",0,data.synthetic_split(),updates=2,task="synthetic",batch_size=8,checkpoint_every=2,diagnostic_pairs=2)
+targets=runtime.trial_schedule(root/"trials.json","A-Q","W1",64,data.synthetic_split()["validation"],[root/"train"],64)
+kwargs=dict(stage="A-Q",source="P",method="Main",seed_id=0,pipeline="P-DISC",model=model,task="synthetic",batch=64,checkpoint=runtime.verify_training(root/"train")["checkpoint"])
+a,_=runtime.evaluate_block(root/"direct",1,targets,**kwargs)
+class Stop:
+    n=0
+    def check(self):
+        self.n+=1
+        if self.n==10: raise InterruptedError()
+try: runtime.evaluate_block(root/"resumed",1,targets,budget=Stop(),**kwargs)
+except InterruptedError: pass
+b,_=runtime.evaluate_block(root/"resumed",1,targets,**kwargs)
+assert np.array_equal(a,b)
+assert (root/"direct/block-1.bin").read_bytes()==(root/"resumed/block-1.bin").read_bytes()
+''', tmp_path)

@@ -231,3 +231,277 @@ def train(folder, pipeline, stage, seed_id, groups, *, updates=40000, method="Ma
         "diagnostics": diagnostics, "digest_segments": digest_manifest, "work": read_json(folder / "work.json"),
         "md5_calls": read_json(folder / "work.json").get("md5_calls", 0)})
     return model
+
+
+RECORD = np.dtype([("payload", "u1", (31,)), ("length", "u1"), ("flags", "u1"),
+                   ("margin", "<f2"), ("reserved", "u1")], align=False)
+TRIAL = np.dtype([("at1", "u1"), ("at10", "u1"), ("at100", "u1"), ("hits", "u1"),
+                  ("first", "u1"), ("duplicates", "u1"), ("training_matches", "u1")])
+
+
+def training_index(folders):
+    paths = {}
+    for folder in folders:
+        paths.update(verify_training(folder)["digest_segments"])
+    return np.unique(np.concatenate([np.load(p, allow_pickle=False) for p in paths])) if paths else np.array([], dtype="V16")
+
+
+def lookup_digests(digests, training):
+    if not len(training):
+        return np.zeros(len(digests), dtype=bool)
+    positions = np.searchsorted(training, digests)
+    return (positions < len(training)) & (training[np.minimum(positions, len(training) - 1)] == digests)
+
+
+def candidate_records(messages, targets, metadata, training, margins=None, strict=None):
+    records = np.zeros(len(messages), dtype=RECORD)
+    records["margin"] = np.nan if margins is None else margins
+    valid = np.array([data.valid(m, metadata["source"]) for m in messages])
+    for i, message in enumerate(messages):
+        if message is not None and len(message) <= 31:
+            records["length"][i] = len(message)
+            records["payload"][i, :len(message)] = np.frombuffer(message, dtype=np.uint8)
+    hit = np.zeros(len(messages), dtype=bool)
+    if metadata["task"] == "md5":
+        hit[valid] = data.hash_batch(records["payload"][valid], records["length"][valid],
+                                     metadata["rung"], metadata["window"]) == np.asarray(targets)[valid]
+    else:
+        hit[valid] = np.array([data.synthetic_label(m, metadata["source"]) for m, ok in zip(messages, valid) if ok]) == np.asarray(targets)[valid]
+    digests = message_digests([m if m is not None else b"" for m in messages])
+    match = lookup_digests(digests, training) & valid
+    strict = np.zeros(len(messages), dtype=bool) if strict is None else np.asarray(strict, dtype=bool)
+    records["flags"] = valid.astype(np.uint8) | (hit.astype(np.uint8) << 1) | (match.astype(np.uint8) << 2) | (strict.astype(np.uint8) << 3)
+    return records
+
+
+class Ledger:
+    def __init__(self, folder, block, metadata, targets, *, batch, k=100, start=0, training=None):
+        self.folder, self.block, self.metadata = Path(folder), block, metadata
+        self.targets, self.batch, self.k, self.start = np.asarray(targets), batch, k, start
+        data.condition_bits(self.targets)
+        if batch <= 0 or k < 1 or k > 100 or start < 0 or start % k:
+            raise ValueError("Invalid ledger boundary")
+        self.training = np.array([], dtype="V16") if training is None else training
+        self.folder.mkdir(parents=True, exist_ok=True)
+        self.path = self.folder / f"block-{block}.bin"
+        self.commit_path = self.folder / f"block-{block}.commit.json"
+        self.contract = {"metadata": metadata, "batch": batch, "k": k, "start": start,
+                         "targets_sha256": hashlib.sha256(self.targets.astype("<u2").tobytes()).hexdigest(),
+                         "rows": len(targets) * k, "training_sha256": hashlib.sha256(self.training.tobytes()).hexdigest()}
+        sealed_json(self.folder / f"block-{block}.contract.json", self.contract)
+        committed = read_json(self.commit_path) if self.commit_path.exists() else {"committed_rows": 0}
+        if self.commit_path.exists() and (committed.get("generator") != metadata or committed.get("batch") != batch
+                or committed.get("contract_sha256") != file_hash(self.folder / f"block-{block}.contract.json")):
+            raise ValueError("Ledger commit contract changed")
+        self.position = committed["committed_rows"]
+        if self.position < 0 or self.position % batch or self.position > len(targets) * k:
+            raise ValueError("Invalid committed row boundary")
+        if self.position and (not self.path.exists() or self.path.stat().st_size < self.position * RECORD.itemsize):
+            raise ValueError("Committed ledger bytes missing")
+        self.stream = self.path.open("r+b" if self.path.exists() else "w+b")
+        self.stream.truncate(self.position * RECORD.itemsize)
+        self.stream.seek(0, 2)
+        self.last_commit, self.pending_batches = time.monotonic(), 0
+
+    def append(self, offset, messages, margins=None, strict=None):
+        if offset != self.position or len(messages) != self.batch or offset + len(messages) > len(self.targets) * self.k:
+            raise ValueError("Append must be a contiguous complete batch")
+        targets = self.targets[np.arange(offset, offset + len(messages)) // self.k]
+        records = candidate_records(messages, targets, self.metadata, self.training, margins, strict)
+        self.stream.write(records.tobytes())
+        self.position += len(records)
+        self.pending_batches += 1
+        if self.pending_batches >= 8 or time.monotonic() - self.last_commit >= 30:
+            self.commit()
+
+    def commit(self):
+        self.stream.flush()
+        os.fsync(self.stream.fileno())
+        atomic_json(self.commit_path, {"committed_rows": self.position, "batch": self.batch,
+                                      "generator": self.metadata, "contract_sha256": file_hash(self.folder / f"block-{self.block}.contract.json")})
+        self.last_commit, self.pending_batches = time.monotonic(), 0
+
+    def close(self):
+        self.stream.close()
+
+
+def verify_ledger(path, targets, metadata, *, training=None, k=100, budget=None):
+    targets = np.asarray(targets)
+    training = np.array([], dtype="V16") if training is None else training
+    expected = len(targets) * k
+    if Path(path).stat().st_size != expected * RECORD.itemsize:
+        raise ValueError("Incomplete ledger cannot enter analysis")
+    records = np.memmap(path, dtype=RECORD, mode="r", shape=(expected,))
+    summaries = np.zeros(len(targets), dtype=TRIAL)
+    total_valid = total_hits = total_matches = total_strict = 0
+    entropy_counts = np.zeros((31, 256), dtype=np.int64)
+    hit_targets = {}
+    for trial_start in range(0, len(targets), 1024):
+        if budget:
+            budget.check()
+        subset = records[trial_start * k:min(trial_start + 1024, len(targets)) * k]
+        lengths = subset["length"].astype(int)
+        if np.any(lengths > 31) or np.any(subset["reserved"]) or np.any(subset["flags"] & 240):
+            raise ValueError("Invalid ledger layout/reserved bits")
+        if np.any(subset["payload"][np.arange(31) >= lengths[:, None]]):
+            raise ValueError("Nonzero payload padding")
+        messages = [row[:n].tobytes() for row, n in zip(subset["payload"], lengths)]
+        spec = data.SOURCES[metadata["source"]]
+        valid = np.fromiter((4 <= len(m) <= 31 and all(spec["byte_min"] <= b <= spec["byte_max"] for b in m)
+                             for m in messages), dtype=bool, count=len(messages))
+        shift = data.WINDOWS[metadata["window"]]
+        if metadata["task"] == "md5":
+            # Independent scalar path: no digest_batch/hash_batch calls.
+            hashes = np.fromiter(((int.from_bytes(hashlib.md5(m).digest() if metadata["rung"] == 64
+                                  else data.digest_reference(m, metadata["rung"]), "big") >> shift) & 4095
+                                  for m in messages), dtype=np.uint16, count=len(messages))
+        else:
+            hashes = np.fromiter((data.synthetic_label(m, metadata["source"]) for m in messages), dtype=np.int32)
+        hit = valid & (hashes == np.repeat(targets[trial_start:trial_start + len(subset) // k], k))
+        digests = np.frombuffer(b"".join(hashlib.sha256(m).digest()[:16] for m in messages), dtype="V16")
+        match = lookup_digests(digests, training) & valid
+        flags = valid.astype(np.uint8) | (hit.astype(np.uint8) << 1) | (match.astype(np.uint8) << 2)
+        if not np.array_equal(subset["flags"] & 7, flags):
+            raise ValueError("Independent rehash/valid/training flags disagree")
+        if np.any(hit & match):
+            raise ValueError("Successful payload overlaps training messages")
+        gaussian = metadata.get("representation") in ("bgv", "cgge") and metadata["method"] != "Random"
+        if not gaussian and (np.any(subset["flags"] & 8) or not np.isnan(subset["margin"]).all()):
+            raise ValueError("Non-Gaussian diagnostic fields changed")
+        if gaussian and not np.isfinite(subset["margin"]).all():
+            raise ValueError("Non-finite Gaussian margin")
+        for j in range(len(subset) // k):
+            a, b = j * k, (j + 1) * k
+            hits = np.flatnonzero(hit[a:b])
+            duplicate = k - len(set((int(lengths[i]), messages[i]) for i in range(a, b)))
+            summaries[trial_start + j] = (int(hit[a]), int(hit[a:a + min(10, k)].any()), int(bool(len(hits))),
+                                          len(hits), int(hits[0]) if len(hits) else 255, duplicate, int(match[a:b].sum()))
+            if len(hits):
+                target = str(int(targets[trial_start + j]))
+                hit_targets[target] = hit_targets.get(target, 0) + len(hits)
+        for position in range(31):
+            selected = valid & (lengths > position)
+            entropy_counts[position] += np.bincount(subset["payload"][selected, position], minlength=256)
+        total_valid += int(valid.sum())
+        total_hits += int(hit.sum())
+        total_matches += int(match.sum())
+        total_strict += int(((subset["flags"] & 8) != 0).sum())
+    probabilities = entropy_counts / np.maximum(entropy_counts.sum(axis=1, keepdims=True), 1)
+    entropy = -(probabilities * np.log2(np.maximum(probabilities, np.finfo(float).tiny))).sum(axis=1)
+    top = max(1, int(np.ceil(len(set(targets.tolist())) * .01)))
+    metrics = {"rows": expected, "hits": total_hits, "valid": total_valid,
+        "success_at_1": int(summaries["at1"].sum()), "success_at_10": int(summaries["at10"].sum()),
+        "success_at_100": int(summaries["at100"].sum()), "duplicates": int(summaries["duplicates"].sum()),
+        "training_matches": total_matches, "successful_training_matches": 0, "strict_valid": total_strict,
+        "position_entropy": entropy.tolist(), "independent_verified": True,
+        "strict_recomputed": False, "margin_recomputed": False,
+        "top_1pct_target_hit_share": sum(sorted(hit_targets.values(), reverse=True)[:top]) / total_hits if total_hits else 0.}
+    return summaries, metrics
+
+
+def regeneration_audit(path, stream_id, block, start, count, generator, *, batch=64, budget=None):
+    records = np.memmap(path, dtype=RECORD, mode="r")
+    selected = []
+    for offset in range(0, count, 65536):
+        indices = np.arange(start + offset, start + min(offset + 65536, count), dtype=np.uint64)
+        mask = data.key_words(("regen-audit", stream_id, block), indices)[:, 1] % 100 == 0
+        selected.extend(indices[mask].tolist())
+    for offset in range(0, len(selected), batch):
+        if budget:
+            budget.check()
+        chosen = np.asarray(selected[offset:offset + batch], dtype=np.uint64)
+        padded = np.pad(chosen, (0, batch - len(chosen)), mode="edge")
+        messages, _, _ = generator(padded)
+        for index, message in zip(chosen, messages):
+            row = records[int(index) - start]
+            expected = row["payload"][:row["length"]].tobytes()
+            if message is None:
+                message = b""
+            if message != expected or len(message) != row["length"]:
+                raise ValueError("Regeneration audit payload mismatch")
+    return {"selected": len(selected), "batch": batch, "passed": True}
+
+
+def trial_schedule(path, stage, window, rung, groups, checkpoints, trials):
+    if not checkpoints:
+        raise ValueError("All learned checkpoints must be sealed before drawing trials")
+    seals = {}
+    for folder in checkpoints:
+        verify_training(folder)
+        seals[str(Path(folder).resolve())] = file_hash(Path(folder) / "complete.json")
+    targets = data.rng("trials", stage, window, rung).choice(groups, trials).astype(int).tolist()
+    sealed_json(path, {"targets": targets, "checkpoints": seals,
+                       "rng_identity": data.identity("trials", stage, window, rung)})
+    return np.asarray(targets, dtype=np.int32)
+
+
+def evaluate_block(folder, block, targets, *, stage, source, method, seed_id, pipeline=None, model=None,
+                   window="W1", rung=64, task="md5", start_trial=0, trials=None,
+                   batch=256, steps=25, training=None, checkpoint=None, budget=None, k=100):
+    folder = Path(folder)
+    targets = np.asarray(targets, dtype=np.int32)
+    trials = len(targets) - start_trial if trials is None else trials
+    rows, start = trials * k, start_trial * k
+    if rows % batch or trials < 1 or start_trial + trials > len(targets):
+        raise ValueError("Block must contain full generation batches")
+    namespace = (stage, source if method == "Random" else pipeline, window, rung, method, seed_id)
+    if method not in ("Main", "Shuffled", "Random", "MC") or (method != "Random" and model is None):
+        raise ValueError("Invalid generator")
+    representation = model.representation if model is not None and method != "Random" else None
+    nfe = 0 if method == "Random" else (steps + 1 if representation != "tokens" else 33)
+    metadata = {"protocol": PROTOCOL, "stage": stage, "source": source, "pipeline": pipeline,
+                "method": method, "seed_id": seed_id, "window": window, "rung": rung, "task": task,
+                "namespace": list(namespace), "checkpoint": checkpoint, "representation": representation, "nfe": nfe}
+    donors = data.derangement((stage, pipeline, window, rung, seed_id), len(targets)) if method == "MC" else np.arange(len(targets))
+    def generate(indices):
+        if method == "Random":
+            payload, lengths = data.prior_candidates(namespace, indices, source)
+            return data.messages(payload, lengths), np.full(len(indices), np.nan), np.zeros(len(indices), dtype=bool)
+        from .models import candidate_keys, sample
+        labels = targets[donors[(indices // k).astype(int)]]
+        return sample(model, labels, candidate_keys(namespace, indices), steps)
+    result_path = folder / f"block-{block}.json"
+    if result_path.exists():
+        result = read_json(result_path)
+        contract = read_json(folder / f"block-{block}.contract.json")
+        training_bytes = b"" if training is None else training.tobytes()
+        if (contract["targets_sha256"] != hashlib.sha256(targets[start_trial:start_trial + trials].astype("<u2").tobytes()).hexdigest()
+                or contract["training_sha256"] != hashlib.sha256(training_bytes).hexdigest() or contract["k"] != k):
+            raise ValueError("Completed block targets/training changed")
+        if result["metadata"] != metadata or result["batch"] != batch or result["start"] != start or result["rows"] != rows:
+            raise ValueError("Completed block contract changed")
+        for name, digest in result["artifacts"].items():
+            if file_hash(folder / name) != digest:
+                raise ValueError("Sealed block artifact changed")
+        return np.load(folder / f"block-{block}.trials.npy", allow_pickle=False), result
+    ledger = Ledger(folder, block, metadata, targets[start_trial:start_trial + trials], batch=batch, k=k, start=start, training=training)
+    retry_path = folder / f"block-{block}.attempt.json"
+    retry = read_json(retry_path)["retries"] + 1 if retry_path.exists() else 0
+    if retry > 1:
+        ledger.close()
+        raise RuntimeError("Candidate stream retry exhausted")
+    atomic_json(retry_path, {"retries": retry})
+    started = time.monotonic()
+    try:
+        for offset in range(ledger.position, rows, batch):
+            if budget:
+                budget.check()
+            charge_work(folder, generated_attempts=batch, nfe=batch * nfe)
+            indices = np.arange(start + offset, start + offset + batch, dtype=np.uint64)
+            messages, margins, strict = generate(indices)
+            ledger.append(offset, messages, margins, strict)
+        ledger.commit()
+    finally:
+        ledger.close()
+    summary, metrics = verify_ledger(ledger.path, targets[start_trial:start_trial + trials], metadata,
+                                     training=training, k=k, budget=budget)
+    audit = regeneration_audit(ledger.path, list(namespace), block, start, rows, generate, budget=budget)
+    summary_path = folder / f"block-{block}.trials.npy"
+    atomic_array(summary_path, value=summary)
+    result = {**metrics, "metadata": metadata, "batch": batch, "start": start, "nfe": nfe,
+              "elapsed_seconds": time.monotonic() - started, "regeneration": audit,
+              "work": read_json(folder / "work.json"),
+              "artifacts": {p.name: file_hash(p) for p in (ledger.path, summary_path, ledger.commit_path,
+                                                         folder / f"block-{block}.contract.json")}}
+    sealed_json(result_path, result)
+    return summary, result
