@@ -261,3 +261,81 @@ def test_shared_streams_and_controls(monkeypatch):
             assert lengths.tolist() == [4] and payload[0, :4].tolist() == [byte] * 4
             assert calls.count((0, 1)) == 1
             assert sum(draw == 1 for _, draw in calls) == (32 if src == "P" else 1)
+
+
+def test_image_encoders_match_v31():
+    import torch
+    from dhi_v6 import codecs
+    from diffusion_hash_inv.encoding.bgv import BGVEncoder
+    from diffusion_hash_inv.encoding.cgge import CGGEEncoder
+    for src, representation, encoder in (("P", "bgv", BGVEncoder()), ("R", "bgv", BGVEncoder()),
+                                         ("P", "cgge", CGGEEncoder())):
+        payload, lengths = data.source(data.rng("codec-parity", src), 1000, src)
+        lengths[:2] = [4, 31]
+        payload[0, 4:] = 0
+        payload[1] = data.SOURCES[src]["byte_min"]
+        images = codecs.encode(payload, lengths, representation, src)
+        expected = torch.stack([encoder.encode(m) for m in data.messages(payload, lengths)]).numpy() * 2 - 1
+        assert images.dtype == np.float32 and np.array_equal(images, expected)
+        fixed, mask = codecs.structure(lengths, representation)
+        assert np.array_equal(images[~mask], fixed[~mask])
+        assert np.all(mask[:, 1] == 0)
+        assert np.array_equal(mask.sum(axis=(1, 2, 3)), lengths * (128 if representation == "bgv" else 64))
+
+
+def test_prototype_and_strict_decoders():
+    import time
+    import torch
+    from dhi_v6 import codecs
+    from diffusion_hash_inv.encoding.bgv import BGVDecoder
+    from diffusion_hash_inv.encoding.cgge import CGGEDecoder, glyph_table_checksum
+    assert codecs.glyph_table_checksum() == glyph_table_checksum()
+    assert codecs.glyph_table_checksum().startswith("6ef6d0bf") and codecs.glyph_table_checksum().endswith("ed50a")
+    for src, representation, decoder in (("P", "bgv", BGVDecoder()), ("R", "bgv", BGVDecoder()),
+                                         ("P", "cgge", CGGEDecoder())):
+        spec = data.SOURCES[src]
+        payload = np.tile(np.arange(spec["byte_min"], spec["byte_max"] + 1, dtype=np.uint8)[:, None], (1, 31))
+        for length in range(4, 32):
+            lengths = np.full(len(payload), length, dtype=np.int32)
+            images = codecs.encode(payload, lengths, representation, src)
+            decoded, margin, strict = codecs.decode(images, lengths, representation, src)
+            assert decoded == data.messages(payload, lengths)
+            assert np.all(margin == 0) and strict.all()
+            assert codecs.strict_decode(images, lengths, representation, src) == decoded
+        generator = data.rng("strict-fixture", src, representation)
+        payload, lengths = data.source(generator, 200, src)
+        images = codecs.encode(payload, lengths, representation, src)
+        fixed, mask = codecs.structure(lengths, representation)
+        noise = generator.normal(0, .6, images.shape).astype(np.float32)
+        images = np.where(mask, np.clip(images + noise, -1, 1), fixed)
+        images[100:] = np.where(mask[100:], generator.uniform(-1, 1, images[100:].shape), fixed[100:])
+        expected = [decoder.decode(torch.from_numpy(row.copy()), normalized=True).message for row in images]
+        expected = [m if data.valid(m, src) else None for m in expected]
+        assert codecs.strict_decode(images, lengths, representation, src) == expected
+        decoded, _, strict = codecs.decode(images, lengths, representation, src)
+        assert all(data.valid(m, src) for m in decoded)
+        assert strict.tolist() == [m is not None for m in expected]
+        payload, lengths = data.source(data.rng("codec-benchmark", src), 2048, src)
+        times = []
+        for _ in range(4):
+            start = time.perf_counter()
+            codecs.encode(payload[:256], lengths[:256], representation, src)
+            times.append(time.perf_counter() - start)
+        images = codecs.encode(payload, lengths, representation, src)
+        start = time.perf_counter()
+        codecs.decode(images, lengths, representation, src)
+        elapsed = time.perf_counter() - start
+        print(f"{src}-{representation}: encode256_ms={np.median(times[1:])*1000:.3f}, decode2048_s={elapsed:.4f}")
+    for src, expected in (("P", b"!!!!"), ("R", bytes(4))):
+        fixed, mask = codecs.structure(np.array([4]), "bgv")
+        image = np.where(mask, 0., fixed).astype(np.float32)
+        decoded, margins, _ = codecs.decode(image, [4], "bgv", src)
+        assert decoded == [expected] and margins.tolist() == [2.]
+    payload = np.full((1, 31), ord("I"), dtype=np.uint8)
+    a = codecs.encode(payload, [4], "cgge", "P")
+    b = codecs.encode(np.full_like(payload, ord("l")), [4], "cgge", "P")
+    assert codecs.decode((a + b) / 2, [4], "cgge", "P")[0] == [b"IIII"]
+    with pytest.raises(ValueError):
+        codecs.encode(payload, [4], "cgge", "R")
+    with pytest.raises(FloatingPointError):
+        codecs.decode(a * np.nan, [4], "cgge", "P")
