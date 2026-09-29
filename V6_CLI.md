@@ -76,7 +76,7 @@ hash-inverse-v6 run --root "$ROOT" --stage A --phase budget
 hash-inverse-v6 run --root "$ROOT" --stage A --phase freeze
 ```
 
-승인 기록 `cap-override.json`은 봉인되어 동결에 포함된다. `halt.json`은 기록으로 남는다.
+증액만 승인할 수 있다(등록값 80시간 초과). 승인하면 필수 경로 상한(114시간, 보완 시 126시간)도 같은 시간만큼 늘어난다. 예를 들어 C를 120시간으로 승인하면 필수 경로 상한은 154시간(보완 시 166시간)이 된다. 승인 기록 `cap-override.json`은 봉인되어 동결에 포함된다. `halt.json`은 기록으로 남는다.
 
 ## 명령
 
@@ -86,12 +86,12 @@ hash-inverse-v6 run --root "$ROOT" --stage A --phase freeze
 | `inventory --draft --v5 PATH --output PATH` | V6 노출 inventory 초안(명세 §14.3). 미검토 항목은 `unreviewed`로 남는다 |
 | `audit --root R --inventory PATH` | 노출 감사 → `exposure-audit.json`. 동결 뒤에는 거부 |
 | `run --root R --stage {A,C,R,P,S,all} [--phase …]` | 단계 실행. `--phase`는 A에만 쓴다 |
-| `approve-caps --root R --stage C --hours N --reason TEXT` | `HALT` 뒤, MD5 데이터 전에만 허용 |
+| `approve-caps --root R --stage C --hours N --reason TEXT` | `HALT` 뒤, MD5 데이터 전에만 허용. C 증액만 가능하며 필수 경로 상한도 같이 늘어난다 |
 | `status --root R` | 진행 정보만 출력. 성공률·구간·판정은 출력하지 않는다 |
 | `report --root R` | `decision.json`, `FINAL_REPORT_KO.md`. 미완료면 `INCOMPLETE / NOT_FINAL` |
 | `check --root R [--quick]` | A-impl 게이트. `--quick`은 개발용이며 PASS를 만들지 않는다 |
 
-종료 코드는 0 정상, 1 오류, 2 예산 종결(`failure.json`), 3 `HALT`다. V6 표지(`v6-study.json`)가 없는 비어 있지 않은 디렉터리는 거부한다. `failure.json`이 있으면 `run`을 거부한다. 한 root에는 한 프로세스만 쓸 수 있다(`.lock`).
+종료 코드는 0 정상, 1 오류, 2 예산 종결(A 단계 cap 소진, `failure.json`), 3 `HALT`다. C·R·P·S가 cap 때문에 부분 결과로 봉인되면 exit 0이고, 출력의 `budget_stop`(단계 실행) 또는 `budget_stops`(`--stage all`)로 알린다. V6 표지(`v6-study.json`)가 없는 비어 있지 않은 디렉터리는 거부한다. `failure.json`이 있으면 `run`을 거부한다. 한 root에는 한 프로세스만 쓸 수 있다(`.lock`).
 
 ## 산출물
 
@@ -133,7 +133,15 @@ hash-inverse-v6 run --root "$ROOT" --stage A --phase freeze
 - **예산 계상.** Stage 세션마다 `Budget` 하나를 쓰고, 세션이 끝날 때 `Budget.flush()`로 경과 시간을 저장한다. A_repair 예산은 보완 대상이 있을 때만 연다. 그래야 필수 경로 한도 126시간이 실제로 보완한 경우에만 적용된다.
 - **C 블록 사전 검사.** 블록 시간은 `block-<j>-start.json`과 look 봉인 사이의 C 누적 시간이다. 이미 시작한 블록을 재개할 때는 사전 검사를 하지 않는다.
 - **무결성 실패.** 학습이나 stream에서 ValueError·RuntimeError·FloatingPointError가 나면 해당 파이프라인을 `<stage>/integrity.json`에 기록하고 뺀다. Random stream이 실패하면 그 source의 파이프라인이 모두 빠진다. 그 밖의 예외는 exit 1이다.
-- **예산 소진.** A(보완 포함)에서 cap이 소진되면 `failure.json`을 쓰고 보고서를 만든 뒤 exit 2로 끝난다. C는 §12.10 look 규칙을 따른다(마지막 완료 look이 최종, 미결은 `NOT_ESTABLISHED_BY_BUDGET`). CLP_64가 끝나지 않으면 `clp_partial`로 표시한다. R은 끝나지 않은 진입 파이프라인을 `NOT_ESTABLISHED_BY_BUDGET`으로, P·S는 `partial`로 봉인하고 다음 단계와 보고서로 진행한다. C·R·P·S는 cap이 따로 있고 R·P·S의 부분 결과가 C3를 바꾸지 않으므로(R은 `BY_BUDGET`으로만 바뀐다) 연구 전체를 멈추지 않는다.
+- **예산 소진(2026-09-29 사용자 결정).** 명세 §13.2는 cap 소진 시 `failure.json`을 쓰고 종료하도록 적었지만, 적용 범위를 다음과 같이 정했다.
+  - A(보완 포함)에서 cap이 소진되면 `failure.json`을 쓰고 보고서를 만든 뒤 exit 2로 끝난다.
+  - C는 §12.10 look 규칙을 따른다(마지막 완료 look이 최종, 미결은 `NOT_ESTABLISHED_BY_BUDGET`). CLP_64가 끝나지 않으면 `clp_partial`로 표시한다.
+  - R은 끝나지 않은 진입 파이프라인을 `NOT_ESTABLISHED_BY_BUDGET`으로, P·S는 `partial`로 봉인하고 다음 단계와 보고서로 진행한다.
+  - 이유: 단계마다 cap이 따로 있다. 선택 단계인 R의 소진이 필수 경로 단계인 P를 막으면 계획의 구조와 어긋난다. 또 어느 쪽이든 C3와 종합 판정은 같다.
+- **세션 시작 시 소진.** C·R·P·S는 세션 안에서 학습·생성·CLP를 수행해 봉인하고, 판정은 세션 밖에서 봉인된 자료만으로 조립한다. 따라서 다음 두 경우가 같은 규칙으로 처리된다. 봉인된 look·블록·CLP는 버려지지 않는다.
+  - 실행 도중 cap이 소진된 경우
+  - 봉인 직전에 프로세스가 죽은 뒤, cap이 이미 소진된 상태로 다시 실행한 경우
+- **Cap 승인과 필수 경로(2026-09-29 사용자 결정).** 필수 경로 상한 114시간은 A 24 + C 80 + P 10의 합이다. 그래서 C 증액을 승인하면 필수 경로 상한(보완 시 126시간 포함)도 같은 만큼 늘린다. 그렇지 않으면 승인한 C 시간을 쓸 수 없고 P가 시간을 잃는다. 명세 §13.3은 이 경우를 정하지 않았다. 승인은 MD5 데이터 전에만 가능하므로 결과가 결정에 영향을 줄 수 없다. 감액 승인은 받지 않는다.
 - **CLP.** CLP_64는 Main seed별 65,536쌍을 따로 봉인하고, 세 seed를 모은 z > 2.8782이면 `INFO_64`다. A-Q에서 생성은 통과했는데 CLP만 실패한 파이프라인(계획 §5.3)은 CLP_64와 CLP_4를 계산하지 않고 `disabled`로 표시한다.
 - **Artifact 감사(계획 §6.5).** C `POSITIVE` 파이프라인의 모든 성공 후보를 hashlib으로 다시 해시(W3)한다. 추가로 alphabet, 학습 digest 조회, 봉인 산출물 hash를 확인하고, 상위 1% target 비중, CLP 방향, hit-only를 기록한다. 감사에 실패하면 `NOT_ESTABLISHED_INTEGRITY`다. 원인을 고친 뒤의 재생성은 자동화하지 않았다.
 - **P와 S.** P는 Q 전체의 seed 0을 쓴다(C에서 무결성 때문에 빠진 파이프라인 포함). S는 C의 W3 split을 쓰고, 생성 batch는 A-prof-1의 D1-T-L B*다.

@@ -723,9 +723,14 @@ def outcomes(root, stage, pipelines, blocks, seeds=SEEDS, controls=("Random", "S
     return result
 
 
-def clp_probe(root, stage, pipeline, folder, seed_id, groups, *, window, rung, pairs, threshold, budget, architecture=None):
+def clp_path(root, stage, pipeline, seed_id, architecture=None):
     label = pipeline if architecture is None else f"{pipeline}-{architecture}"
-    path = root / stage / "clp" / f"{label}-seed{seed_id}.json"
+    return Path(root) / stage / "clp" / f"{label}-seed{seed_id}.json"
+
+
+def clp_probe(root, stage, pipeline, folder, seed_id, groups, *, window, rung, pairs, threshold, budget, architecture=None):
+    """Compute and seal one CLP probe inside a stage session; a sealed probe is reused."""
+    path = clp_path(root, stage, pipeline, seed_id, architecture)
     if path.exists():
         return read_json(path)
     model, _ = load_trained(folder, pipeline, stage, seed_id, architecture)
@@ -738,6 +743,21 @@ def clp_probe(root, stage, pipeline, folder, seed_id, groups, *, window, rung, p
     return row
 
 
+def sealed_clp(root, stage, pipeline, seeds, architecture=None):
+    """Sealed CLP rows for every seed, or None while any is missing."""
+    paths = [clp_path(root, stage, pipeline, s, architecture) for s in seeds]
+    return [read_json(path) for path in paths] if all(path.exists() for path in paths) else None
+
+
+def sealed_blocks(root, stage, pipeline, blocks, seeds, controls, architecture=None):
+    """True when every stream a pipeline's analysis needs has sealed these blocks."""
+    folders = [stream_folder(root, stage, "Main", s, pipeline=pipeline, architecture=architecture) for s in seeds]
+    for control in controls:
+        folders += [stream_folder(root, stage, "Random", s, source=source_of(pipeline)) if control == "Random"
+                    else stream_folder(root, stage, control, s, pipeline=pipeline, architecture=architecture) for s in seeds]
+    return all((folder / f"block-{b}.json").exists() for folder in folders for b in blocks)
+
+
 def stream_metrics(root, stage, pipeline, blocks):
     """Quality counts over the analysed blocks of a pipeline's Main streams."""
     rows = [read_json(stream_folder(root, stage, "Main", s, pipeline=pipeline) / f"block-{b}.json") for s in SEEDS for b in blocks]
@@ -745,14 +765,14 @@ def stream_metrics(root, stage, pipeline, blocks):
     return {k: int(sum(r[k] for r in rows)) for k in keys}
 
 
-def artifact_audit(root, stage, pipeline, blocks, trials, runs, clp):
+def artifact_audit(root, stage, pipeline, blocks, trials, updates, clp):
     """Plan §6.5: independent re-hash of every success, no training match, target concentration, CLP direction."""
     targets = np.asarray(read_json(root / stage / "trials.json")["targets"], dtype=np.int64)
     spec, shift = data.SOURCES[source_of(pipeline)], data.WINDOWS["W3"]
     per_target, successes, mismatches, matches, sealed = {}, 0, 0, 0, True
     for s in SEEDS:
         folder = stream_folder(root, stage, "Main", s, pipeline=pipeline)
-        training = training_lookup(runs[(pipeline, "Main", s)])
+        training = training_lookup(run_folder(root, stage, pipeline, "Main", s, updates))
         for b in blocks:
             result = read_json(folder / f"block-{b}.json")
             sealed &= all(file_hash(folder / name) == digest for name, digest in result["artifacts"].items())
@@ -777,11 +797,72 @@ def artifact_audit(root, stage, pipeline, blocks, trials, runs, clp):
             "INFO_64": info, "hit_only": None if info is None else not info}
 
 
+def budget_stops(root):
+    """Stages whose sealed result was cut by their cap (no effect information)."""
+    flags = {"C": ("C.json", "budget_stop"), "R": ("R.json", "budget_stop"), "P": ("P.json", "partial"),
+             "S": ("S.json", "partial")}
+    return [stage for stage, (name, key) in flags.items() if (optional(root, name) or {}).get(key)]
+
+
 # ---------------------------------------------------------------- Stage C: 주 판정
+# C·R·P·S는 세션 안에서 학습·생성·CLP를 수행해 봉인하고, 판정은 세션 밖에서 봉인된 자료만으로 조립한다.
+# 예산이 도중에 소진되든 재실행 세션을 여는 순간 이미 소진되어 있든 같은 규칙으로 결과가 정해진다.
 
 def next_block_fits(root, stage, previous, budget):
     remaining = effective_caps(root)[stage] * 3600 - budget.state["seconds"].get(stage, 0)
     return previous["block_seconds"] * REG["budget"]["next_block_safety"] <= remaining
+
+
+def sealed_looks(root):
+    looks = []
+    for look in range(1, REG["stage_c"]["looks"] + 1):
+        path = root / "C" / "looks" / f"look-{look}.json"
+        if not path.exists():
+            break
+        looks.append(read_json(path))
+    return looks
+
+
+def final_look(root, block, active, completed):
+    """The sealed stopping look, else the full classification at the last completed look (budget rule)."""
+    if not completed or not active:
+        return None
+    if completed[-1]["action"] == "stop":
+        return completed[-1]
+    last = completed[-1]["look"]
+    return {**st.stage_c(outcomes(root, "C", active, range(1, last + 1)), last, budget_stop=True),
+            "trials": block * last, "active": active}
+
+
+def run_looks(root, plan, settings, qualified, groups, budget):
+    """Train, draw the schedule, then generate blocks and seal looks until the joint rule or the next-block check stops."""
+    block, looks = plan["block"], REG["stage_c"]["looks"]
+    folders, failures = train_stage(root, "C", qualified, settings, groups, "W3", 64, ("Main", "Shuffled"), SEEDS, budget)
+    active = [p for p in qualified if p not in failures]
+    if not active:
+        return
+    targets = schedule(root, "C", "W3", 64, groups, [f for (p, _, _), f in folders.items() if p in active], looks * block)
+    previous = None
+    for look in range(1, looks + 1):
+        path = root / "C" / "looks" / f"look-{look}.json"
+        if not path.exists():
+            start = root / "C" / "looks" / f"block-{look}-start.json"
+            if not start.exists():
+                if previous and not next_block_fits(root, "C", previous, budget):
+                    return
+                atomic_json(start, {"seconds": budget.state["seconds"].get("C", 0)})
+            evaluate_streams(root, "C", look, targets, (look - 1) * block, block, active, settings, folders, budget,
+                             window="W3", rung=64, methods=("Main", "Shuffled"), seeds=SEEDS)
+            active = [p for p in qualified if p not in load_failures(root, "C")]
+            if not active:
+                return
+            result = st.stage_c(outcomes(root, "C", active, range(1, look + 1)), look)
+            elapsed = budget.state["seconds"].get("C", 0) - read_json(start)["seconds"]
+            sealed_json(path, {**result, "trials": block * look, "active": active, "block_seconds": elapsed})
+        previous = read_json(path)
+        emit({"look": look, "action": previous["action"]})
+        if previous["action"] == "stop":
+            return
 
 
 def stage_c(root):
@@ -790,74 +871,47 @@ def stage_c(root):
     plan, settings, qualified = frozen_context(root)
     clp_disabled = read_json(root / "A.json")["clp_disabled"]
     audit = read_json(root / "exposure-audit.json")
-    block, looks = plan["block"], REG["stage_c"]["looks"]
+    block = plan["block"]
     groups = data.split("W3", 64, audit["excluded"]["W3"])
     sealed_json(root / "C" / "groups-W3-r64.json", groups)
-    completed, final, budget_stop, folders = [], None, False, {}
-    with charged(root, "C") as budget:
-        try:
-            folders, failures = train_stage(root, "C", qualified, settings, groups, "W3", 64, ("Main", "Shuffled"),
-                                            SEEDS, budget)
-            active = [p for p in qualified if p not in failures]
-            if active:
-                targets = schedule(root, "C", "W3", 64, groups, [f for (p, _, _), f in folders.items() if p in active],
-                                   looks * block)
-            for look in range(1, looks + 1 if active else 1):
-                path = root / "C" / "looks" / f"look-{look}.json"
-                if not path.exists():
-                    start = root / "C" / "looks" / f"block-{look}-start.json"
-                    if not start.exists():
-                        if completed and not next_block_fits(root, "C", completed[-1], budget):
-                            budget_stop = True
-                            break
-                        atomic_json(start, {"seconds": budget.state["seconds"].get("C", 0)})
-                    evaluate_streams(root, "C", look, targets, (look - 1) * block, block, active, settings, folders,
-                                     budget, window="W3", rung=64, methods=("Main", "Shuffled"), seeds=SEEDS)
-                    active = [p for p in qualified if p not in load_failures(root, "C")]
-                    if not active:
-                        break
-                    result = st.stage_c(outcomes(root, "C", active, range(1, look + 1)), look)
-                    elapsed = budget.state["seconds"].get("C", 0) - read_json(start)["seconds"]
-                    sealed_json(path, {**result, "trials": block * look, "active": active, "block_seconds": elapsed})
-                result = read_json(path)
-                completed.append(result)
-                emit({"look": look, "action": result["action"]})
-                if result["action"] == "stop":
-                    final = result
-                    break
-        except BudgetExceeded:
-            budget_stop = True
-        failures = load_failures(root, "C")
-        active = [p for p in qualified if p not in failures]
-        if final is None and completed and active:
-            last = completed[-1]["look"]
-            final = {**st.stage_c(outcomes(root, "C", active, range(1, last + 1)), last, budget_stop=True),
-                     "trials": block * last, "active": active}
-        final_active = [p for p in active if final and p in final["pipelines"]]
-        blocks = range(1, final["look"] + 1) if final else range(0)
-        decisions = {p: final["pipelines"][p]["decision"] if p in final_active else "NOT_ESTABLISHED_BY_BUDGET"
-                     for p in active}
-        decisions.update({p: "NOT_ESTABLISHED_INTEGRITY" for p in failures if p in qualified})
-        clp, clp_partial = {}, False
-        try:
-            for p in final_active:
-                if clp_disabled.get(p):
-                    clp[p] = {"disabled": True, "z": None, "INFO_64": None}
-                    continue
-                rows = [clp_probe(root, "C", p, folders[(p, "Main", s)], s, groups, window="W3", rung=64,
-                                  pairs=REG["stage_c"]["clp_pairs_per_seed"], threshold=st.Z_P, budget=budget)
-                        for s in SEEDS]
-                pooled = st.probe(np.concatenate([r["differences"] for r in rows]), st.Z_P)
-                clp[p] = {"per_seed": {str(s): r["probe"] for s, r in zip(SEEDS, rows)}, "pooled": pooled,
-                          "z": pooled["z"], "INFO_64": bool(pooled["z"] is not None and pooled["z"] > st.Z_P)}
-        except BudgetExceeded:
-            clp_partial = True
-        audits = {p: artifact_audit(root, "C", p, blocks, block * final["look"], folders, clp.get(p))
-                  for p in final_active if decisions[p] == "POSITIVE"}
-        result = {"block": block, "looks": completed, "final": final, "budget_stop": budget_stop,
-                  "decisions": decisions, "integrity": failures, "clp": clp, "clp_partial": clp_partial, "audit": audits,
-                  "contrasts": st.contrasts(outcomes(root, "C", final_active, blocks)) if final_active else [],
-                  "metrics": {p: stream_metrics(root, "C", p, blocks) for p in final_active}}
+    try:
+        with charged(root, "C") as budget:
+            run_looks(root, plan, settings, qualified, groups, budget)
+            active = [p for p in qualified if p not in load_failures(root, "C")]
+            final = final_look(root, block, active, sealed_looks(root))
+            for p in [p for p in active if final and p in final["pipelines"] and not clp_disabled.get(p)]:
+                for s in SEEDS:
+                    clp_probe(root, "C", p, run_folder(root, "C", p, "Main", s, settings[p]["updates"]), s, groups,
+                              window="W3", rung=64, pairs=REG["stage_c"]["clp_pairs_per_seed"], threshold=st.Z_P,
+                              budget=budget)
+    except BudgetExceeded:
+        pass
+    failures = load_failures(root, "C")
+    active = [p for p in qualified if p not in failures]
+    completed = sealed_looks(root)
+    final = final_look(root, block, active, completed)
+    final_active = [p for p in active if final and p in final["pipelines"]]
+    blocks = range(1, final["look"] + 1) if final else range(0)
+    decisions = {p: final["pipelines"][p]["decision"] if p in final_active else "NOT_ESTABLISHED_BY_BUDGET"
+                 for p in active}
+    decisions.update({p: "NOT_ESTABLISHED_INTEGRITY" for p in failures if p in qualified})
+    clp = {}
+    for p in final_active:
+        rows = None if clp_disabled.get(p) else sealed_clp(root, "C", p, SEEDS)
+        if clp_disabled.get(p):
+            clp[p] = {"disabled": True, "z": None, "INFO_64": None}
+        elif rows:
+            pooled = st.probe(np.concatenate([r["differences"] for r in rows]), st.Z_P)
+            clp[p] = {"per_seed": {str(s): r["probe"] for s, r in zip(SEEDS, rows)}, "pooled": pooled,
+                      "z": pooled["z"], "INFO_64": bool(pooled["z"] is not None and pooled["z"] > st.Z_P)}
+    audits = {p: artifact_audit(root, "C", p, blocks, block * final["look"], settings[p]["updates"], clp.get(p))
+              for p in final_active if decisions[p] == "POSITIVE"}
+    result = {"block": block, "looks": completed, "final": final,
+              "budget_stop": bool(active) and (not completed or completed[-1]["action"] != "stop"),
+              "decisions": decisions, "integrity": failures, "clp": clp,
+              "clp_partial": any(p not in clp for p in final_active), "audit": audits,
+              "contrasts": st.contrasts(outcomes(root, "C", final_active, blocks)) if final_active else [],
+              "metrics": {p: stream_metrics(root, "C", p, blocks) for p in final_active}}
     sealed_json(root / "C.json", result)
     return result
 
@@ -883,14 +937,13 @@ def stage_r(root):
     require_order(root, "R")
     _, settings, _ = frozen_context(root)
     entrants = replication_entrants(read_json(root / "C.json"))
-    results, budget_stop = {}, False
+    trials = REG["stage_r"]["trials"]
     if entrants:
         audit = read_json(root / "exposure-audit.json")
-        trials = REG["stage_r"]["trials"]
         groups = data.split("W4", 64, audit["excluded"]["W4"])
         sealed_json(root / "R" / "groups-W4-r64.json", groups)
-        with charged(root, "R") as budget:
-            try:
+        try:
+            with charged(root, "R") as budget:
                 folders, failures = train_stage(root, "R", entrants, settings, groups, "W4", 64, ("Main", "Shuffled"),
                                                 SEEDS, budget)
                 active = [p for p in entrants if p not in failures]
@@ -899,17 +952,18 @@ def stage_r(root):
                                        [f for (p, _, _), f in folders.items() if p in active], trials)
                     evaluate_streams(root, "R", 1, targets, 0, trials, active, settings, folders, budget,
                                      window="W4", rung=64, methods=("Main", "Shuffled"), seeds=SEEDS)
-                for p in active:
-                    if p not in load_failures(root, "R"):
-                        row = outcomes(root, "R", [p], [1])[p]
-                        results[p] = st.replication(row["Main"], row["Random"], row["Shuffled"], len(entrants))
-            except BudgetExceeded:
-                budget_stop = True
+        except BudgetExceeded:
+            pass
     failures = load_failures(root, "R")
+    results = {}
+    for p in entrants:
+        if p not in failures and sealed_blocks(root, "R", p, [1], SEEDS, ("Random", "Shuffled")):
+            row = outcomes(root, "R", [p], [1])[p]
+            results[p] = st.replication(row["Main"], row["Random"], row["Shuffled"], len(entrants))
     decisions = {p: "NOT_ESTABLISHED_INTEGRITY" if p in failures else
                  results[p]["decision"] if p in results else "NOT_ESTABLISHED_BY_BUDGET" for p in entrants}
-    result = {"entrants": entrants, "decisions": decisions, "results": results, "budget_stop": budget_stop,
-              "integrity": failures}
+    result = {"entrants": entrants, "decisions": decisions, "results": results, "integrity": failures,
+              "budget_stop": any(v == "NOT_ESTABLISHED_BY_BUDGET" for v in decisions.values())}
     sealed_json(root / "R.json", result)
     return result
 
@@ -924,26 +978,37 @@ def stage_p(root):
     clp_disabled = read_json(root / "A.json")["clp_disabled"]
     groups = data.split(REG["stage_p"]["window"], REG["stage_p"]["rung"])
     sealed_json(root / "P" / "groups-W1-r4.json", groups)
-    trials, results, partial = plan["p_trials"], {}, False
-    with charged(root, "P") as budget:
-        try:
+    trials = plan["p_trials"]
+    try:
+        with charged(root, "P") as budget:
             folders, failures = train_stage(root, "P", qualified, settings, groups, "W1", 4, ("Main",), (0,), budget)
             active = [p for p in qualified if p not in failures]
             if active:
                 targets = schedule(root, "P", "W1", 4, groups, [folders[(p, "Main", 0)] for p in active], trials)
                 evaluate_streams(root, "P", 1, targets, 0, trials, active, settings, folders, budget, window="W1", rung=4,
                                  methods=("Main", "MC"), seeds=(0,))
-            for p in [p for p in active if p not in load_failures(root, "P")]:
-                row = outcomes(root, "P", [p], [1], seeds=(0,), controls=("Random", "MC"))[p]
-                clp = ({"disabled": True, "z": None} if clp_disabled.get(p) else
-                       clp_probe(root, "P", p, folders[(p, "Main", 0)], 0, groups, window="W1", rung=4,
-                                 pairs=REG["stage_p"]["clp_pairs"], threshold=st.Z_P, budget=budget)["probe"])
-                results[p] = {**st.positive_control(row["Main"][0], row["Random"][0], row["MC"][0], clp),
-                              "INFO_4_disabled": bool(clp_disabled.get(p)),
-                              "success_at_100": {k: float(v.mean()) for k, v in row.items()}}
-        except BudgetExceeded:
-            partial = True
-    result = {"trials": trials, "pipelines": results, "partial": partial, "integrity": load_failures(root, "P")}
+            for p in active:
+                if p not in load_failures(root, "P") and not clp_disabled.get(p):
+                    clp_probe(root, "P", p, folders[(p, "Main", 0)], 0, groups, window="W1", rung=4,
+                              pairs=REG["stage_p"]["clp_pairs"], threshold=st.Z_P, budget=budget)
+    except BudgetExceeded:
+        pass
+    failures = load_failures(root, "P")
+    results = {}
+    for p in qualified:
+        if p in failures or not sealed_blocks(root, "P", p, [1], (0,), ("Random", "MC")):
+            continue
+        row = outcomes(root, "P", [p], [1], seeds=(0,), controls=("Random", "MC"))[p]
+        rows = None if clp_disabled.get(p) else sealed_clp(root, "P", p, (0,))
+        results[p] = {**st.positive_control(row["Main"][0], row["Random"][0], row["MC"][0],
+                                            rows[0]["probe"] if rows else {"z": None}),
+                      "INFO_4_disabled": bool(clp_disabled.get(p)),
+                      "success_at_100": {k: float(v.mean()) for k, v in row.items()}}
+        if not rows:
+            results[p]["INFO_4"] = None
+    missing = [p for p in qualified if p not in failures
+               and (p not in results or (results[p]["INFO_4"] is None and not clp_disabled.get(p)))]
+    result = {"trials": trials, "pipelines": results, "partial": bool(missing), "integrity": failures}
     sealed_json(root / "P.json", result)
     return result
 
@@ -964,25 +1029,29 @@ def stage_s(root):
     groups = read_json(root / "C" / "groups-W3-r64.json")
     batch = read_json(root / "A-prof-1.json")["scale"]["by_steps"]["none"]["batch"]
     p, model = cfg["pipeline"], cfg["model"]
-    result = {"skipped": False, "pipeline": p, "model": model, "updates": cfg["updates"], "partial": False}
-    with charged(root, "S") as budget:
-        try:
+    try:
+        with charged(root, "S") as budget:
             folders, failures = train_stage(root, "S", [p], None, groups, "W3", 64, ("Main",), (0,), budget,
                                             architecture=model, updates=cfg["updates"])
             if not failures:
                 folder = folders[(p, "Main", 0)]
-                clp = clp_probe(root, "S", p, folder, 0, groups, window="W3", rung=64, pairs=cfg["clp_pairs"],
-                                threshold=st.Z_S, budget=budget, architecture=model)["probe"]
-                result.update(clp=clp, SCALE_SIGNAL=bool(clp["z"] is not None and clp["z"] > st.Z_S))
+                clp_probe(root, "S", p, folder, 0, groups, window="W3", rung=64, pairs=cfg["clp_pairs"],
+                          threshold=st.Z_S, budget=budget, architecture=model)
                 targets = schedule(root, "S", "W3", 64, groups, [folder], cfg["trials"])
                 evaluate_streams(root, "S", 1, targets, 0, cfg["trials"], [p], None, folders, budget, window="W3",
                                  rung=64, methods=("Main", "MC"), seeds=(0,), architecture=model, batch=batch)
-                if p not in load_failures(root, "S"):
-                    row = outcomes(root, "S", [p], [1], seeds=(0,), controls=("Random", "MC"), architecture=model)[p]
-                    result["success_at_100"] = {k: float(v.mean()) for k, v in row.items()}
-        except BudgetExceeded:
-            result["partial"] = True
-    result["integrity"] = load_failures(root, "S")
+    except BudgetExceeded:
+        pass
+    failures = load_failures(root, "S")
+    result = {"skipped": False, "pipeline": p, "model": model, "updates": cfg["updates"], "integrity": failures}
+    rows = sealed_clp(root, "S", p, (0,), model)
+    if rows:
+        clp = rows[0]["probe"]
+        result.update(clp=clp, SCALE_SIGNAL=bool(clp["z"] is not None and clp["z"] > st.Z_S))
+    if p not in failures and sealed_blocks(root, "S", p, [1], (0,), ("Random", "MC"), architecture=model):
+        row = outcomes(root, "S", [p], [1], seeds=(0,), controls=("Random", "MC"), architecture=model)[p]
+        result["success_at_100"] = {k: float(v.mean()) for k, v in row.items()}
+    result["partial"] = bool(not failures and (rows is None or "success_at_100" not in result))
     sealed_json(root / "S.json", result)
     return result
 
@@ -1288,7 +1357,11 @@ def status(root):
         eta = max(0, planned - streams["C"]["committed_rows"]) / streams["C"]["recent_rows_per_second"] / 3600
     names = ("A-impl", "A-prof-1", "A-dev", "A", "A-dev-repair", "A-prof-2", "budget-plan", "exposure-audit",
              "protocol.frozen", *MD5_STAGES, "decision")
+    required = sum(seconds.get(k, 0) for k in ("A", "A_repair", "C", "P")) / 3600
     return {"protocol": PROTOCOL, "artifacts": {name: (root / f"{name}.json").exists() for name in names},
+            "required_path_hours": {"used": round(required, 3),
+                                    "cap": caps["required_with_repair" if seconds.get("A_repair") else "required"]},
+            "budget_stops": budget_stops(root),
             "streams": streams, "c_looks_sealed": len(list(looks.glob("look-*.json"))) if looks.exists() else 0,
             "eta_hours_c_max": eta, "hours_used": {k: round(v / 3600, 3) for k, v in seconds.items()},
             "caps_hours": caps, "remaining_hours": {k: round(caps[k] - seconds.get(k, 0) / 3600, 3)
@@ -1374,18 +1447,18 @@ def main(argv=None):
             try:
                 if args.stage == "all":
                     decision = run_all(root)
-                    emit({"status": decision["status"], "headline": decision["headline"]})
+                    emit({"status": decision["status"], "headline": decision["headline"], "budget_stops": budget_stops(root)})
                 elif args.stage == "A":
                     stage_a(root, args.phase)
                     emit({"stage": "A", "phase": args.phase, "completed": True})
                 else:
                     {"C": stage_c, "R": stage_r, "P": stage_p, "S": stage_s}[args.stage](root)
-                    emit({"stage": args.stage, "completed": True})
+                    emit({"stage": args.stage, "completed": True, "budget_stop": args.stage in budget_stops(root)})
             except Halt as error:
                 emit({"halt": str(error)})
                 return 3
             except BudgetExceeded as error:
-                # Stages C/R/P/S close their own caps; a Stage A cap ends the study (stage_a wrote failure.json).
+                # C/R/P/S seal a partial result under their own caps; only Stage A ends the study here.
                 if not (root / "failure.json").exists():
                     sealed_json(root / "failure.json", {"stage": args.stage, "reason": "NOT_ESTABLISHED_BY_BUDGET",
                                                         "error": str(error)})

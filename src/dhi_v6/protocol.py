@@ -292,14 +292,19 @@ def effective_caps(root):
     path = Path(root) / "cap-override.json"
     if path.exists():
         value = read_json(path)
+        # The required path is the sum of its stage caps (A 24 + C 80 + P 10 = 114 h); an approved increase extends it equally.
+        delta = value["hours"] - caps[value["stage"]]
         caps[value["stage"]] = value["hours"]
+        caps["required"] += delta
+        caps["required_with_repair"] += delta
     return caps
 
 
 def approve_caps(root, stage, hours, reason):
     root = Path(root)
-    if stage != "C" or not isinstance(hours, (int, float)) or not 0 < hours < float("inf") or not reason.strip():
-        raise ValueError("A finite positive C cap and a reason are required")
+    if (stage != "C" or not isinstance(hours, (int, float)) or not registration()["caps_hours"]["C"] < hours < float("inf")
+            or not reason.strip()):
+        raise ValueError("Only a finite increase of the registered C cap, with a reason, can be approved")
     if not (root / "halt.json").exists() or (root / "protocol.frozen.json").exists():
         raise ValueError("Cap approval requires HALT before freeze")
     if any((root / s).exists() for s in ("C", "R", "P", "S")):

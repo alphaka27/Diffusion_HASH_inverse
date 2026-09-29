@@ -923,9 +923,11 @@ def test_cli_preconditions(tmp_path, capsys):
     with pytest.raises(ValueError, match="HALT"):
         study.main(["approve-caps", "--root", str(root), "--stage", "C", "--hours", "120", "--reason", "fixture"])
     atomic_json(root / "halt.json", {"decision": "HALT"})
+    with pytest.raises(ValueError, match="increase"):
+        study.main(["approve-caps", "--root", str(root), "--stage", "C", "--hours", "80", "--reason", "not an increase"])
     assert study.main(["approve-caps", "--root", str(root), "--stage", "C", "--hours", "120", "--reason", "fixture"]) == 0
     from dhi_v6.protocol import effective_caps
-    assert effective_caps(root)["C"] == 120
+    assert [effective_caps(root)[k] for k in ("C", "required", "required_with_repair")] == [120, 154, 166]
     (root / "C").mkdir()
     with pytest.raises(ValueError, match="MD5"):
         study.main(["approve-caps", "--root", str(root), "--stage", "C", "--hours", "130", "--reason", "again"])
@@ -1061,7 +1063,27 @@ def forced(outcomes, look, *, budget_stop=False):
     return {**result, "action": "stop"}
 st.stage_c = forced
 root = fixture(Path(sys.argv[1]) / "positive")
+
+def exhaust(stage):
+    state = read_json(root / "budget.json")
+    state["seconds"][stage] = protocol.effective_caps(root)[stage] * 3600 + 1
+    atomic_json(root / "budget.json", state)
+
+# A crash after the looks and CLP probes were sealed, then a rerun whose C session cannot open.
+real_metrics = study.stream_metrics
+def crash(*args, **kwargs):
+    raise RuntimeError("fixture crash before C.json")
+study.stream_metrics = crash
+try:
+    study.stage_c(root)
+    raise AssertionError("fixture crash not raised")
+except RuntimeError as error:
+    assert "fixture crash" in str(error)
+study.stream_metrics = real_metrics
+assert (root / "C/looks/look-1.json").exists() and not (root / "C.json").exists()
+exhaust("C")
 c = study.stage_c(root)
+assert c["final"]["look"] == 1 and not c["budget_stop"] and not c["clp_partial"]
 audit = c["audit"]["P-DISC"]
 assert c["decisions"] == {"P-DISC": "POSITIVE"} and audit["passed"]
 assert audit["successful_payloads"] == c["metrics"]["P-DISC"]["hits"] and audit["rehash_mismatches"] == 0
@@ -1081,7 +1103,15 @@ text = (root / "FINAL_REPORT_KO.md").read_text()
 assert "Stage R(W4 재현)" in text and "## 8. Stage S" in text
 status = study.status(root)
 assert status["c_looks_sealed"] == 1 and status["streams"]["C"]["completed_stream_blocks"] == 9
-assert status["streams"]["R"]["committed_rows"] == 9 * 6400 and not status["failure"]
+assert status["streams"]["R"]["committed_rows"] == 9 * 6400 and not status["failure"] and status["budget_stops"] == []
+
+# With every cap exhausted at session start, R/P/S reassemble the same results from sealed data.
+for stage in ("R", "P", "S"):
+    previous = read_json(root / f"{stage}.json")
+    (root / f"{stage}.json").unlink()
+    (root / f"{stage}.json.sha256").unlink()
+    exhaust(stage)
+    assert getattr(study, f"stage_{stage.lower()}")(root) == previous, stage
 ''', tmp_path)
 
 
@@ -1185,3 +1215,18 @@ assert study._md5_rate() > 0
 written, verified = study._ledger_rates(root / "ledger", Free(), trials=512)
 assert written > 0 and verified > 0
 ''', tmp_path)
+
+
+def test_cap_override_extends_required_path(tmp_path):
+    from dhi_v6.protocol import Budget, BudgetExceeded, approve_caps, effective_caps
+    atomic_json(tmp_path / "halt.json", {"decision": "HALT"})
+    approve_caps(tmp_path, "C", 120, "fixture")
+    caps = effective_caps(tmp_path)
+    assert (caps["A"], caps["C"], caps["P"], caps["required"], caps["required_with_repair"]) == (24, 120, 10, 154, 166)
+    # 20 h of A plus 95 h of C stays inside the extended required path; the C cap itself still binds.
+    atomic_json(tmp_path / "budget.json", {"seconds": {"A": 20 * 3600, "C": 95 * 3600}, "sessions": []})
+    Budget(tmp_path, "C").flush()
+    atomic_json(tmp_path / "budget.json", {"seconds": {"A": 20 * 3600, "C": 120 * 3600 + 1}, "sessions": []})
+    with pytest.raises(BudgetExceeded):
+        Budget(tmp_path, "C")
+    assert effective_caps(tmp_path / "no-override")["required"] == 114
