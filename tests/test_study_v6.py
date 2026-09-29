@@ -586,3 +586,94 @@ b,_=runtime.evaluate_block(root/"resumed",1,targets,**kwargs)
 assert np.array_equal(a,b)
 assert (root/"direct/block-1.bin").read_bytes()==(root/"resumed/block-1.bin").read_bytes()
 ''', tmp_path)
+
+
+def test_sequential_engine_rules():
+    from dhi_v6 import statistics as st
+    assert [round(z, 4) for z in (*st.Z_LOOK, st.Z_P, st.Z_CONTRAST, st.Z_S)] == [3.4808, 3.0902, 3.0233, 2.8782, 2.8653, 3.2905]
+    estimates = np.array([[0., 0.], [.003, .003]])
+    errors = np.array([[.0001, .0001], [.002, .002]])
+    stop, decisions = st.joint_decision(estimates, errors, 1)
+    assert not stop and decisions == ["REJECTED_BOUNDED", ""]
+    stop, decisions = st.joint_decision(estimates, errors, 2, budget_stop=True)
+    assert stop and decisions == ["REJECTED_BOUNDED", "NOT_ESTABLISHED_BY_BUDGET"]
+    assert st.joint_decision(estimates, errors, 3)[1][-1] == "NOT_ESTABLISHED_UNRESOLVED"
+    estimates = np.array([[.02, 0.], [0., .02]])
+    assert st.joint_decision(estimates, np.full((2, 2), .0001), 3)[1] == ["REJECTED_NO_CONDITION_GAIN", "REJECTED_NO_RANDOM_ADVANTAGE"]
+    assert st.joint_decision([[.001, .001]], [[.00001, .00001]], 1) == (True, ["POSITIVE"])
+    z = np.zeros((3, 256), dtype=int)
+    outcomes = {p: {"Main": z, "Random": z, "Shuffled": z} for p in st.PIPELINES}
+    assert st.stage_c(outcomes, 1)["action"] == "stop"
+    outcomes["P-DISC"] = {"Main": z[:, :128], "Random": z[:, :128], "Shuffled": z[:, :128]}
+    with pytest.raises(ValueError):
+        st.stage_c(outcomes, 1)
+
+
+def test_design_script_parity():
+    import importlib.util
+    from dhi_v6 import statistics as st
+    path = Path(__file__).parents[1] / "scripts/validate_research_plan_v6.py"
+    spec = importlib.util.spec_from_file_location("design_v6", path)
+    design = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(design)
+    generator = data.rng("design-parity")
+    est, se = generator.uniform(-.02, .02, (10000, 2)), generator.uniform(0, .005, (10000, 2))
+    for z in st.Z_LOOK:
+        for final in (False, True):
+            expected, upper = design.classify(est, se, z, final)
+            actual, actual_upper = st.classify(est, se, z, final)
+            assert np.array_equal(actual, expected) and np.array_equal(actual_upper, upper)
+    values = ["SUPPORTED", "REJECTED_BOUNDED", "REJECTED_NO_CONDITION_GAIN", "REJECTED_NO_RANDOM_ADVANTAGE",
+              "UNTESTABLE", "NOT_ESTABLISHED_UNRESOLVED", "NOT_ESTABLISHED_BY_BUDGET", "NOT_ESTABLISHED_INTEGRITY"]
+    for row in generator.choice(values, (10000, 5)):
+        assert st.headline(row) == design.headline(row)
+
+
+def test_replication_p_contrasts_c4_headline():
+    from statistics import NormalDist
+    from dhi_v6 import statistics as st
+    one, zero = np.ones((3, 256), dtype=int), np.zeros((3, 256), dtype=int)
+    for entrants in range(1, 6):
+        r = st.replication(one, zero, zero, entrants)
+        assert r["decision"] == "SUPPORTED" and r["z"] == NormalDist().inv_cdf(1 - .025 / entrants)
+        assert st.replication(one, zero, one, entrants)["decision"] == "NOT_ESTABLISHED_NOT_REPLICATED"
+    clp = st.probe(np.tile([.9, 1.1], 128))
+    assert st.positive_control(one[0], zero[0], zero[0], clp)["GEN_4"]
+    assert st.positive_control(one[0], zero[0], one[0], clp)["INFO_4"]
+    assert not st.positive_control(one[0], zero[0], one[0], clp)["GEN_4"]
+    outcomes = {p: {"Main": zero, "Random": zero, "Shuffled": zero} for p in st.PIPELINES}
+    assert len(st.contrasts(outcomes)) == 12
+    assert {r["decision"] for r in st.contrasts(outcomes)} == {"EQUIVALENT_WITHIN_DELTA"}
+    assert st.compute_advantage("SUPPORTED", 100, 100, 1, 100, 1000, 100)["decision"] == "PER_QUERY_ADVANTAGE"
+    result = st.compute_advantage("REJECTED_BOUNDED", 100, 100, 1, 100, 1000000, 100)
+    assert result["decision"] == "NO_ADVANTAGE" and result["arithmetic"] == "ARITHMETICALLY_IMPOSSIBLE"
+    assert st.cp_bound(8, 30, .025) == pytest.approx(.1227948098723548)
+    assert st.cp_bound(8, 30, .025, upper=True) == pytest.approx(.458893651394751)
+    assert st.headline(["UNTESTABLE"] * 5) == "FINAL_NOT_ESTABLISHED"
+    assert st.headline(["REJECTED_BOUNDED"] * 4 + ["UNTESTABLE"]) == "FINAL_REJECTED_WITH_EXCEPTIONS"
+
+
+def test_calibration_quick():
+    from dhi_v6.statistics import calibrate, cp_bound
+    result = calibrate(200)
+    assert not result["passed"] and not result["production"]
+    assert result["scope"] == "regression-only"
+    assert len(result["scenarios"]) == 4
+    for values in result["scenarios"].values():
+        assert sum(values["stopping_look"].values()) == 200
+        assert values["positive_upper"] == cp_bound(values["any_positive"], 200, upper=True)
+        assert values["all_rejected_lower"] == cp_bound(values["all_rejected"], 200)
+        assert values["planted_lower"] == cp_bound(values["planted_positive"], 200)
+    assert result["criteria"] == {
+        "null_positive": result["scenarios"]["all_null"]["positive_upper"] <= .025,
+        "null_rejected": result["scenarios"]["all_null"]["all_rejected_lower"] >= .95,
+        "delta_positive": result["scenarios"]["P-DISC_+delta"]["planted_lower"] >= .95,
+    }
+    assert max(map(int, result["scenarios"]["budget_after_look2"]["stopping_look"])) <= 2
+
+
+def test_calibration_production():
+    from dhi_v6.statistics import calibrate
+    result = calibrate(2000)
+    assert result["production"] and result["passed"] and all(result["criteria"].values()), result
+    assert result["scope"] == "production" and result["repetitions"] == 2000
