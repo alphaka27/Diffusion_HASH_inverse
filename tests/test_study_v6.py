@@ -435,6 +435,15 @@ for p in ("P-G-BGV","P-G-CGGE","R-G-BGV"):
     a=codecs.decode(reference,rl,model.representation,model.src)[0]
     b=codecs.decode(images[:64],rl,model.representation,model.src)[0]
     assert sum(x==y for x,y in zip(a,b))>=63,(p,error)
+from dhi_v6 import checks
+for p in ("P-DISC","P-G-BGV"):
+    model=models.make_model(p,"A-Q",0)
+    ns=("A-Q",p,"packing",0)
+    if p=="P-DISC":
+        sample=lambda i:models.sample_tokens(model,labels[i.astype(int)%256],models.candidate_keys(ns,i))
+    else:
+        sample=lambda i:models.sample_images(model,labels[i.astype(int)%256],models.candidate_keys(ns,i))
+    checks._packing_gate(sample,p,256 if p=="P-DISC" else 128,[64,128])
 model=models.make_model("P-DISC","S",0,"D1-T-L")
 keys=models.candidate_keys(("A-Q","scale","normal",0),np.arange(8))
 assert np.array_equal(models.sample_tokens(model,labels[:8],keys),models.sample_tokens_reference(model,labels[:8],keys))
@@ -561,6 +570,21 @@ def test_ledger_commit_resume_tamper_regeneration(tmp_path):
         runtime.verify_ledger(ledger.path, [0], meta, k=1, training=training)
     with pytest.raises(ValueError):
         runtime.trial_schedule(tmp_path / "trials.json", "A-prof", "W1", 64, targets, [], 128)
+
+
+def test_regeneration_audit_uses_generation_batch(tmp_path, monkeypatch):
+    from dhi_v6 import checks, runtime
+    seen, audit = [], runtime.regeneration_audit
+    def spy(*args, **kwargs):
+        seen.append(kwargs["batch"])
+        return audit(*args, **kwargs)
+    monkeypatch.setattr(runtime, "regeneration_audit", spy)
+    targets = np.array(data.split("W1", 64)["validation"][:128])
+    runtime.evaluate_block(tmp_path / "block", 1, targets, stage="A-prof", source="P", method="Random", seed_id=0, batch=128)
+    assert seen == [128]
+    assert checks._packing_gate(lambda idx: idx * 2, "fixture", 256, [64, 128])["bitwise"]
+    with pytest.raises(AssertionError, match="packing"):
+        checks._packing_gate(lambda idx: idx + idx[0], "fixture", 256, [64])
 
 
 @pytest.mark.metal

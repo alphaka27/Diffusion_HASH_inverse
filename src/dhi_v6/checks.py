@@ -17,6 +17,8 @@ def sizes(quick):
     reg = registration()
     return {"hash_messages": 1000 if quick else reg["hash_gate"]["messages_per_source"],
             "d1_candidates": 64 if quick else 4096,
+            "d1_pack_candidates": 4096 if quick else 65536,
+            "pack_batches": [64, 128] if quick else reg["generation"]["batch_options"],
             "g3_candidates": 128 if quick else 2048,
             "g3_batches": [64, 128] if quick else [64, 256, 1024, 2048],
             "g3_reference": 4 if quick else 256,
@@ -113,6 +115,32 @@ def parameter_gate():
     return {"passed": True, "parameters": actual}
 
 
+def _packed(sample, order, batch):
+    """Regenerate `order` in batches of `batch` (edge-padded) and return rows in `order`, as the audit does."""
+    pieces = []
+    for o in range(0, len(order), batch):
+        chosen = order[o:o + batch]
+        rows = sample(np.pad(chosen, (0, batch - len(chosen)), mode="edge"))
+        pieces.append(tuple(x[:len(chosen)] for x in rows) if isinstance(rows, tuple) else rows[:len(chosen)])
+    if isinstance(pieces[0], tuple):
+        return tuple(np.concatenate(x) for x in zip(*pieces))
+    return np.concatenate(pieces)
+
+
+def _packing_gate(sample, pipeline, n, batches, budget=None):
+    """The regeneration audit packs selected rows at the generation batch; rows must not depend on their neighbours."""
+    order = data.rng("A-impl", "packing", pipeline).permutation(n).astype(np.uint64)
+    for batch in batches:
+        if budget:
+            budget.check()
+        generated = _packed(sample, np.arange(n, dtype=np.uint64), batch)
+        regenerated = _packed(sample, order, batch)
+        pairs = zip(regenerated, generated) if isinstance(generated, tuple) else [(regenerated, generated)]
+        if not all(np.array_equal(a, b[order.astype(int)]) for a, b in pairs):
+            raise AssertionError(f"Sampler rows depend on batch packing: {pipeline}, batch={batch}")
+    return {"candidates": n, "batches": list(batches), "bitwise": True}
+
+
 def sampler_gate(s, budget=None):
     from .models import (candidate_keys, make_model, sample_images, sample_images_reference,
                          sample_tokens, sample_tokens_reference)
@@ -130,7 +158,11 @@ def sampler_gate(s, budget=None):
                 raise AssertionError(f"D1 sampler changed with batch={batch}: {pipeline}")
         if not all(data.valid(m, model.src) for m in data.decode(reference, model.src)):
             raise AssertionError(f"D1 sampler produced invalid candidates: {pipeline}")
-        result["discrete"][pipeline] = {"candidates": n, "batches": [1, 64, min(1024, n)], "bitwise": True}
+        packing = _packing_gate(lambda idx: sample_tokens(model, pool[idx.astype(int) % len(pool)],
+                                                          candidate_keys(("A-impl", pipeline, "packing", 0), idx)),
+                                pipeline, s["d1_pack_candidates"], s["pack_batches"], budget)
+        result["discrete"][pipeline] = {"candidates": n, "batches": [1, 64, min(1024, n)], "bitwise": True,
+                                        "packing": packing}
     for pipeline in ("P-G-BGV", "P-G-CGGE", "R-G-BGV"):
         model = make_model(pipeline, "A-impl", 0)
         n, m = s["g3_candidates"], s["g3_reference"]
@@ -157,6 +189,12 @@ def sampler_gate(s, budget=None):
                 raise AssertionError(f"G3 scalar reference differs: {pipeline}, steps={steps}, error={error}, agree={agree}/{m}")
             rows[str(steps)] = {"candidates": n, "batches": s["g3_batches"], "bitwise": True,
                                 "reference_candidates": m, "reference_agree": agree, "reference_max_abs_error": error}
+            if steps == min(s["g3_steps"]):
+                # Every step runs the same forward shape, so one step count covers the packing property.
+                rows[str(steps)]["packing"] = _packing_gate(
+                    lambda idx, steps=steps: sample_images(model, pool[idx.astype(int) % len(pool)],
+                                                           candidate_keys(("A-impl", pipeline, "packing", 0), idx), steps),
+                    pipeline, n, s["pack_batches"], budget)
         result["gaussian"][pipeline] = rows
     model = make_model("P-DISC", "A-impl", 0, "D1-T-L")
     keys = candidate_keys(("A-impl", "D1-T-L", "sampler", 0), np.arange(8))

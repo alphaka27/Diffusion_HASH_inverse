@@ -495,7 +495,8 @@ def evaluate_block(folder, block, targets, *, stage, source, method, seed_id, pi
         ledger.close()
     summary, metrics = verify_ledger(ledger.path, targets[start_trial:start_trial + trials], metadata,
                                      training=training, k=k, budget=budget)
-    audit = regeneration_audit(ledger.path, list(namespace), block, start, rows, generate, budget=budget)
+    # Regenerate at the generation batch: D1 kernels differ between batch 64/256 and 1,024 in about 2e-6 of rows.
+    audit = regeneration_audit(ledger.path, list(namespace), block, start, rows, generate, batch=batch, budget=budget)
     summary_path = folder / f"block-{block}.trials.npy"
     atomic_array(summary_path, value=summary)
     result = {**metrics, "metadata": metadata, "batch": batch, "start": start, "nfe": nfe,

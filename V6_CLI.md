@@ -124,7 +124,8 @@ hash-inverse-v6 run --root "$ROOT" --stage A --phase freeze
 
 - Source별 token ID는 `data.TOKENS`로 관리한다. `fresh_batch`는 `(stage, source, seed_id)` 또는 CLP namespace에서 source를 읽으며, 파이프라인과 Main/Shuffled는 메시지 namespace에 넣지 않는다.
 - 이미지 codec은 NumPy NCHW float32를 입출력하고, prototype 거리는 float64로 계산한다. 거리 행렬은 256개 후보씩 처리한다.
-- Gaussian 재생성 감사의 마지막 묶음이 64개보다 작으면 마지막 선택 key를 반복해 batch 64를 채우고 실제 선택 후보만 비교한다.
+- **재생성 감사 batch (명세 §10.5의 "64개씩"과 다름).** 선택 규칙(1%)은 그대로 두고, 선택 후보를 idx 순서로 **그 stream의 생성 batch(봉인된 B*)** 크기로 묶어 재생성한다. 마지막 묶음은 마지막 선택 key를 반복해 채우고 실제 선택 후보만 비교한다. 첫 정식 root(`v6-study`, 2026-09-30)의 A-prof-2에서 P-DISC가 batch 1,024로 생성한 후보 1개가 batch 64 재생성과 달라 Stage A가 멈췄다. 같은 block 512,000행을 다시 재면 batch 64·256 재생성은 1행(약 2×10⁻⁶)이 달랐고, batch 1,024·2,048은 원래 순서든 무작위 순서든 0행이었다. MLX 커널이 batch 크기에 따라 달라지고, 같은 크기 안에서는 행의 위치·이웃과 무관하다. 명세 §8.3의 대비 규칙("봉인된 B로만 생성·재생성")을 1% 비용 그대로 적용한 것이다. 원래 batch 경계 전체를 재생성하면 비용이 생성과 같아진다.
+- **G4 packing 검사.** 위 성질을 A-impl에서 확인한다. 파이프라인별로 B ∈ {256, 1,024, 2,048}마다 후보를 순서대로 생성한 결과와, 무작위 순서로 B씩 묶어(끝은 edge padding) 다시 생성한 결과가 bitwise 같아야 한다. D1-S(P·R)는 65,536개, G3는 2,048개(S_G = 25; 모든 step이 같은 순전파 형태)다. Quick은 D1 4,096개·G3 128개, batch {64, 128}이다.
 - **Calibration의 두 용도를 구분한다.** 200회 축소 검사는 판정 경로·CP 계산·공동 중단의 회귀 검사다. 관측한 CP 한계와 기준 충족 여부는 그대로 출력하지만 `scope=regression-only`, `production=false`, `passed=false`이며 연구 통과 근거가 될 수 없다.
 - **정식 calibration**은 등록된 블록 크기 8,192, 시나리오별 최소 2,000회로 수행한다. 무효과 양성률의 one-sided 95% CP 상한 ≤ 0.025, 전체 기각률 CP 하한 ≥ 0.95, +δ 검출률 CP 하한 ≥ 0.95를 모두 만족해야 `passed=true`다. 정식 게이트 실패 시 난수·반복 수·문턱을 사후 조정해 통과시키지 않는다.
 - 이 구분은 2026-09-29 사용자의 “연구 최종 결론의 근거로 사용하기에 논리적으로 적절한 기준” 요청에 따른다. 과학적 문턱과 등록 JSON은 변경하지 않았다. Calibration은 판정 절차 검증이며, 실제 효과에 대한 최종 결론은 별도의 봉인된 C 자료·무결성 감사·필요한 R 재현에만 근거한다.
