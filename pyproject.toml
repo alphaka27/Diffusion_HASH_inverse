@@ -17,13 +17,6 @@ dependencies = [
 mlx = ["mlx>=0.32.2,<0.33; platform_system == 'Darwin' and platform_machine == 'arm64'"]
 
 [project.scripts]
-hash-trace = "diffusion_hash_inv.cli:main"
-hash-inverse-experiment = "diffusion_hash_inv.experiment_cli:main"
-hash-inverse-validate = "diffusion_hash_inv.validation_cli:main"
-hash-inverse-g1 = "diffusion_hash_inv.positive_control:main"
-hash-inverse-study = "diffusion_hash_inv.study_cli:main"
-hash-inverse-v4 = "diffusion_hash_inv.study_v4:main"
-hash-inverse-v5 = "dhi_v5.study:main"
 hash-inverse-v6 = "dhi_v6.study:main"
 
 [dependency-groups]
